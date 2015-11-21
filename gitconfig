@@ -1,0 +1,21 @@
+[user]
+	name = Mark Brannan
+	email = mark.brannan+github@gmail.com
+[alias]
+	ci = commit
+	st = status
+	br = branch
+    co = checkout
+    ctags = !.git/hooks/ctags
+    df = diff
+    dc = diff --cached
+    lg = log --graph --oneline --abbrev-commit --decorate --date=relative --all
+    graphviz = "!f() { echo 'digraph git {' ; git log --pretty='format:  %h -> { %p }' \"$@\" | sed 's/[0-9a-f][0-9a-f]*/\"&\"/g' ; echo '}'; }; f"
+[color]
+	ui = true
+[core]
+	editor = /usr/bin/vim
+[credential]
+	helper = cache --timeout=3600
+[push]
+	default = simple
