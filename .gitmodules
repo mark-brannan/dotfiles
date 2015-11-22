@@ -7,12 +7,15 @@
 [submodule "vim/bundle/YouCompleteMe"]
 	path = vim/bundle/YouCompleteMe
 	url = https://github.com/Valloric/YouCompleteMe.git
+    ignore = dirty
 [submodule "vim/bundle/command-t"]
 	path = vim/bundle/command-t
 	url = git://git.wincent.com/command-t.git
+    ignore = dirty
 [submodule "vim/bundle/L9"]
 	path = vim/bundle/L9
-	url = https://github.com/vim-scripts/L9.git
+    url = https://github.com/vim-scripts/L9.git
+    ignore = dirty
 [submodule "vim/bundle/sparkup"]
 	path = vim/bundle/sparkup
 	url = https://github.com/rstacruz/sparkup.git
@@ -25,6 +28,7 @@
 [submodule "vim/bundle/vim-git"]
 	path = vim/bundle/vim-git
 	url = https://github.com/tpope/vim-git.git
+    ignore = dirty
 [submodule "vim/bundle/vim-haml"]
 	path = vim/bundle/vim-haml
 	url = git://github.com/tpope/vim-haml.git
@@ -37,9 +41,11 @@
 [submodule "vim/bundle/vim-textobj-rubyblock"]
 	path = vim/bundle/vim-textobj-rubyblock
 	url = https://github.com/nelstrom/vim-textobj-rubyblock.git
+    ignore = dirty
 [submodule "vim/bundle/vim-textobj-user"]
 	path = vim/bundle/vim-textobj-user
 	url = https://github.com/kana/vim-textobj-user.git
+    ignore = dirty
 [submodule "vim/bundle/Vundle.vim"]
 	path = vim/bundle/Vundle.vim
 	url = https://github.com/VundleVim/Vundle.vim.git
