@@ -14,3 +14,4 @@ Refs and inspiration:
 * https://scottspence.com/posts/my-updated-zsh-config-2025
 * https://dotfiles.github.io/inspiration/
 * https://www.daytona.io/dotfiles/ultimate-guide-to-dotfiles
+* https://thevaluable.dev/zsh-completion-guide-examples/
