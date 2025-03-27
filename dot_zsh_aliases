@@ -1,0 +1,12 @@
+
+alias timestamp='date -u +"%Y-%m-%dT%H:%M:%SZ"'
+
+alias gs='git status'
+alias st='git status'
+
+alias docker_signalk='docker run -d --init  --name signalk-server -p 3000:3000 -v $(pwd):/home/node/.signalk cr.signalk.io/signalk/signalk-server'
+
+alias docker_signalk_example_0183='run --init -it --rm --name signalk-server-example --publish 3000:3000 --entrypoint /home/node/signalk/bin/signalk-server cr.signalk.io/signalk/signalk-server --sample-nmea0183-data'
+alias docker_signalk_example_n2k='run --init -it --rm --name signalk-server-example --publish 3000:3000 --entrypoint /home/node/signalk/bin/signalk-server cr.signalk.io/signalk/signalk-server --??'
+
+alias docker_nodered='run -it -p 1880:1880 -v node_red_data:/data --name mynodered nodered/node-red'
