@@ -1,3 +1,24 @@
-set macligatures
+set go-=T
+set bg=dark
+
+"if &background == "dark"
+    "hi normal guibg=black
+"endif
+"set guifont=LetterGothicMono:h18
+#set guifont=Anonymous\ Pro\ 11.5
 #set guifont=Fira\ Code:h12
 set guifont=DaddyTimeMonoNFM:h12
+set macligatures
+
+silent! colorscheme solarized
+
+if exists('*HexHighlight()')
+  " http://www.vim.org/scripts/script.php?script_id=2937
+  nmap <leader>h :call HexHighlight()<Return>
+endif
+
+" Do not use modal alert dialogs! (Prefer Vim style prompt.)
+" http://stackoverflow.com/questions/4193654/using-vim-warning-style-in-gvim
+set guioptions+=c
+" Do not use Aqua scrollbars
+set guioptions-=rL
