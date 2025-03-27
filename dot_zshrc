@@ -10,6 +10,10 @@ if [ "$(date +'%j')" != "$(stat -f '%Sm' -t '%j' ~/.zcompdump 2>/dev/null)" ]; t
 else
     compinit -C
 fi
+_comp_options+=(globdots)
+
+# 1password cli 
+eval "$(op completion zsh)"; compdef _op op
 
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
@@ -109,12 +113,12 @@ function _load_ssh_agent() {
 autoload -U add-zsh-hook
 add-zsh-hook precmd _load_ssh_agent
 
-if [[ -n $SSH_CONNECTION ]]; then
-  export EDITOR='vim'
-else
-  export EDITOR='nvim'
-fi
+export EDITOR='vim'
 set -o vi
+
+setopt AUTO_PUSHD        # Push the current directory visited on the stack.
+setopt PUSHD_IGNORE_DUPS # Do not store duplicates in the stack.
+setopt PUSHD_SILENT      # Do not print the directory stack after pushd or popd.
 
 # Compilation flags
 # export ARCHFLAGS="-arch $(uname -m)"
