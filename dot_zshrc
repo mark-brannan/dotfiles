@@ -135,5 +135,10 @@ setopt PUSHD_SILENT      # Do not print the directory stack after pushd or popd.
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
 # Source aliases last
 [ -f ~/.zsh_aliases ] && source ~/.zsh_aliases
+
