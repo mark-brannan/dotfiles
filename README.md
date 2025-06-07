@@ -3,6 +3,8 @@ These are my dotfiles.  I am using [chezmoi](https://www.chezmoi.io]) to manage 
 Use at your own risk:
 ```
 chezmoi init git@github.com:mark-brannan/dotfiles.git
+# or install and configure at same time
+sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply git@github.com:mark-brannan/dotfiles.git
 
 chezmoi diff
 
