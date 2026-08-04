@@ -32,6 +32,7 @@ classify() {
     .claude/tasks/*|.claude/plans/*|.claude/todos/*|.claude/statsig/*) echo STATE ;;
     .claude/plugins/marketplaces/*|.claude/remote/*) echo STATE ;;
     .claude/history.jsonl|.claude/.last-cleanup|.claude/.last-update-result.json) echo STATE ;;
+    */settings.local.json|*.local.json|*.local.yml|*.local.yaml|*.local.toml) echo STATE ;;
     .npmrc|.pypirc|.wakatime.cfg|.config/rclone/*|.env|.envrc|.my.cnf) echo REVIEW ;;
     .signalk/security.json|.msmtprc|.mbsyncrc) echo REVIEW ;;
     *) echo CANDIDATE ;;
