@@ -1,18 +1,29 @@
-These are my dotfiles.  I am using [chezmoi](https://www.chezmoi.io]) to manage them.
+These are my dotfiles, managed with [yadm](https://yadm.io). Secrets, where any are
+tracked, are encrypted at rest with [sops](https://github.com/getsops/sops) +
+[age](https://github.com/FiloSottile/age) — see `.sops.yaml`.
 
 Use at your own risk:
 ```
-chezmoi init git@github.com:mark-brannan/dotfiles.git
-# or install and configure at same time
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply git@github.com:mark-brannan/dotfiles.git
+yadm clone git@github.com:mark-brannan/dotfiles.git
 
-chezmoi diff
+yadm status
+yadm diff
 
-chezmoi apply -v
+yadm bootstrap   # installs sops/age if missing, decrypts anything sops-managed
 ```
 
+`.config/yadm/bootstrap` runs automatically after `yadm clone`, or manually via
+`yadm bootstrap`. It expects the machine's own age key to already exist at
+`~/.config/sops/age/keys.txt` (never tracked in this repo — restore it out-of-band, e.g.
+from a password manager) before it can decrypt anything.
+
+`archive/` holds content carried over from the old chezmoi layout that isn't checked out
+live into `$HOME` on any current machine — SignalK Pi plugin config (superseded by the
+`signalk/` config tracked in the boat's own maintenance repo) and Mac-specific
+`platformio` symlink targets. Preserved for reference, not deleted.
+
 Refs and inspiration:
-* https://chezmoi.io/quick-start
+* https://yadm.io/docs/getting_started
 * https://scottspence.com/posts/my-updated-zsh-config-2025
 * https://dotfiles.github.io/inspiration/
 * https://www.daytona.io/dotfiles/ultimate-guide-to-dotfiles

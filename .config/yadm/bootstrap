@@ -1,0 +1,46 @@
+#!/bin/sh
+# yadm bootstrap: runs automatically after `yadm clone`, or manually via `yadm bootstrap`.
+# Idempotent — safe to re-run.
+set -eu
+
+need() { command -v "$1" >/dev/null 2>&1; }
+
+echo "==> checking tooling"
+
+if ! need yadm; then
+  echo "yadm missing — install it first (apt install yadm / brew install yadm), then re-run this script." >&2
+  exit 1
+fi
+
+if ! need age || ! need sops; then
+  echo "age/sops missing."
+  if need apt-get; then
+    echo "    try: sudo apt-get install -y age; and install sops from https://github.com/getsops/sops/releases"
+  elif need brew; then
+    echo "    try: brew install age sops"
+  else
+    echo "    install age (https://github.com/FiloSottile/age) and sops (https://github.com/getsops/sops) manually."
+  fi
+  echo "    skipping secret decryption until both are present."
+else
+  echo "==> age/sops present"
+
+  if [ ! -f "$HOME/.config/sops/age/keys.txt" ]; then
+    echo "no age key at ~/.config/sops/age/keys.txt on this machine yet."
+    echo "    this key is never stored in git — restore it from your password manager,"
+    echo "    or generate a new one with: age-keygen -o ~/.config/sops/age/keys.txt"
+    echo "    (a new key can't decrypt files encrypted for the old one — you'd need to"
+    echo "    re-encrypt with the new recipient from another machine that still has it)."
+  else
+    echo "==> age key present, decrypting sops-managed files"
+    export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+    find "$HOME/secrets" -type f 2>/dev/null | while IFS= read -r f; do
+      sops -d -i "$f" 2>/dev/null || echo "    (skip, not sops-encrypted or already decrypted: $f)"
+    done
+    find "$HOME" -maxdepth 3 -name '*.sops.*' -type f 2>/dev/null | while IFS= read -r f; do
+      sops -d -i "$f" 2>/dev/null || echo "    (skip, not sops-encrypted or already decrypted: $f)"
+    done
+  fi
+fi
+
+echo "==> bootstrap done"

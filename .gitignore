@@ -1,0 +1,73 @@
+# yadm's worktree is $HOME itself, so this file governs what yadm will ever offer to
+# track there. See ~/.local/bin/dotfiles-triage.sh for the classification this mirrors
+# (NEVER/STATE) — run it after any `yadm add` to sanity-check before committing.
+
+# --- credential material / machine identity: never sync, ever ---
+.claude.json
+.claude.json.backup*
+.claude/.credentials.json
+.claude/backups/
+.ssh/
+.gnupg/
+.aws/
+.azure/
+.docker/config.json
+.netrc
+.pgpass
+.kube/config
+.config/gcloud/
+.config/gh/hosts.yml
+.config/sops/age/
+.config/age/
+.age/
+*.agekey
+.config/Bitwarden*/
+.password-store/
+.local/share/keyrings/
+
+# --- Claude Code runtime/session state: churn, no value in git ---
+.claude/cache/
+.claude/file-history/
+.claude/sessions/
+.claude/session-env/
+.claude/shell-snapshots/
+.claude/paste-cache/
+.claude/downloads/
+.claude/ide/
+.claude/tasks/
+.claude/plans/
+.claude/todos/
+.claude/statsig/
+.claude/plugins/marketplaces/
+.claude/remote/
+.claude/projects/
+.claude/history.jsonl
+.claude/.last-cleanup
+.claude/.last-update-result.json
+**/.claude/settings.local.json
+*.local.json
+*.local.yml
+*.local.yaml
+*.local.toml
+
+# --- general shell/tool state ---
+.local/state/
+.cache/
+.npm/_*
+.zcompdump*
+.viminfo
+.bash_history
+.zsh_history
+.lesshst
+.motd_shown
+.wget-hsts
+.sudo_as_admin_successful
+.python_history
+.config/*/logs/
+.local/share/*/cache/
+
+# --- installed binaries, not config ---
+.local/bin/age
+.local/bin/age-keygen
+.local/bin/sops
+.local/bin/claude
