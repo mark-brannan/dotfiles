@@ -1,0 +1,14 @@
+# sops encryption config. Recipient is this machine's age key
+# (~/.config/sops/age/keys.txt — never tracked, see .gitignore).
+# Convention: secret files live under secrets/ or end in .sops.<ext>; sops encrypts
+# in place, the ciphertext is what gets committed. Decrypt on a new machine via
+# .config/yadm/bootstrap, which shells out to `sops -d`.
+creation_rules:
+  - path_regex: (^|/)secrets/.*$
+    key_groups:
+      - age:
+          - age16xptea77u3806d20c2yjktfcfj06p2cwqrw84zktrhzys768e9ss0027gk
+  - path_regex: \.sops\.(ya?ml|json|env|txt)$
+    key_groups:
+      - age:
+          - age16xptea77u3806d20c2yjktfcfj06p2cwqrw84zktrhzys768e9ss0027gk
