@@ -24,6 +24,7 @@
 .config/Bitwarden*/
 .password-store/
 .local/share/keyrings/
+.config/secrets/
 
 # --- Claude Code runtime/session state: churn, no value in git ---
 .claude/cache/

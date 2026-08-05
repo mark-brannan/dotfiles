@@ -1,6 +1,13 @@
 #!/bin/sh
 # yadm bootstrap: runs automatically after `yadm clone`, or manually via `yadm bootstrap`.
 # Idempotent — safe to re-run.
+#
+# Secrets convention: ciphertext lives tracked at $HOME/secrets/<name>.sops.env
+# (encrypted with sops+age, safe to commit). This script decrypts each into
+# $HOME/.config/secrets/<name>.env — a path that is NOT tracked and IS gitignored
+# (see .gitignore), so plaintext never sits inside the git working tree and can't
+# get swept up by a later `yadm add`. .zshrc/.bashrc source everything under
+# ~/.config/secrets/*.env at shell startup.
 set -eu
 
 need() { command -v "$1" >/dev/null 2>&1; }
@@ -32,13 +39,15 @@ else
     echo "    (a new key can't decrypt files encrypted for the old one — you'd need to"
     echo "    re-encrypt with the new recipient from another machine that still has it)."
   else
-    echo "==> age key present, decrypting sops-managed files"
+    echo "==> age key present, decrypting sops-managed secrets"
     export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
-    find "$HOME/secrets" -type f 2>/dev/null | while IFS= read -r f; do
-      sops -d -i "$f" 2>/dev/null || echo "    (skip, not sops-encrypted or already decrypted: $f)"
-    done
-    find "$HOME" -maxdepth 3 -name '*.sops.*' -type f 2>/dev/null | while IFS= read -r f; do
-      sops -d -i "$f" 2>/dev/null || echo "    (skip, not sops-encrypted or already decrypted: $f)"
+    mkdir -p "$HOME/.config/secrets"
+    chmod 700 "$HOME/.config/secrets"
+    find "$HOME/secrets" -maxdepth 1 -name '*.sops.env' -type f 2>/dev/null | while IFS= read -r f; do
+      base=$(basename "$f" .sops.env)
+      out="$HOME/.config/secrets/$base.env"
+      sops -d "$f" > "$out.tmp" && mv "$out.tmp" "$out" && chmod 600 "$out"
+      echo "    decrypted $f -> $out"
     done
   fi
 fi
