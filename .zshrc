@@ -147,3 +147,10 @@ export NVM_DIR="$HOME/.nvm"
 # Source aliases last
 [ -f ~/.zsh_aliases ] && source ~/.zsh_aliases
 
+# Secrets decrypted by `yadm bootstrap` (sops+age) land here, never in git.
+# See secrets/*.sops.env and .config/yadm/bootstrap.
+for _secret_file in "$HOME"/.config/secrets/*.env(N); do
+  [ -r "$_secret_file" ] && source "$_secret_file"
+done
+unset _secret_file
+
