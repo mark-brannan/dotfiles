@@ -3,13 +3,21 @@ DISABLE_AUTO_UPDATE="true"
 DISABLE_MAGIC_FUNCTIONS="true"
 DISABLE_COMPFIX="true"
 
-# Cache completions aggressively
+# Cache completions aggressively.
+# stat's mtime flags aren't portable (BSD/macOS vs GNU/Linux), so branch on OS
+# to get the zcompdump's day-of-year either way.
 autoload -Uz compinit
-if [ "$(date +'%j')" != "$(stat -f '%Sm' -t '%j' ~/.zcompdump 2>/dev/null)" ]; then
+if [[ "$OSTYPE" == darwin* ]]; then
+    _zcompdump_day=$(stat -f '%Sm' -t '%j' ~/.zcompdump 2>/dev/null)
+else
+    _zcompdump_day=$(date -d "@$(stat -c '%Y' ~/.zcompdump 2>/dev/null)" +'%j' 2>/dev/null)
+fi
+if [ "$(date +'%j')" != "$_zcompdump_day" ]; then
     compinit
 else
     compinit -C
 fi
+unset _zcompdump_day
 _comp_options+=(globdots)
 
 # 1password cli
@@ -81,7 +89,13 @@ plugins=(
   zsh-syntax-highlighting
 )
 
-source $ZSH/oh-my-zsh.sh
+# Guarded: a fresh machine may not have oh-my-zsh installed yet, and this
+# shouldn't break login if so.
+if [ -f "$ZSH/oh-my-zsh.sh" ]; then
+    source "$ZSH/oh-my-zsh.sh"
+else
+    echo "oh-my-zsh not found at $ZSH — install it: https://ohmyz.sh"
+fi
 
 # User configuration
 
