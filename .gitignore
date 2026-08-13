@@ -2,6 +2,10 @@
 # track there. See ~/.local/bin/dotfiles-triage.sh for the classification this mirrors
 # (NEVER/STATE) — run it after any `yadm add` to sanity-check before committing.
 
+# --- yadm alternate targets: generated symlinks, never tracked ---
+# Tracking one of these too makes `yadm status` report a permanent typechange.
+.gitconfig
+
 # --- credential material / machine identity: never sync, ever ---
 .claude.json
 .claude.json.backup*
