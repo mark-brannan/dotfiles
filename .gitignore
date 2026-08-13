@@ -1,6 +1,7 @@
 # yadm's worktree is $HOME itself, so this file governs what yadm will ever offer to
 # track there. See ~/.local/bin/dotfiles-triage.sh for the classification this mirrors
 # (NEVER/STATE) — run it after any `yadm add` to sanity-check before committing.
+# ~/.config/yadm/hooks/pre_commit enforces the NEVER list at commit time.
 
 # --- yadm alternate targets: generated symlinks, never tracked ---
 # Tracking one of these too makes `yadm status` report a permanent typechange.
@@ -16,6 +17,7 @@
 .aws/
 .azure/
 .docker/config.json
+.npmrc
 .netrc
 .pgpass
 .kube/config

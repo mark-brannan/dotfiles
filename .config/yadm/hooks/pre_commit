@@ -1,0 +1,65 @@
+#!/bin/sh
+# pre_commit — refuse to commit credential material. This repo is public.
+# POSIX sh. Runs before `yadm commit`; a non-zero exit aborts the commit.
+# Mirrors the NEVER class in ~/.local/bin/dotfiles-triage.sh and ~/.gitignore.
+#
+# Override for a false positive:  YADM_ALLOW_SECRET=1 yadm commit ...
+
+[ "$YADM_ALLOW_SECRET" = "1" ] && exit 0
+
+VIOLATIONS=$(mktemp) || exit 1
+trap 'rm -f "$VIOLATIONS"' EXIT INT TERM
+
+# talk to the yadm repo directly; calling `yadm` from its own hook is asking for
+# surprises, and these two vars are exported for us.
+y() { git --git-dir="$YADM_HOOK_REPO" --work-tree="$YADM_HOOK_WORK" "$@"; }
+
+# `yadm commit -a` stages *after* this hook runs, so the index alone is not the
+# whole story. Scan tracked working-tree changes too when -a/--all is present.
+scan_worktree=no
+if printf '%s' "$YADM_HOOK_FULL_COMMAND" |
+  grep -qE '(^| )(-[A-Za-z]*a[A-Za-z]*|--all)( |$)'; then
+  scan_worktree=yes
+fi
+
+# --- 1. paths that must never be tracked, even via `yadm add -f` --------------
+{
+  y diff --cached --name-only --diff-filter=ACMR
+  [ "$scan_worktree" = yes ] && y diff --name-only --diff-filter=ACMR
+} | sort -u | while IFS= read -r p; do
+  case "$p" in
+    .ssh/*|.gnupg/*|.aws/credentials|.netrc|.pgpass|.npmrc|.my.cnf) ;;
+    .claude.json|.claude.json.backup*|.claude/.credentials.json|.claude/backups/*) ;;
+    .config/gh/hosts.yml|.kube/config|.config/gcloud/*|.docker/config.json) ;;
+    .config/sops/age/*|.config/age/*|.age/*|*.agekey|.password-store/*) ;;
+    .config/Bitwarden*/*|.local/share/keyrings/*) ;;
+    *) continue ;;
+  esac
+  printf '  %s is credential material — untrack it: yadm rm --cached %s\n' \
+    "$p" "$p" >>"$VIOLATIONS"
+done
+
+# --- 2. secret-shaped values in added lines -----------------------------------
+# Only added lines matter; anything already committed is already published.
+# Match assignments and known token prefixes, not bare words: these dotfiles
+# include prose about passwords and tokens, and a gate that cries wolf gets
+# disabled within a week. ${VAR} placeholders pass.
+{
+  y diff --cached -U0 --diff-filter=ACMR
+  [ "$scan_worktree" = yes ] && y diff -U0 --diff-filter=ACMR
+} | grep '^+' | grep -v '^+++' |
+  LC_ALL=C grep -inE "(_authtoken|api[_-]?key|secret[_-]?key|access[_-]?token|oauth_token|password)[[:space:]]*[:=][[:space:]]*['\"]?[^\$'\"[:space:]]{8,}|npm_[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|BEGIN [A-Z ]*PRIVATE KEY" |
+  cut -c1-110 | head -5 |
+  while IFS= read -r hit; do
+    printf '  secret-shaped value in an added line: %s\n' "$hit" >>"$VIOLATIONS"
+  done
+
+# --- verdict ------------------------------------------------------------------
+if [ -s "$VIOLATIONS" ]; then
+  printf '\npre_commit: refusing to commit — this repo is public.\n\n' >&2
+  cat "$VIOLATIONS" >&2
+  printf '\n  If this is a false positive: YADM_ALLOW_SECRET=1 yadm commit ...\n\n' >&2
+  exit 1
+fi
+
+exit 0
