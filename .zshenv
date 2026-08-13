@@ -7,6 +7,8 @@ export PATH="$VOLTA_HOME/bin:$PATH"
 # Mirrored in ~/.profile, which zsh does not read.
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export NPM_CONFIG_PACKAGE_LOCK=false
-[ -d "$NPM_CONFIG_PREFIX/bin" ] && export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+# Unguarded on purpose: npm creates this on the first global install, and
+# without the entry that install lands somewhere nothing on PATH can see.
+export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 
 export GITHUB_USERNAME=mark-brannan
