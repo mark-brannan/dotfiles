@@ -118,21 +118,25 @@ fi
 
 set -o vi
 alias gedit=gvim
-
-
-#source /home/mark/.rvm/scripts/rvm
-
-# enable AWS completions
-complete -C '/usr/local/bin/aws_completer' aws
-export PATH=/usr/local/aws/bin:$PATH
-export PATH="$HOME/.rbenv/bin:$PATH"
-eval "$(rbenv init -)"
-export PATH="$HOME/.rbenv/plugins/ruby-build/bin:$PATH"
-
-#export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
-
 alias st='git status'
 
-source /Users/markbrannan/.docker/init-bash.sh || true # Added by Docker Desktop
+# --- Everything below is machine-dependent. This file is shared across macOS,
+# --- WSL and the Pi by yadm, so each block guards on what it needs. ---
 
-export IMAGEIO_FFMPEG_EXE=/opt/homebrew/bin/ffmpeg
+# AWS CLI completions
+[ -x /usr/local/bin/aws_completer ] && complete -C /usr/local/bin/aws_completer aws
+[ -d /usr/local/aws/bin ] && export PATH="/usr/local/aws/bin:$PATH"
+
+# rbenv, where it is installed
+if [ -d "$HOME/.rbenv" ]; then
+    export PATH="$HOME/.rbenv/bin:$HOME/.rbenv/plugins/ruby-build/bin:$PATH"
+    eval "$(rbenv init -)"
+fi
+
+# Docker Desktop adds this on macOS; there is no such file on Linux.
+[ -r "$HOME/.docker/init-bash.sh" ] && . "$HOME/.docker/init-bash.sh"
+
+# imageio needs an absolute ffmpeg path, and it differs per platform.
+if command -v ffmpeg >/dev/null 2>&1; then
+    export IMAGEIO_FFMPEG_EXE="$(command -v ffmpeg)"
+fi
