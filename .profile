@@ -33,9 +33,9 @@ set -o vi
 # --- Mirrored in ~/.zshenv, which zsh reads instead of this file. ---
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export NPM_CONFIG_PACKAGE_LOCK=false
-if [ -d "$NPM_CONFIG_PREFIX/bin" ] ; then
-    PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
-fi
+# Unguarded on purpose: npm creates this on the first global install, and
+# without the entry that install lands somewhere nothing on PATH can see.
+PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
 
 # --- Mac-only, from the old chezmoi config. Guarded so it's inert everywhere else. ---
 if [ "$(uname -s)" = "Darwin" ]; then
