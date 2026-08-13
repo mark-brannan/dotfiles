@@ -7,6 +7,13 @@
 
 [ "$YADM_ALLOW_SECRET" = "1" ] && exit 0
 
+# Fail closed: a gate that cannot see the commit must not wave it through.
+if [ -z "$YADM_HOOK_REPO" ] || [ -z "$YADM_HOOK_WORK" ]; then
+  printf 'pre_commit: YADM_HOOK_REPO/WORK unset, cannot inspect this commit.\n' >&2
+  printf '  Needs yadm >= 3.2. Override: YADM_ALLOW_SECRET=1 yadm commit ...\n' >&2
+  exit 1
+fi
+
 VIOLATIONS=$(mktemp) || exit 1
 trap 'rm -f "$VIOLATIONS"' EXIT INT TERM
 
