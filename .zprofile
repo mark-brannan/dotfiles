@@ -10,9 +10,7 @@ if [[ "$OSTYPE" == darwin* ]]; then
     fi
 fi
 
-export VOLTA_HOME="$HOME/.volta"
-export PATH="$VOLTA_HOME/bin:$PATH"
-export PATH=~/.npm-global/bin:$PATH
+# npm prefix and PATH are handled in .zshenv, which zsh reads first.
 export PATH=$PATH:$HOME/.local/bin
 
 export NVM_DIR="$HOME/.nvm"

@@ -31,19 +31,21 @@ set -o vi
 # --- npm: settings live here, not in ~/.npmrc. npm rewrites that file with an
 # --- auth token on every login, so it is gitignored and holds credentials only.
 # --- Mirrored in ~/.zshenv, which zsh reads instead of this file. ---
-export NPM_CONFIG_PREFIX="$HOME/.npm-global"
 export NPM_CONFIG_PACKAGE_LOCK=false
-# Unguarded on purpose: npm creates this on the first global install, and
-# without the entry that install lands somewhere nothing on PATH can see.
-PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+# nvm refuses to load while NPM_CONFIG_PREFIX is set — it manages a prefix per
+# node version. So set ours only where nvm isn't in use: hosts running the OS's
+# node, where global installs need a writable prefix of their own. The PATH
+# entry is unguarded because npm creates the directory on first global install.
+if [ ! -d "$HOME/.nvm" ]; then
+    export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+    PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+fi
 
 # --- Mac-only, from the old chezmoi config. Guarded so it's inert everywhere else. ---
 if [ "$(uname -s)" = "Darwin" ]; then
     if [ -x /opt/homebrew/bin/brew ]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
     fi
-    export VOLTA_HOME="$HOME/.volta"
-    export PATH="$VOLTA_HOME/bin:$PATH"
 
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
