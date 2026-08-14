@@ -39,6 +39,9 @@ export NPM_CONFIG_PACKAGE_LOCK=false
 if [ ! -d "$HOME/.nvm" ]; then
     export NPM_CONFIG_PREFIX="$HOME/.npm-global"
     PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+else
+    # Heal a shell spawned from one that set it before this guard existed.
+    unset NPM_CONFIG_PREFIX
 fi
 
 # --- Mac-only, from the old chezmoi config. Guarded so it's inert everywhere else. ---
