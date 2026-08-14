@@ -127,10 +127,17 @@ function _load_ssh_agent() {
 autoload -U add-zsh-hook
 add-zsh-hook precmd _load_ssh_agent
 
+# Fall back rather than name an editor that may not be installed: EDITOR
+# pointing at a missing binary breaks git, crontab and anything else that
+# shells out to it.
 if [[ -n $SSH_CONNECTION ]]; then
   export EDITOR='vim'
-else
+elif (( $+commands[nvim] )); then
   export EDITOR='nvim'
+elif (( $+commands[vim] )); then
+  export EDITOR='vim'
+else
+  export EDITOR='vi'
 fi
 set -o vi
 # Always starting with insert mode for each command line
