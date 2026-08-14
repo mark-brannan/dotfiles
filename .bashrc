@@ -140,3 +140,16 @@ fi
 if command -v ffmpeg >/dev/null 2>&1; then
     export IMAGEIO_FFMPEG_EXE="$(command -v ffmpeg)"
 fi
+
+# One-command sync across machines. --autostash so local churn never blocks the
+# pull, and `yadm alt` so os-alternates relink immediately afterwards.
+alias dotsync='yadm pull --rebase --autostash && yadm alt && yadm status --short'
+
+# Secrets decrypted by `yadm bootstrap` (sops+age) land here, never in git.
+# See secrets/*.sops.env and .config/yadm/bootstrap. Mirrors the loop in .zshrc;
+# without it, bash-only hosts never load them. The glob is unquoted on purpose,
+# and the -r test covers the no-match case.
+for _secret_file in "$HOME"/.config/secrets/*.env; do
+    [ -r "$_secret_file" ] && . "$_secret_file"
+done
+unset _secret_file
