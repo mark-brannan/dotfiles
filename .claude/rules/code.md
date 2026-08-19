@@ -21,6 +21,14 @@ project-specific facts belong in that project's own CLAUDE.md.
   surgery; it may have moved since session start.
 - Prefer `rm` or an edit over `git rm` for files being replaced, so deletions
   stay unstaged until I commit them.
+- **A branch only ends two ways: merged via PR, or never opened.** Default
+  to committing straight to main for anything that doesn't need a branch —
+  a small fix, a doc edit, work that's correct at every intermediate commit.
+  If a branch genuinely is warranted, finish it with a PR; don't fold it
+  back into main and then try to delete the now-stray branch. That cleanup
+  step is the actual time sink, and it's avoidable upstream: don't open a
+  branch you're not going to merge. (Added 2026-08-19 — cost a stalled
+  session on `claude/rules-config-recovery-7paovw`.)
 
 ## Publishing
 
