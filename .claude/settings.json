@@ -1,3 +1,18 @@
 {
+  "enabledPlugins": {
+    "discord@claude-plugins-official": true,
+    "signalk-registry@sailingnaturali": true
+  },
+  "extraKnownMarketplaces": {
+    "sailingnaturali": {
+      "source": {
+        "source": "github",
+        "repo": "sailingnaturali/claude-skills"
+      }
+    }
+  },
+  "theme": "dark",
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
   "disableClaudeAiConnectors": true
 }
