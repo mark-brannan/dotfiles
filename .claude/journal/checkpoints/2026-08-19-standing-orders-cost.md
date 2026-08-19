@@ -70,3 +70,11 @@ Session: claude.ai/code, branch `claude/standing-orders-additions-t3k64q`,
   on both. Merge or rebase this branch before further CLAUDE.md drafting.
 - Next steps unchanged from above: draft Initiation/Gates diff (now against
   main), then decision-log hooks.
+
+## Session 3 addendum (2026-08-19, desktop/NucBoxK12)
+
+Desktop synced to origin/main (CLAUDE.md, settings.json union, recovery
+note); verified this checkpoint already lives on main, so the branch is
+fully redundant and safe to delete per the recovery note. The transcript
+retrospective this design called for has now been run — evidence in
+`.claude/journal/retrospectives/2026-08-19-transcript-mining.md`.
