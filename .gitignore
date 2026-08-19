@@ -48,6 +48,7 @@
 .claude/plugins/marketplaces/
 .claude/remote/
 .claude/projects/
+.claude/metrics/
 .claude/history.jsonl
 .claude/.last-cleanup
 .claude/.last-update-result.json
@@ -59,7 +60,6 @@
 .claude/journal/
 .claude/session-notes/
 .claude/checkpoints/
-.claude/metrics/
 boards/
 *.local.json
 *.local.yml
