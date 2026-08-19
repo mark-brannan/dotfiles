@@ -14,13 +14,24 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v jq >/dev/null 2>&1 || exit 0
 
 input=$(cat 2>/dev/null || echo '{}')
-sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
-[ -n "$sid" ] || exit 0
+IFS=$'\t' read -r sid model <<<"$(printf '%s' "$input" \
+  | jq -r '[(.session_id // ""), (.model.display_name // "")] | @tsv' 2>/dev/null)"
+[ -n "${sid:-}" ] || exit 0
 
 printf '%s' "$input" | bash "$HOOK_DIR/metrics-live.sh" statusline 15
 
+# A custom statusline replaces the default row, so the model name it used to
+# carry has to come back from here.
+[ -n "${model:-}" ] && printf '%s  ' "$model"
+
 F="$(state_dir)/metrics/live/$sid.json"
 [ -f "$F" ] || { printf '⛁ warming up'; exit 0; }
+
+# A cache written before these fields existed, or one caught mid-write, used
+# to render "null@? ... null dec": jq succeeds on null, so interpolation
+# printed the nulls and the `||` fallback never fired. Check the shape first.
+jq -e '.decisions.total != null and .output_tokens != null' "$F" >/dev/null 2>&1 \
+  || { printf '⛁ warming up'; exit 0; }
 
 jq -r '
   def k: if . >= 1000 then "\(. / 1000 | floor)k" else "\(.)" end;

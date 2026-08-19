@@ -32,10 +32,12 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 # on UserPromptSubmit and SessionStart the model sees it, so those never show.
 case "$EVENT" in prompt|statusline) SHOW="" ;; esac
 
+# One jq for all three fields: the statusline reaches this code on every
+# render, and three spawns before the staleness check was most of its cost.
 input=$(cat 2>/dev/null || echo '{}')
-tp=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
-sid=$(printf '%s' "$input" | jq -r '.session_id // empty')
-cwd=$(printf '%s' "$input" | jq -r '.cwd // .workspace.current_dir // empty')
+IFS=$'\t' read -r tp sid cwd <<<"$(printf '%s' "$input" | jq -r \
+  '[(.transcript_path // ""), (.session_id // ""),
+    (.cwd // .workspace.current_dir // "")] | @tsv')"
 [ -n "$tp" ] && [ -f "$tp" ] && [ -n "$sid" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
@@ -73,13 +75,21 @@ metrics=$(jq -s \
 [ -n "$metrics" ] || exit 0
 
 # Git state, the part that decides whether the chat is safe to kill.
-dirty=0; unpushed=0; ncommits=0
+dirty=0; unpushed=0; ncommits=0; start_sha=""
 if [ -n "$work_root" ]; then
   dirty=$(git -C "$work_root" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
   unpushed=$(git -C "$work_root" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
-  started=$(printf '%s' "$metrics" | jq -r '.session.started_at // empty')
-  ncommits=$(git -C "$work_root" rev-list --count \
-    --since="${started:-1 day ago}" HEAD 2>/dev/null || echo 0)
+  # Commits counted from the SHA this session started at, not by timestamp.
+  # `--since=<start>` counts everything in the window whatever wrote it, so a
+  # fresh clone whose history landed today reports a session's commits as 13
+  # when it made none -- and a number that is persistently wrong on screen is
+  # worse than no number, because you stop reading the field.
+  start_sha=$(jq -r '.start_sha // ""' "$OUT" 2>/dev/null)
+  [ -n "$start_sha" ] \
+    || start_sha=$(git -C "$work_root" rev-parse HEAD 2>/dev/null || echo "")
+  if [ -n "$start_sha" ]; then
+    ncommits=$(git -C "$work_root" rev-list --count "$start_sha..HEAD" 2>/dev/null || echo 0)
+  fi
 fi
 
 mkdir -p "$LIVE" 2>/dev/null || exit 0
@@ -87,7 +97,8 @@ tmp="$OUT.$$"
 printf '%s\n' "$metrics" | jq -c \
   --arg ev "$EVENT" --arg now "$now" \
   --argjson d "${dirty:-0}" --argjson u "${unpushed:-0}" --argjson c "${ncommits:-0}" \
-  '.session + {last_event: $ev, updated_at: $now,
+  --arg sha "$start_sha" \
+  '.session + {last_event: $ev, updated_at: $now, start_sha: $sha,
                dirty: $d, unpushed: $u, commits: $c}' > "$tmp" 2>/dev/null \
   && mv -f "$tmp" "$OUT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 
@@ -100,7 +111,9 @@ printf '%s\n' "$metrics" | jq -c \
   def evname: {question: "decision point", git: "git event", stop: "session end"}[.last_event] // .last_event;
   {systemMessage: (
      "⛁ \(evname) · \(.repo)@\(.branch // "?")\n"
-   + "  decisions \(.decisions.total)  (\(.decisions.scoping) scoping · \(.decisions.inline) inline · \(.decisions.gate) gate)\n"
+   + "  decisions \(.decisions.total)"
+   + (if .last_event == "question" then " (+1 being asked now)" else "" end)
+   + "  (\(.decisions.scoping) scoping · \(.decisions.inline) inline · \(.decisions.gate) gate)\n"
    + "  cost      \(.output_tokens | k) out · ctx peak \(.context_peak | k) · \(.user_turns) prompts · \(.tool_calls) tools\n"
    + "  work      \(.commits) commits · \(.dirty) dirty · \(.unpushed) unpushed"
    + (if .unpushed > 0 then "  ← not safe to kill" else "" end))}' "$OUT" 2>/dev/null
