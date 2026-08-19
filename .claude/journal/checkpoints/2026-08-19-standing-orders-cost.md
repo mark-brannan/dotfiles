@@ -78,3 +78,22 @@ note); verified this checkpoint already lives on main, so the branch is
 fully redundant and safe to delete per the recovery note. The transcript
 retrospective this design called for has now been run — evidence in
 `.claude/journal/retrospectives/2026-08-19-transcript-mining.md`.
+
+## Session 4 addendum (2026-08-19) — branch cleanup, logged miss
+
+**Logged at Mark's order: HIGH COST, LOW DECISION QUALITY.** Prior sessions
+left five stranded `claude/*` branches and an open PR by "not touching
+main" — including the explicit line "the reviewed section rides the
+board-rework branch and lands on main whenever that branch merges."
+Each parked branch forced a PR or an untangling session onto Mark; usage
+approached the weekly limit. The caution was the cost, not the safety.
+
+Resolution this session: merged board rework (boards/claude.md,
+boards/human.md, CLAUDE.md unification) and salvaged the agent-rules
+survey + handoff docs straight to main; deleted all six stale claude/*
+branches local and remote. Kept `claude/ecoworthy-signalk-telemetry-vy82ta`
+(real project work, 47 commits) and `old-master-2015-2017`.
+
+Rule hardened in `.claude/rules/code.md` Git section: commit to main;
+a branch requires Mark's explicit ask; any PR created gets logged as
+high cost / low decision quality.
