@@ -127,6 +127,19 @@ their state back to it, and the setup script cannot clone it — a VM has no
 credentials for a private repo at setup time. Without it the hooks still run
 but write to `~/.claude/state/global`, which dies with the container.
 
+**To check whether a given environment is actually wired up**, start a session
+on it and run:
+
+```
+ls -d ~/.local/share/dotfiles-seed ~/.claude/hooks ~/claude_prompts_scratch
+```
+
+Three hits means both the setup script and the second source are in place. A
+missing `dotfiles-seed`/`.claude/hooks` means the setup-script field is empty
+or failed; a missing `claude_prompts_scratch` means the second source was not
+added. Each environment is configured separately — wiring one does nothing for
+the others.
+
 The setup field only clones and delegates, so the logic stays version-controlled
 here rather than going stale in a web form. Measured cost on a cold VM: about
 5s total, against a ~5 minute window.
