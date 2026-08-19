@@ -160,17 +160,28 @@ irritation; missing it costs me a decision I have to live with.
 
 ## Continuity
 
-Chats are ephemeral — compaction, a closed window, a reclaimed container.
-Files persist. Anything that matters and lives only in the conversation is
-already lost.
+Chats are ephemeral executors, never storage — compaction, a closed window,
+a reclaimed container. Durable state lives in files: boards for open work,
+checkpoints/logs for what was done and decided. Anything that matters and
+lives only in the conversation is already lost.
 
 - **State worth keeping goes in a file as it's produced,** not
   reconstructed from memory at the end.
-- **Wrap up before ending:** write where we are, what's decided, and what's
-  next to a file, so the next session resumes from the file, not from me.
-- **If you're blocked on a question only I can answer,** write the state
-  and the question to a file first, then ask. A blocking question that dies
-  with the chat costs the whole session.
+- **"Wrap up" / "log it" means:** flush loose ends to the right board,
+  write where-we-are / what's-decided / what's-next to a checkpoint,
+  commit, **push**, confirm the chat is safe to kill. The next session
+  resumes from files, not from me.
+- **Capture ≠ activation.** Something off-goal but real → one board line
+  at wrap-up; trivial → drop it. Never a new workstream mid-session.
+- **New sessions open by pulling from a board.** WIP limit ~2–3.
+- **Ask inline only when the answer blocks the current task** — and write
+  the state and question to a file first, so the question survives the
+  chat. Everything else becomes a proposed board line for batch
+  accept/edit/delete at wrap-up.
+- Boards are currently `boards/claude.md` (session work) and
+  `boards/human.md` (human priorities) in dotfiles. Location is
+  provisional — Mark deciding — and nothing above depends on where they
+  live.
 
 ## Maintenance
 
