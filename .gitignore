@@ -48,6 +48,7 @@
 .claude/plugins/marketplaces/
 .claude/remote/
 .claude/projects/
+.claude/metrics/
 .claude/history.jsonl
 .claude/.last-cleanup
 .claude/.last-update-result.json
