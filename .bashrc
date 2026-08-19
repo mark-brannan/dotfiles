@@ -116,6 +116,18 @@ if ! shopt -oq posix; then
   fi
 fi
 
+# Fall back rather than name an editor that may not be installed: EDITOR
+# pointing at a missing binary breaks git, crontab and anything else that
+# shells out to it.
+if [[ -n $SSH_CONNECTION ]]; then
+  export EDITOR='vim'
+elif type -p nvim >/dev/null; then
+  export EDITOR='nvim'
+elif type -p vim >/dev/null; then
+  export EDITOR='vim'
+else
+  export EDITOR='vi'
+fi
 set -o vi
 alias gedit=gvim
 alias st='git status'

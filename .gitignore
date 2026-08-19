@@ -52,6 +52,15 @@
 .claude/.last-cleanup
 .claude/.last-update-result.json
 **/.claude/settings.local.json
+
+# --- Claude session state: this repo is PUBLIC. Boards, checkpoints, logs
+# and handoffs belong in the private claude_prompts_scratch repo, under
+# state/<project>/. Never track them here. (2026-08-19) ---
+.claude/journal/
+.claude/session-notes/
+.claude/checkpoints/
+.claude/metrics/
+boards/
 *.local.json
 *.local.yml
 *.local.yaml
