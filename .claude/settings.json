@@ -1,7 +1,7 @@
 {
   "enabledPlugins": {
-    "discord@claude-plugins-official": true,
-    "signalk-registry@sailingnaturali": true
+    "discord@claude-plugins-official": false,
+    "signalk-registry@sailingnaturali":false 
   },
   "extraKnownMarketplaces": {
     "sailingnaturali": {
