@@ -56,6 +56,10 @@
           {
             "type": "command",
             "command": "bash \"$HOME/.claude/hooks/measure-cherry-pick.sh\" 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/log-commit.sh\" 2>/dev/null || true"
           }
         ]
       }
