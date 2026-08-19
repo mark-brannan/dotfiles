@@ -22,6 +22,7 @@ How to use this board:
 
 ## Backlog
 
+- **Cherry-pick tracking metrics** (branch `claude/cherry-pick-tracking-metrics-df8pul`) — Hook created to detect and log cherry-picks to `.claude/metrics/cherry-picks.jsonl`. Ready to merge once: (1) pattern is verified against symphony's parallel work, (2) .claude/settings.json state is resolved (PostToolUse matcher needs testing). Follow-up: broader metrics framework (token usage, screen time, decision counts).
 - Reconcile standing-orders lines with the "Standing orders additions"
   session (they own that file's final form)
 - Standing-orders scheduled review 2026-08-30: cut "Answering closed
