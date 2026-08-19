@@ -15,6 +15,9 @@
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "disableClaudeAiConnectors": true,
+  "env": {
+    "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
+  },
   "crossSessionInbound": "hold",
   "permissions": {
     "allow": [
