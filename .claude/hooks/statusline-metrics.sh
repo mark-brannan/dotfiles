@@ -10,6 +10,9 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-state.sh
 . "$HOOK_DIR/lib-state.sh"
 
+# No jq means no readout rather than a broken statusline row.
+command -v jq >/dev/null 2>&1 || exit 0
+
 input=$(cat 2>/dev/null || echo '{}')
 sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
 [ -n "$sid" ] || exit 0

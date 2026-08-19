@@ -13,6 +13,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 M="$(state_dir)/metrics"
 [ -d "$M" ] || exit 0
+
+# Prune live snapshots that Stop never came back for. A container reclaimed
+# mid-session leaves its live file behind forever, and without this the
+# rollup keeps counting that half-session's tokens in every future total.
+# 14 days is well past any session that is still going to finish.
+find "$M/live" -name '*.json' -mtime +14 -delete 2>/dev/null
 files=$(ls "$M"/sessions/*.json "$M"/live/*.json 2>/dev/null) || exit 0
 [ -n "$files" ] || exit 0
 
