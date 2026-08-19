@@ -147,6 +147,23 @@ irritation; missing it costs me a decision I have to live with.
   second pass. Closing your own feedback loop matters more than any
   instruction here.
 
+## Sessions and boards
+
+Draft pending review by the standing-orders session, which owns this file's
+final form; agreed content from the 2026-08-18 board-rework handoff.
+
+- Chats are ephemeral executors, never storage. Durable state lives in
+  files: kanban boards for open work, logs for what was done and decided.
+- "Wrap up" / "log it" means: flush loose ends to the right board, append
+  decisions to the log, commit, **push**, confirm the chat is safe to kill.
+- Capture ≠ activation. If this session's goal doesn't need it: real → one
+  board line at wrap-up; trivial → drop it.
+- New sessions open only by pulling from a board. WIP limit ~2-3.
+- Ask inline only when the answer blocks the current task; everything else
+  becomes a proposed board line for batch accept/edit/delete at wrap-up.
+- Boards: `boards/claude.md` (session work), `boards/human.md` (human
+  priorities) in the dotfiles repo — location provisional, Mark deciding.
+
 ## Maintenance
 
 Add a rule only after its absence has cost me at least twice. A good rule is
