@@ -60,6 +60,53 @@ dotsync
 cp /tmp/npmrc.bak ~/.npmrc   # now ignored; keeps the token, settings come from the shell
 ```
 
+## Ephemeral cloud sessions
+
+Claude Code cloud sessions run as root on a throwaway Ubuntu VM with no
+`~/.claude/settings.json`, so standing orders, rules and hooks never load and
+`deniedMcpServers` goes unenforced. `.local/bin/cloud-session-setup.sh` seeds a
+chosen subset of this repo into `$HOME` there. Paste this into the
+environment's setup-script field (Claude Code → environment settings):
+
+```
+git clone -q https://github.com/mark-brannan/dotfiles \
+  "$HOME/.local/share/dotfiles-seed" 2>/dev/null
+CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh"
+exit 0
+```
+
+The setup field only clones and delegates, so the logic stays version-controlled
+here rather than going stale in a web form. Measured cost on a cold VM: about
+5s total, against a ~5 minute window.
+
+**Deliberately not yadm**, even though yadm manages everything else here:
+
+* Nothing in this repo uses yadm's own encryption — secrets are sops+age, and
+  the age key is never tracked, so it cannot reach a VM. There is no encrypted
+  content for yadm to handle.
+* The only alternate is `.gitconfig`, and installing it there is actively
+  harmful: `yadm clone` replaces the VM's `.gitconfig` with a symlink to
+  `.gitconfig##default`, wiping the session's own git identity, commit signing
+  and proxy auth, and pointing `credential.helper` at a `gh` that isn't
+  installed.
+* `yadm clone` also prompts on `/dev/tty` to run the bootstrap, which would
+  hang the setup window.
+
+Edit the `INSTALL` allowlist in the script to add files. Two guards make that
+safe to expand:
+
+* It **refuses to run where `$HOME` is yadm-managed** — every real machine has
+  a yadm repo, an ephemeral VM never does — and skips entirely unless
+  `CLOUD_SESSION=1` or `CLAUDE_CODE_REMOTE=true`.
+* Overwriting is necessary on a VM but never silent: identical files are a
+  no-op, a symlink destination is refused as some other manager's, and a
+  differing file is copied to `~/.dotfiles-replaced/` before being replaced.
+  `SKIP_GLOBS` hard-blocks `.gitconfig*`, `.gitignore` and anything
+  sops-shaped even if added to `INSTALL` by mistake.
+
+`sh .local/bin/cloud-session-setup.sh --dry-run` previews the whole thing and
+is safe to run on any machine, including yadm-managed ones.
+
 `archive/` holds content carried over from the old chezmoi layout that isn't checked out
 live into `$HOME` on any current machine — SignalK Pi plugin config (superseded by the
 `signalk/` config tracked in the boat's own maintenance repo) and Mac-specific
