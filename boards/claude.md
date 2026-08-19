@@ -43,6 +43,7 @@ How to use this board:
 Open questions parked here so they don't live only in a session's last
 response. Each names the session that raised it.
 
+- **Cherry-pick tracking metrics and broader metrics framework** (session: this one) — Cherry-pick tracking hook is ready on branch `claude/cherry-pick-tracking-metrics-df8pul`. Blocked on: (1) comparing with symphony's version being created in parallel to ensure consistency; (2) reconciling .claude/settings.json state (main branch doesn't have it currently — may need to be restored or merged); (3) designing and implementing broader metrics collection (token usage, screen time, decision counts). Three separate items worth pulling as individual work once the patterns are clear.
 - **Git hygiene doc redesign** (`session_01TCzQQM…`) — three decisions
   outstanding: (1) is `~/symphony` ever hand-edited outside a session? (2) does
   the worktree requirement apply to all sessions or only high-risk ones? (3)
