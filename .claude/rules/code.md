@@ -43,6 +43,18 @@ project-specific facts belong in that project's own CLAUDE.md.
   opened under this rule ends only one way: merged via PR, never folded
   back to main and deleted.
 
+- **Cloud sessions: a pre-assigned `claude/*` branch name is not, by
+  itself, a decision to branch.** Apply the rule above as normal — if
+  nothing crosses a trigger, still land the work with
+  `git push origin HEAD:main`, pushed early and often, rather than
+  treating the assigned name as the destination. Decided 2026-08-19, see
+  `claude_prompts_scratch/state/global/log/2026-08-19-git-vocabulary-worktrees.md`
+  (cloud sessions cannot delete their own remote branches, so the cheapest
+  fix is not creating one). This does **not** apply when a session's own
+  task instructions separately name one specific branch and say to stay on
+  it — that instruction is for that session only and takes precedence;
+  finish that branch with a PR as usual.
+
 ## Publishing
 
 - **npm publish: no OTP.** My npm account uses browser 2FA with a passkey.
