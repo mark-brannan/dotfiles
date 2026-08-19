@@ -100,5 +100,46 @@ denials being plan rejections and 0 being safety stops.
   into `.claude/journal/checkpoints/` (branch deletable once this is
   pushed).
 - Whether `settings.json`'s machine-level keys (plugins, theme,
-  notifications) belong in the repo at all is Mark's call — parked as a
-  question for the next rules session.
+  notifications) belong in the repo at all: Mark settled it himself
+  mid-session by committing the union (1f5db0d). Closed.
+
+## Handoff prompt (verbatim, for the next rules session)
+
+> Continue the standing-orders work from where the transcript
+> retrospective left off. Read these two files first — they are the full
+> state: `~/.claude/journal/checkpoints/2026-08-19-standing-orders-cost.md`
+> (the settled design: initiation ritual, gate taxonomy, report line,
+> decision-log hooks) and
+> `~/.claude/journal/retrospectives/2026-08-19-transcript-mining.md`
+> (evidence from all 91 NucBoxK12 transcripts).
+>
+> Before anything else, ask me these in one AskUserQuestion batch:
+> 1. **Rules text** — the next step is a ~14-line diff to
+>    `~/.claude/CLAUDE.md`: Initiation (~4 lines), Gates (~6 lines, report
+>    line folded into Continuity's wrap-up bullet), and the retrospective's
+>    toil rule (~4 lines, Execution). Draft all three for my go/edit, or
+>    should any piece be dropped?
+> 2. **Initiation threshold** — proposal: the batched question-set fires
+>    for any session expected to span more than one repo or to open with
+>    heavy retrieval (subagent-scale reads). Accept or set your own line?
+> 3. **Classifier friction** — 89 of 114 mined denials were the auto-mode
+>    classifier, and `git push origin --delete` has now been denied three
+>    times across sessions. May I add
+>    `{"permissions": {"allow": ["Bash(git push origin --delete *)"]}}`
+>    to the tracked `.claude/settings.json`, and run the
+>    fewer-permission-prompts scan for symphony and the noaa repo?
+> 4. **Decision-log hooks** — wire `~/.claude/journal/decisions.jsonl`
+>    appends via settings.json hooks now (checkpoint step 2), or hold
+>    until the Gates prose lands?
+>
+> Then execute in order: (1) approved rule text, committed straight to
+> main per code.md's branch rule; (2) hooks via the update-config skill if
+> approved; (3) `yadm push origin --delete claude/rules-config-recovery-7paovw
+> claude/standing-orders-additions-t3k64q` if Mark hasn't run it.
+>
+> Constraints: rule text lands only with my explicit go. Replies <50 words
+> outside the diff itself. The board rework (HANDOFF-board-rework.md,
+> branch `claude/board-rework`, active clone at ~/dotfiles) is a separate
+> session — don't fold it in. The Mac's `~/.claude/projects` transcripts
+> are unmined; propose that only if the 08-30 standing-orders review wants
+> more evidence.
