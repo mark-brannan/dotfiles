@@ -86,6 +86,13 @@ Two design rules, both scars:
   the same file and so never conflict on push. The Stop hook still takes a
   `flock` before rebasing, because they do share a worktree.
 
+A third scar, added 2026-08-19: **a fresh cloud clone has no git filters
+wired.** The clean/smudge programs (sops among them) are not on `PATH`, so a
+`git add` through a declared-but-unconfigured filter commits mangled content
+and the damage only shows up later. `stop-continuity.sh` checks
+`.gitattributes` against `git config filter.<name>.clean` before staging and
+refuses, recording the refusal in the checkpoint rather than skipping quietly.
+
 `session-metrics.jq` types each question put to Mark by what it cost him:
 `scoping` (before any file was written — cheap), `inline` (a bounded choice
 that blocks the current task), `gate` (open-ended, mid-flight, needs him to
@@ -94,9 +101,17 @@ reload context the session accumulated and he didn't).
 ## Ephemeral cloud sessions
 
 Claude Code cloud sessions run as root on a throwaway Ubuntu VM with no
-`~/.claude/settings.json`, so standing orders, rules and hooks never load and
-`deniedMcpServers` goes unenforced. `.local/bin/cloud-session-setup.sh` seeds a
-chosen subset of this repo into `$HOME` there. Paste this into the
+`~/.claude/settings.json`. **Project settings still load** when the repo is a
+session source — confirmed 2026-08-19, a symphony `PreToolUse` hook fired in a
+cloud session with no user-scope settings at all — so a repo carrying its own
+`.claude/settings.json` already closes the gap for itself. The hooks below
+resolve to `$CLAUDE_PROJECT_DIR/.claude/hooks/` when `$HOME/.claude/hooks/` is
+absent, which is exactly that case.
+
+What the seed script buys is the *other* repos: standing orders, `rules/` and
+the hooks in a session working on something that has no `.claude/` of its own,
+plus `deniedMcpServers` at user scope. `.local/bin/cloud-session-setup.sh`
+installs a chosen subset of this repo into `$HOME`. Paste this into the
 environment's setup-script field (Claude Code → environment settings):
 
 ```

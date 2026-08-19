@@ -120,6 +120,23 @@ exec 9>"$LOCK" 2>/dev/null || exit 0
 flock -w 90 9 2>/dev/null || exit 0
 
 cd "$SR" 2>/dev/null || exit 0
+
+# A fresh cloud clone has no git filters wired: the clean/smudge programs
+# (sops and friends) are not on PATH, so `git add` through an unconfigured
+# filter writes mangled content and the damage is only visible later. Refuse
+# instead, and say so in the checkpoint rather than skipping quietly.
+if [ -f .gitattributes ] && grep -qE '(^|[[:space:]])filter=' .gitattributes; then
+  for f in $(sed -nE 's/.*[[:space:]]filter=([A-Za-z0-9_.-]+).*/\1/p' .gitattributes \
+             | sort -u); do
+    if ! git config --get "filter.$f.clean" >/dev/null 2>&1; then
+      printf '\n**NOT COMMITTED** — git filter `%s` is declared in .gitattributes\n' "$f" >> "$ckpt"
+      printf 'but not configured in this clone, so committing would mangle content.\n' >> "$ckpt"
+      printf 'Run the repo'"'"'s filter setup, or commit by hand from a real machine.\n' >> "$ckpt"
+      exit 0
+    fi
+  done
+fi
+
 git add state/ >/dev/null 2>&1
 git diff --cached --quiet 2>/dev/null && exit 0   # nothing changed
 
