@@ -178,10 +178,13 @@ lives only in the conversation is already lost.
   the state and question to a file first, so the question survives the
   chat. Everything else becomes a proposed board line for batch
   accept/edit/delete at wrap-up.
-- Boards are currently `boards/claude.md` (session work) and
-  `boards/human.md` (human priorities) in dotfiles. Location is
-  provisional — Mark deciding — and nothing above depends on where they
-  live.
+- Board placement, settled 2026-08-19: `boards/claude.md` in dotfiles is
+  for **dotfiles work only**. Every other project keeps its own boards in
+  its own repo — Symphony's Claude state is
+  `~/symphony/intermediate_files/claude_slop/` (kanban.md + log.md), and
+  its human-facing `maintenance/log.md` and `priorities.md` get only
+  finished, high-level results. Never stage one repo's work in another's
+  boards.
 
 ## Maintenance
 
