@@ -53,3 +53,20 @@ Session: claude.ai/code, branch `claude/standing-orders-additions-t3k64q`,
 
 - None blocking. Threshold for "non-trivial session" (when the initiation
   batch fires) is a judgment call to tune from use.
+
+## Session 2 addendum (same day, later)
+
+- **Shipped to main directly** (commit 416ab23, at Mark's explicit request):
+  a **Frugality** value in "What this is for" and a **No unprompted asides**
+  rule in Voice. Trigger: an unprompted aside about /context cost that took
+  two extra turns to explain and contained an overclaim (/context is local
+  and free at run time; only transcript residue costs). Named miss; trust
+  damaged — rebuild is in small moments, not words.
+- Corrected fact for the record: `/context` makes no model call; charges in
+  this session came from me replying to its relayed output. The new Voice
+  rule covers this: local-command output is not a prompt.
+- Note: main and this branch have diverged edits to CLAUDE.md (main has
+  Frugality + asides; branch has this journal dir). Continuity section is
+  on both. Merge or rebase this branch before further CLAUDE.md drafting.
+- Next steps unchanged from above: draft Initiation/Gates diff (now against
+  main), then decision-log hooks.
