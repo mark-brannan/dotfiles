@@ -25,6 +25,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 EVENT="${1:-tool}"          # prompt | question | git | stop | statusline
 MAX_AGE="${2:-0}"           # seconds; >0 means "skip if cache is fresher"
+SHOW="${3:-}"               # "show" -> also print a systemMessage block
+
+# `show` on an event that Claude can read would make the block context, not
+# display. Only PreToolUse/PostToolUse/Stop keep systemMessage display-only;
+# on UserPromptSubmit and SessionStart the model sees it, so those never show.
+case "$EVENT" in prompt|statusline) SHOW="" ;; esac
 
 input=$(cat 2>/dev/null || echo '{}')
 tp=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
@@ -84,4 +90,18 @@ printf '%s\n' "$metrics" | jq -c \
   '.session + {last_event: $ev, updated_at: $now,
                dirty: $d, unpushed: $u, commits: $c}' > "$tmp" 2>/dev/null \
   && mv -f "$tmp" "$OUT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+
+# ------------------------------------------------------------ event block
+# Shown to Mark at the moments that matter -- a question put to him, a git
+# event, the end of the session -- and never sent to the model, so the
+# running decision count costs nothing to display.
+[ "$SHOW" = show ] && [ -f "$OUT" ] && jq -c '
+  def k: if . >= 1000 then "\(. / 1000 | floor)k" else "\(.)" end;
+  def evname: {question: "decision point", git: "git event", stop: "session end"}[.last_event] // .last_event;
+  {systemMessage: (
+     "⛁ \(evname) · \(.repo)@\(.branch // "?")\n"
+   + "  decisions \(.decisions.total)  (\(.decisions.scoping) scoping · \(.decisions.inline) inline · \(.decisions.gate) gate)\n"
+   + "  cost      \(.output_tokens | k) out · ctx peak \(.context_peak | k) · \(.user_turns) prompts · \(.tool_calls) tools\n"
+   + "  work      \(.commits) commits · \(.dirty) dirty · \(.unpushed) unpushed"
+   + (if .unpushed > 0 then "  ← not safe to kill" else "" end))}' "$OUT" 2>/dev/null
 exit 0

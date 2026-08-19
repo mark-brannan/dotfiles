@@ -43,12 +43,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] || h=\"$CLAUDE_PROJECT_DIR/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" question 2>/dev/null || true"
+            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] || h=\"$CLAUDE_PROJECT_DIR/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" question 0 show 2>/dev/null || true"
           }
         ]
       }
     ],
     "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] || h=\"$CLAUDE_PROJECT_DIR/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" stop 0 show 2>/dev/null || true"
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -73,7 +81,7 @@
           },
           {
             "type": "command",
-            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] || h=\"$CLAUDE_PROJECT_DIR/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" git 2>/dev/null || true"
+            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] || h=\"$CLAUDE_PROJECT_DIR/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" git 0 show 2>/dev/null || true"
           }
         ]
       }
