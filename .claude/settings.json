@@ -38,6 +38,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git commit.*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PWD}/.claude/hooks/measure-cherry-pick.sh\""
+          }
+        ]
+      }
     ]
   },
   "deniedMcpServers": [
