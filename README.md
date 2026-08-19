@@ -60,6 +60,37 @@ dotsync
 cp /tmp/npmrc.bak ~/.npmrc   # now ignored; keeps the token, settings come from the shell
 ```
 
+## Session continuity hooks
+
+`.claude/hooks/` carries the machinery that makes one session pick up where
+the last left off without being asked. State lives in the private
+`claude_prompts_scratch` repo; `lib-state.sh` locates it and every hook
+degrades to `~/.claude/state/global` if it isn't checked out.
+
+| hook | event | what it does |
+| --- | --- | --- |
+| `session-start-continuity.sh` | SessionStart | injects the open board, where the last three sessions left off, and the week's decision load |
+| `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, then commits and pushes the state repo |
+| `measure-git-events.sh` | PostToolUse | logs branches created, PRs opened, cherry-picks |
+| `no-persistent-polling.sh` | PreToolUse | denies wakeups bound to a live session, which re-send its whole context on every fire |
+
+Two design rules, both scars:
+
+* **Nothing depends on the assistant emitting a marker.** The predecessor,
+  `log-decisions.sh`, parsed a `⛁ … gate:` line it was supposed to write
+  and cited a "Gates" section of `CLAUDE.md` that never existed. It logged
+  zero lines. Everything is now derived from the transcript JSONL and from
+  git, both of which the harness writes whether or not anyone remembers to.
+* **One state file per session, never a shared append-only log.** Parallel
+  sessions are normal here; per-session paths mean two of them never write
+  the same file and so never conflict on push. The Stop hook still takes a
+  `flock` before rebasing, because they do share a worktree.
+
+`session-metrics.jq` types each question put to Mark by what it cost him:
+`scoping` (before any file was written — cheap), `inline` (a bounded choice
+that blocks the current task), `gate` (open-ended, mid-flight, needs him to
+reload context the session accumulated and he didn't).
+
 ## Ephemeral cloud sessions
 
 Claude Code cloud sessions run as root on a throwaway Ubuntu VM with no
@@ -74,6 +105,12 @@ git clone -q https://github.com/mark-brannan/dotfiles \
 CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh"
 exit 0
 ```
+
+**Also add `mark-brannan/claude_prompts_scratch` as a second source** on the
+same environment. The continuity hooks below read the board from it and write
+their state back to it, and the setup script cannot clone it — a VM has no
+credentials for a private repo at setup time. Without it the hooks still run
+but write to `~/.claude/state/global`, which dies with the container.
 
 The setup field only clones and delegates, so the logic stays version-controlled
 here rather than going stale in a web form. Measured cost on a cold VM: about
