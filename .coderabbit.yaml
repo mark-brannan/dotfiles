@@ -1,0 +1,32 @@
+# CodeRabbit config. The GitHub App itself still needs a one-time install
+# (github.com/apps/coderabbitai -> Install -> select mark-brannan/dotfiles);
+# this file only tunes its behavior once that's done.
+
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: ".claude/hooks/**"
+      instructions: >
+        These run unattended on every session start/stop and can commit + push.
+        Flag anything that executes remote/untrusted input, widens what runs
+        without confirmation, or could push unintended state.
+    - path: "secrets/**"
+      instructions: >
+        Must remain sops-encrypted per .sops.yaml. Flag any plaintext secret
+        material or weakening of the encryption rules.
+    - path: ".secrets.baseline"
+      instructions: >
+        detect-secrets baseline. Flag baseline edits that suppress a real
+        finding rather than an actual false positive.
+
+chat:
+  auto_reply: true
