@@ -53,6 +53,7 @@ INSTALL="
 .claude/hooks/measure-git-events.sh
 .claude/hooks/no-persistent-polling.sh
 .claude/hooks/guard-add-repo.sh
+.claude/hooks/no-late-pr-subscribe.sh
 .claude/hooks/metrics-live.sh
 .claude/hooks/metrics-rollup.sh
 .claude/hooks/log-commit.sh
