@@ -165,3 +165,4 @@ for _secret_file in "$HOME"/.config/secrets/*.env; do
     [ -r "$_secret_file" ] && . "$_secret_file"
 done
 unset _secret_file
+export CLAUDE_CODE_TMPDIR="$HOME/.local/state/claude-tmpdir"
