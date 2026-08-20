@@ -118,6 +118,13 @@ Threats, in the order they matter:
   raises exposure; scope it to the allowlist and keep the yadm `pre_commit`
   secret guard in the path.
 - **T7 — silent staleness.** Both directions, both local and ephemeral.
+- **T8 — the project-dir hook fallback.** Every hook entry in
+  `settings.json` falls back to `$CLAUDE_PROJECT_DIR/.claude/hooks/*` when
+  the `$HOME` copy is absent — so in a cloud session on a third-party repo,
+  an incomplete seed hands user-scope trust to that repo's own files.
+  (Independently flagged on the global board, 2026-08-20.) Seed completeness
+  is a security property, not a convenience; once seeding is reliable the
+  fallback should be removed from the hook wiring entirely.
 
 ## 5. Requirements
 
@@ -178,6 +185,10 @@ the part the community versions get wrong (see §7). Changes:
    `complete: false` means degraded, and the brief says so.
 4. Signature or pin verification failure: install nothing, keep anything
    already present, report loudly. Never fall back to unpinned `main`.
+5. Install the *complete* hook set or none of it: a partial set plus the
+   `$CLAUDE_PROJECT_DIR` fallback in `settings.json` is T8 — third-party
+   code running with user-scope trust. The endgame is dropping that
+   fallback from the wiring once the seed path is trusted.
 
 ### 6.3 Cloud bootstrap — seed, then refresh
 
