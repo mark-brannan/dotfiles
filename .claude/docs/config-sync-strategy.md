@@ -2,6 +2,11 @@
 
 Proposal for [#17](https://github.com/mark-brannan/dotfiles/issues/17), researched
 2026-08-20. Not auto-loaded into sessions; read when working on config sync.
+Revised same day to fold in an independent security review of the draft:
+verify-then-run bootstrap (H1), touch-required hardware signing key (H2),
+downgrade refusal, namespace-bound signers, fingerprint cross-check,
+symlink-flip installs, and authorship provenance on auto-pushes (M1-M6,
+L1-L2).
 
 **Recommendation in one sentence:** keep dotfiles as the public source of truth,
 publish `~/.claude` config through a signed-tag release channel with one installer
@@ -123,8 +128,8 @@ Threats, in the order they matter:
   the `$HOME` copy is absent — so in a cloud session on a third-party repo,
   an incomplete seed hands user-scope trust to that repo's own files.
   (Independently flagged on the global board, 2026-08-20.) Seed completeness
-  is a security property, not a convenience; once seeding is reliable the
-  fallback should be removed from the hook wiring entirely.
+  is a security property, not a convenience. PR #20 removes the fallback and
+  completes the seeded hook set; this design keeps that invariant.
 
 ## 5. Requirements
 
@@ -151,23 +156,38 @@ tags `claude-config/vN` on reviewed commits.
 Promotion is a small script (`claude-config-release`) run by Mark on a real
 machine: it shows `git diff <last-release>..HEAD -- .claude/`, asks once, then
 creates an SSH-signed tag and pushes it. That diff-then-sign moment **is** the
-review gate. SSH signing (`git tag -s` with the existing key, verified via
-`ssh-keygen -Y verify`) avoids a gpg dependency on consumers — Ubuntu VMs have
-`ssh-keygen`.
+review gate. SSH signing (verified via `ssh-keygen -Y verify`) avoids a gpg
+dependency on consumers — Ubuntu VMs have `ssh-keygen`.
 
-Two enforcement layers behind the ceremony:
+The signing key must be **touch-required hardware-backed** — `sk-ssh-ed25519`
+(FIDO2) or a Secure Enclave key. This is load-bearing, not preference: local
+Claude runs as Mark with file-based keys reachable, and a pattern guard on
+`git tag` is bypassable by anything that shells around it. With a
+touch-required key, every signature is a physical human act, so a
+prompt-injected session cannot mint a valid tag non-interactively — the gate
+survives instruction-level compromise. (H2 in the 2026-08-20 security review
+of this doc.)
+
+Two supporting layers behind the ceremony, both ergonomics rather than
+boundaries:
 
 - A GitHub ruleset protecting `claude-config/*`: no updates, no deletions,
   creation restricted (keeps the claude.ai app actor from minting tags even
   with push access).
 - A PreToolUse guard denying `git tag claude-config/*` / `git push` of such
-  refs from Claude sessions, mirroring `guard-add-repo.sh`.
+  refs from Claude sessions, mirroring `guard-add-repo.sh` — it catches the
+  accidental path, not a determined bypass; the hardware key is the boundary.
 
-Stated honestly: local Claude runs as Mark, with Mark's keys reachable, so a
-sufficiently misled local session could still promote. The gate's job is to
-make promotion a deliberate, visible, signed act rather than a side effect of
-any push to `main` — that converts T1 from "every consumer executes whatever
-landed last" into "an attacker needs the signing key and an explicit ceremony."
+Rotation and revocation: replacing the signer line in the environment form
+(and the in-repo fingerprint, §6.3) invalidates every tag the old key signed
+at the next seed. For fencing off a bad-but-validly-signed release without
+rotating, the installer honors a signed floor: it refuses any tag below the
+version named in the newest `claude-config-floor/*` tag.
+
+The gate's job is to make promotion a deliberate, visible, signed act rather
+than a side effect of any push to `main` — that converts T1 from "every
+consumer executes whatever landed last" into "an attacker needs a physical
+key touch and an explicit ceremony."
 
 ### 6.2 One installer
 
@@ -176,19 +196,24 @@ the part the community versions get wrong (see §7). Changes:
 
 1. Run **from a checkout of the promoted revision**, so script and content are
    the same revision — no version skew between installer logic and file set.
-2. Stage the full INSTALL set in a temp dir, verify completeness, then install;
-   on any failure, keep the previous set and report. Optionally flip a single
-   `~/.claude-config/current` symlink for true crash-atomicity; on cloud the
-   installer runs before Claude launches, so the crash window is the only one.
+   (How the first execution gets verified is §6.3's job — the installer is
+   never the thing that authorizes itself.)
+2. Stage the full INSTALL set into a versioned dir and flip a single
+   `~/.claude-config/current` symlink — the flip is the install, so a crash
+   at any point leaves the previous set fully intact. (Promoted from optional
+   to the default: per-file `mv` keeps a stage-to-install window open — L2.)
 3. Write `~/.claude/.sync-status.json` **last**:
    `{channel, tag, sha, installed_at, complete, source}`. No status file or
    `complete: false` means degraded, and the brief says so.
 4. Signature or pin verification failure: install nothing, keep anything
-   already present, report loudly. Never fall back to unpinned `main`.
+   already present, report loudly. Never fall back to unpinned `main` — and
+   never satisfy a failure by selecting an *older* tag (that's a downgrade
+   vector, M3). Version moves are monotonic: refuse any tag at or below the
+   currently-installed one.
 5. Install the *complete* hook set or none of it: a partial set plus the
    `$CLAUDE_PROJECT_DIR` fallback in `settings.json` is T8 — third-party
-   code running with user-scope trust. The endgame is dropping that
-   fallback from the wiring once the seed path is trusted.
+   code running with user-scope trust. PR #20 removes that fallback and
+   seeds the full hook set; this design keeps that invariant.
 
 ### 6.3 Cloud bootstrap — seed, then refresh
 
@@ -198,30 +223,51 @@ invalidated only by editing the script or network list. A setup script that
 "fetches current config" actually serves a week-old copy to most sessions.
 So provisioning is two-stage:
 
-**Seed (setup script, runs rarely).** The form shrinks to a bootstrap whose
-only trust anchor is the public signing key, embedded in the script text
-(env-panel variables don't reach setup scripts):
+**Seed (setup script, runs rarely).** The form holds a self-contained
+bootstrap whose only trust anchor is the public signing key, embedded in the
+script text (env-panel variables don't reach setup scripts). Order is the
+whole point — **verify, then run** (H1): the bootstrap itself clones,
+resolves the highest `claude-config/v*` tag, writes the signers file from
+its own embedded text, runs `git verify-tag`, and checks out the verified
+revision — all before executing a single repo-supplied line. Only then does
+it exec the installer *from the checkout it just verified*:
 
 ```
-git clone -q https://github.com/mark-brannan/dotfiles "$HOME/.local/share/dotfiles-seed"
-CLOUD_SESSION=1 ALLOWED_SIGNERS='<ssh public key line>' \
-  sh "$HOME/.local/share/dotfiles-seed/.local/bin/claude-config-install.sh" --latest-signed
+set -e
+SEED="$HOME/.local/share/dotfiles-seed"
+git clone -q https://github.com/mark-brannan/dotfiles "$SEED"
+printf '%s\n' 'mark-brannan namespaces="git" sk-ssh-ed25519@openssh.com AAAA…' \
+  > "$SEED/../allowed_signers"
+TAG=$(git -C "$SEED" tag -l 'claude-config/v*' | sort -t/ -k2 -V | tail -1)
+git -C "$SEED" -c gpg.ssh.allowedSignersFile="$SEED/../allowed_signers" \
+  verify-tag "$TAG"                     # refuses: exit, install nothing
+git -C "$SEED" checkout -q "$TAG"
+CLOUD_SESSION=1 sh "$SEED/.local/bin/claude-config-install.sh" --tag "$TAG"
 exit 0
 ```
 
-The installer resolves the highest `claude-config/v*` tag, runs
-`git verify-tag` against the embedded key, checks out that revision, re-execs
-the installer from it, and persists the allowed-signers line to
-`~/.claude-config/allowed_signers`. That file's contents came from the form,
-never from the repo — so a compromised `main` cannot substitute its own key
-into the trust chain.
+An earlier draft had the freshly-cloned installer do its own verification —
+which authorizes nothing, since a compromised `main` ships an installer that
+skips the check. The verification an attacker must beat has to live in the
+form, upstream of any code the repo supplies.
+
+The signers line binds a principal and `namespaces="git"` (M4) — a signature
+lifted from any other SSH-signing context won't verify. The installer
+persists it to `~/.claude-config/allowed_signers` for the refresh stage;
+where the file outlives a session (local machines), it should be root-owned
+(M5). The repo also carries the key's *fingerprint* — never the trust anchor
+itself, but a second channel: bootstrap and refresh warn loudly when form
+key and in-repo fingerprint disagree (M6).
 
 **Refresh (SessionStart hook, runs every session).** The seeded config
 includes a hook step: bounded `git fetch --tags`, verify the newest tag
-against the *persisted* signers file, install if newer, update
-`.sync-status.json` either way. This is what makes a session current despite
-the snapshot, and it's where provenance comes from — without it, "which
-config is this session running" is unanswerable after the fact.
+against the *persisted* signers file, install if newer — never lower (M3) —
+update `.sync-status.json` either way. This is what makes a session current
+despite the snapshot, and it's where provenance comes from — without it,
+"which config is this session running" is unanswerable after the fact.
+Auto-refresh does not reopen the gate it bypasses (M1): with the
+touch-required key, every tag it can accept began as a physical human act.
+Consumers that want a ceiling anyway can pin `--max-tag` per environment.
 
 Bumping the pin needs **no web-form edits** — the form changes only on key
 rotation. (Fallback design, simpler but weaker ops: a full commit SHA in the
@@ -260,6 +306,12 @@ so auto-committing it would push runtime churn — and occasionally runtime
 *damage* — into the source of truth. The hook diffs it and reports; a human
 commits it. Everything else on the INSTALL list (CLAUDE.md, rules/, hooks/)
 is agent-untouched at runtime and safe to auto-commit.
+
+Auto-committed pushes carry distinct authorship (the Claude co-author
+trailer), because auto-push otherwise launders agent edits under Mark's name
+(L1). The promotion diff is the review surface either way — the release
+script shows *what* is being promoted regardless of who committed it — but
+authorship in the log keeps provenance readable when reviewing that diff.
 
 ### 6.6 Local pull (R5)
 
@@ -381,9 +433,13 @@ proxy, but the state repo 403s until attached per-session.
 
 - **bats suite** for the installer, run in dotfiles CI (ubuntu + macos matrix):
   fresh install; re-run idempotence; INSTALL-entry missing from checkout;
-  simulated truncated stage (kill between stage and install — previous set
-  must survive intact); signature failure (must install nothing, report);
-  tag resolution version-sorts (`v10` after `v9`, not lexically);
+  simulated truncated stage (kill mid-stage — the `current` symlink must
+  still point at the previous set); signature failure (must install nothing,
+  report); **verify-then-run** (tamper the installer on a fake `main`; the
+  bootstrap must refuse before executing it); downgrade refusal (offer a
+  lower signed tag; must be rejected); namespace binding (a signature made
+  outside `namespaces="git"` must not verify); fingerprint cross-check
+  warning; tag resolution version-sorts (`v10` after `v9`, not lexically);
   SKIP_GLOBS tripwire; prune with KEEP; yadm-machine refusal; dry-run parity.
 - **Composite action smoke test**: a workflow in this repo consumes the action
   at HEAD-SHA, then asserts `$HOME/.claude/CLAUDE.md` matches the checkout and
