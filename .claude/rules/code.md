@@ -116,7 +116,11 @@ project-specific facts belong in that project's own CLAUDE.md.
 - **Above ~100k tokens this session, don't subscribe.** Push, open the PR,
   and end the turn with a follow-up prompt plus: "You should archive this
   chat now. It's at ~Nk tokens." Fire-and-forget — no webhook, no wake,
-  pick it up fresh next time. (Added 2026-08-20.)
+  pick it up fresh next time. (Added 2026-08-20.) Enforced by
+  `~/.claude/hooks/no-late-pr-subscribe.sh`, which reads the session's
+  current context from the transcript and denies `subscribe_pr_activity`
+  at or above the threshold; override the number with
+  `CLAUDE_PR_WATCH_TOKEN_LIMIT`.
 - **Wake on events, not timers.** Subscribing to PR activity costs nothing
   idle and fires the moment a check finishes or a comment lands — cheaper and faster than checking back. "I'll check again in a
   few minutes" is a polling loop in disguise; if a check is still running,
