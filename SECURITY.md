@@ -1,21 +1,33 @@
 # Security Policy
 
-## Supported Versions
+## Reporting a vulnerability
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Please report security issues privately using GitHub's [private vulnerability
+reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability):
+open the **Security** tab on this repo → **Report a vulnerability**. That
+opens a private advisory only the repo owner can see — please don't file a
+public issue for anything sensitive.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+Include what you found, how to reproduce it, and its impact if that's clear.
+Expect an initial response within a few days.
 
-## Reporting a Vulnerability
+## Scope
 
-Use this section to tell people how to report a vulnerability.
+This is a personal dotfiles repository. Relevant reports include:
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- Secrets or key material committed unencrypted (anything that should be
+  sops/age-encrypted under `.sops.yaml` but isn't)
+- A bootstrap or hook script (`.config/yadm/bootstrap`, `.claude/hooks/*`)
+  that executes untrusted input, fetches over an insecure channel, or
+  otherwise creates a path to code execution beyond what's expected of a
+  dotfiles install
+- Anything else that could compromise a machine that clones and bootstraps
+  this repo as documented in the README
+
+Out of scope: issues in third-party tools this repo merely configures
+(yadm, sops, age, Claude Code, etc.) — report those upstream instead.
+
+## Supported versions
+
+This repo tracks a single branch (`main`) with no version releases. Fixes
+land on `main`; there's nothing older to backport to.
