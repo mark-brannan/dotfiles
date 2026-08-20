@@ -101,6 +101,12 @@ project-specific facts belong in that project's own CLAUDE.md.
 - This stops at merge, not before it. Getting a PR to ready-and-green is
   mine by default; merging it is a separate, explicit action unless told
   otherwise for a given PR or repo. (Added 2026-08-20.)
+- **Opening a PR is silent.** Don't ask "want me to watch this PR?" —
+  subscribe to it yourself, by default, the moment it's created. That
+  question is itself a message to Mark before CI has even started, which
+  defeats "tell him once, when green." The only chat output a new PR
+  produces is the single green-and-done message below, unless something
+  blocks that needs his call. (Added 2026-08-20.)
 
 ### Babysitting a PR is cheap; polling for it is not
 
