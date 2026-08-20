@@ -1,0 +1,51 @@
+name: Claude Code Review
+
+# Automatic Claude review of every PR diff. Complements CodeRabbit and the
+# dedicated security-review workflow — this pass is general correctness and
+# dotfiles-specific footguns (secrets handling, sops, hooks that auto-run).
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review this pull request diff to a personal dotfiles repo.
+
+            This repo manages shell config, Claude Code hooks/settings, sops-encrypted
+            secrets, and a detect-secrets baseline. Attack surface worth extra scrutiny:
+              - anything that executes automatically (shell rc files, .claude/hooks/*,
+                git hooks, SessionStart/Stop hooks) — new or modified commands there
+                run unattended on every session/shell start.
+              - secrets handling: .sops.yaml rules, the secrets/ path, .secrets.baseline
+                — flag anything that could leak, weaken, or bypass encryption/detection.
+              - anything that widens permissions, adds a new remote/API call, or fetches
+                and executes remote content.
+
+            Otherwise review for correctness bugs and clear simplification opportunities.
+            Skip pure style nits. Post inline comments on specific lines, then a short
+            top-level summary. If you find nothing, say so briefly instead of inventing
+            findings.
+          claude_args: |
+            --max-turns 8
+            --model claude-sonnet-4-6
