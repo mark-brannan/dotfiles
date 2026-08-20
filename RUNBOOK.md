@@ -34,6 +34,9 @@ and the scars behind them — see [README.md § Conventions](README.md).
 **Claude Code — a real machine**
 - [Wire the hooks on a real machine](#wire-the-hooks-on-a-real-machine)
 
+**GitHub repository**
+- [Set the Anthropic API key for the PR review workflows](#set-the-anthropic-api-key-for-the-pr-review-workflows)
+
 **Secrets**
 - [Add a secret](#add-a-secret)
 - [Rotate a secret](#rotate-a-secret)
@@ -46,6 +49,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [A hook didn't fire in a cloud session](#a-hook-didnt-fire-in-a-cloud-session)
 - [A deleted hook keeps running](#a-deleted-hook-keeps-running)
 - [Nothing decrypts on a new machine](#nothing-decrypts-on-a-new-machine)
+- [PR checks fail immediately with an empty API key](#pr-checks-fail-immediately-with-an-empty-api-key)
 
 ---
 
@@ -260,6 +264,66 @@ bash ~/.claude/hooks/statusline-metrics.sh   # prints the status line, or nothin
 Then start a session: `session-start-continuity.sh` injecting the board is the
 end-to-end proof.
 
+## Set the Anthropic API key for the PR review workflows
+
+`.github/workflows/claude-code-review.yml` and `claude-security-review.yml` run
+on every PR and both read the **repository** secret `ANTHROPIC_API_KEY`. They
+pass it under different input names (`anthropic_api_key` and `claude-api-key`)
+but it is one secret. Until it is set, both checks fail about 30 seconds in —
+see [the troubleshooting entry](#pr-checks-fail-immediately-with-an-empty-api-key).
+
+This is a **GitHub repo secret, not a sops secret.** Nothing about it lives in
+this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. It is
+set once per repository and it is not something a machine setup can do for you.
+
+**1 — Mint a dedicated key** at <https://console.anthropic.com/settings/keys>.
+Use a separate key named for this repo rather than reusing a local one, so
+revoking it later doesn't break Claude Code on your machines.
+
+**2 — Set it.** Never paste a key onto the command line — it lands in shell
+history. Pipe it in, or let `gh` prompt:
+
+```bash
+gh secret set ANTHROPIC_API_KEY --repo mark-brannan/dotfiles
+# reads the value from the prompt; nothing is echoed and nothing is stored locally
+```
+
+From a file, if the key is already on disk somewhere disposable:
+
+```bash
+gh secret set ANTHROPIC_API_KEY --repo mark-brannan/dotfiles < /tmp/key.txt
+shred -u /tmp/key.txt
+```
+
+Without `gh`: GitHub web UI → the repo → Settings → Secrets and variables →
+Actions → New repository secret. Name it exactly `ANTHROPIC_API_KEY`.
+
+**3 — Verify.** `gh` never prints a secret's value, so the only proof is that
+the name exists and that a run goes green:
+
+```bash
+gh secret list --repo mark-brannan/dotfiles     # ANTHROPIC_API_KEY, with a set date
+```
+
+Then re-run the failed checks on any open PR — **setting the secret does not
+retroactively rerun anything**, and a PR that failed before the secret existed
+stays red until something kicks it:
+
+```bash
+gh run list --repo mark-brannan/dotfiles --limit 5
+gh run rerun <run-id> --failed --repo mark-brannan/dotfiles
+```
+
+Both `review` and `security` should complete and post a comment on the PR.
+
+This repo is public. Actions secrets are not exposed to workflows triggered by
+forked PRs, and the security workflow's own comment says it should only run
+against trusted PRs — true here because only the owner pushes. If that ever
+stops being true, the security workflow needs revisiting before the key does.
+
+CodeRabbit is configured by `.coderabbit.yaml` and authenticates as a GitHub
+App. It needs no secret, so it is unaffected by any of this.
+
 ## Add a secret
 
 Ciphertext lives tracked at `~/secrets/<name>.sops.env`; the bootstrap decrypts
@@ -404,3 +468,21 @@ sops -d ~/secrets/<name>.sops.env | head -1      # the actual failure message
 A key that does not match the recipient in `.sops.yaml` cannot decrypt anything
 and never will — it is not a permissions problem. Restore the correct key from
 the password manager, or re-encrypt from a machine that still holds the old one.
+
+## PR checks fail immediately with an empty API key
+
+Both `review` and `security` go red about 30 seconds in, on every PR, including
+ones that change nothing relevant. The tell is in the job log's env group:
+
+```bash
+gh run view <run-id> --repo mark-brannan/dotfiles --log | grep -i 'ANTHROPIC_API_KEY'
+```
+
+`ANTHROPIC_API_KEY:` with nothing after it means the repository secret is unset
+or empty — the workflow is fine, the credential is missing. Set it via
+[the procedure above](#set-the-anthropic-api-key-for-the-pr-review-workflows),
+then rerun the failed jobs; the secret does not apply retroactively.
+
+Not this if only *one* of the two checks fails, or if the failure comes minutes
+in rather than seconds — that is a real finding or a rate limit, not a missing
+key.
