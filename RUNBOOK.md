@@ -35,7 +35,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Wire the hooks on a real machine](#wire-the-hooks-on-a-real-machine)
 
 **GitHub repository**
-- [Set the Anthropic API key for the PR review workflows](#set-the-anthropic-api-key-for-the-pr-review-workflows)
+- [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
 
 **Secrets**
 - [Add a secret](#add-a-secret)
@@ -49,7 +49,8 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [A hook didn't fire in a cloud session](#a-hook-didnt-fire-in-a-cloud-session)
 - [A deleted hook keeps running](#a-deleted-hook-keeps-running)
 - [Nothing decrypts on a new machine](#nothing-decrypts-on-a-new-machine)
-- [PR checks fail immediately with an empty API key](#pr-checks-fail-immediately-with-an-empty-api-key)
+- [PR checks fail immediately with an empty credential](#pr-checks-fail-immediately-with-an-empty-credential)
+- [The security-review workflow cannot use an OAuth token](#the-security-review-workflow-cannot-use-an-oauth-token)
 
 ---
 
@@ -264,65 +265,76 @@ bash ~/.claude/hooks/statusline-metrics.sh   # prints the status line, or nothin
 Then start a session: `session-start-continuity.sh` injecting the board is the
 end-to-end proof.
 
-## Set the Anthropic API key for the PR review workflows
+## Set the auth token for the PR review workflows
 
-`.github/workflows/claude-code-review.yml` and `claude-security-review.yml` run
-on every PR and both read the **repository** secret `ANTHROPIC_API_KEY`. They
-pass it under different input names (`anthropic_api_key` and `claude-api-key`)
-but it is one secret. Until it is set, both checks fail about 30 seconds in —
-see [the troubleshooting entry](#pr-checks-fail-immediately-with-an-empty-api-key).
+Two workflows run on every PR, and **they do not authenticate the same way.**
+Check which you are fixing before touching a secret:
 
-This is a **GitHub repo secret, not a sops secret.** Nothing about it lives in
-this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. It is
-set once per repository and it is not something a machine setup can do for you.
+| workflow | action | input | secret | billing |
+| --- | --- | --- | --- | --- |
+| `claude-code-review.yml` | `anthropics/claude-code-action@v1` | `claude_code_oauth_token` | `CLAUDE_CODE_OAUTH_TOKEN` | subscription |
+| `claude-security-review.yml` | `anthropics/claude-code-security-review@main` | `claude-api-key` | `ANTHROPIC_API_KEY` | API, metered |
 
-**1 — Mint a dedicated key** at <https://console.anthropic.com/settings/keys>.
-Use a separate key named for this repo rather than reusing a local one, so
-revoking it later doesn't break Claude Code on your machines.
+The OAuth token bills against a Claude subscription rather than API credit,
+which is why the review workflow uses it. **The security-review action has no
+OAuth input** — its `claude-api-key` is `required: true` — so it cannot be
+converted; it either gets a metered API key or it gets disabled. See
+[the entry below](#the-security-review-workflow-cannot-use-an-oauth-token).
 
-**2 — Set it.** Never paste a key onto the command line — it lands in shell
-history. Pipe it in, or let `gh` prompt:
+These are **GitHub repo secrets, not sops secrets.** Nothing about them lives
+in this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. They
+are set once per repository, and no machine setup does it for you.
 
-```bash
-gh secret set ANTHROPIC_API_KEY --repo mark-brannan/dotfiles
-# reads the value from the prompt; nothing is echoed and nothing is stored locally
-```
-
-From a file, if the key is already on disk somewhere disposable:
+**1 — Mint the token.** From Claude Code on a machine already logged in:
 
 ```bash
-gh secret set ANTHROPIC_API_KEY --repo mark-brannan/dotfiles < /tmp/key.txt
-shred -u /tmp/key.txt
+claude setup-token
 ```
 
-Without `gh`: GitHub web UI → the repo → Settings → Secrets and variables →
-Actions → New repository secret. Name it exactly `ANTHROPIC_API_KEY`.
+It prints a long-lived token tied to your subscription. It is not an API key
+and will not work in `ANTHROPIC_API_KEY`.
+
+**2 — Set it.** Never paste a token onto the command line — it lands in shell
+history. Let `gh` prompt, or pipe it in:
+
+```bash
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo mark-brannan/dotfiles
+# reads from the prompt; nothing is echoed, nothing is stored locally
+```
+
+Without `gh`: the repo's Settings → Secrets and variables → Actions → New
+repository secret. Name it exactly `CLAUDE_CODE_OAUTH_TOKEN`.
 
 **3 — Verify.** `gh` never prints a secret's value, so the only proof is that
 the name exists and that a run goes green:
 
 ```bash
-gh secret list --repo mark-brannan/dotfiles     # ANTHROPIC_API_KEY, with a set date
+gh secret list --repo mark-brannan/dotfiles     # the name, with a set date
 ```
 
-Then re-run the failed checks on any open PR — **setting the secret does not
-retroactively rerun anything**, and a PR that failed before the secret existed
-stays red until something kicks it:
+Then re-run the failed checks on any open PR. **Setting a secret does not
+retroactively rerun anything** — a PR that failed before it existed stays red
+until something kicks it:
 
 ```bash
 gh run list --repo mark-brannan/dotfiles --limit 5
 gh run rerun <run-id> --failed --repo mark-brannan/dotfiles
 ```
 
-Both `review` and `security` should complete and post a comment on the PR.
+`review` should now complete and comment on the PR. `security` stays red until
+its own separate decision is made.
+
+The token expires. When `review` starts failing on PRs that used to pass and
+nothing about the workflow changed, re-run `claude setup-token` and set the
+secret again — same procedure, no other cleanup.
 
 This repo is public. Actions secrets are not exposed to workflows triggered by
 forked PRs, and the security workflow's own comment says it should only run
-against trusted PRs — true here because only the owner pushes. If that ever
-stops being true, the security workflow needs revisiting before the key does.
+against trusted PRs — true here because only the owner pushes. If that stops
+being true, that workflow needs revisiting before the credential does.
 
 CodeRabbit is configured by `.coderabbit.yaml` and authenticates as a GitHub
-App. It needs no secret, so it is unaffected by any of this.
+App. It needs no secret, so none of this affects it.
 
 ## Add a secret
 
@@ -469,20 +481,43 @@ A key that does not match the recipient in `.sops.yaml` cannot decrypt anything
 and never will — it is not a permissions problem. Restore the correct key from
 the password manager, or re-encrypt from a machine that still holds the old one.
 
-## PR checks fail immediately with an empty API key
+## PR checks fail immediately with an empty credential
 
-Both `review` and `security` go red about 30 seconds in, on every PR, including
-ones that change nothing relevant. The tell is in the job log's env group:
+A check goes red about 30 seconds in, on every PR, including ones that change
+nothing relevant. The tell is in the job log's env group:
 
 ```bash
-gh run view <run-id> --repo mark-brannan/dotfiles --log | grep -i 'ANTHROPIC_API_KEY'
+gh run view <run-id> --repo mark-brannan/dotfiles --log \
+  | grep -iE 'ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN'
 ```
 
-`ANTHROPIC_API_KEY:` with nothing after it means the repository secret is unset
-or empty — the workflow is fine, the credential is missing. Set it via
-[the procedure above](#set-the-anthropic-api-key-for-the-pr-review-workflows),
-then rerun the failed jobs; the secret does not apply retroactively.
+A name with nothing after it means that repository secret is unset or empty —
+the workflow is fine, the credential is missing. Check which secret the failing
+workflow actually reads before setting anything; the two workflows use different
+ones, and setting the wrong one changes nothing. Then
+[set it](#set-the-auth-token-for-the-pr-review-workflows) and rerun the failed
+jobs; a secret does not apply retroactively.
 
-Not this if only *one* of the two checks fails, or if the failure comes minutes
-in rather than seconds — that is a real finding or a rate limit, not a missing
-key.
+Not this if the failure comes minutes in rather than seconds — that is a real
+finding, a rate limit, or an expired token, not a missing one.
+
+## The security-review workflow cannot use an OAuth token
+
+`anthropics/claude-code-security-review@main` exposes no OAuth input:
+`claude-api-key` is `required: true` in its `action.yml`. There is no way to
+point it at a subscription token, so while `ANTHROPIC_API_KEY` is unset this
+check stays red no matter what is done to `CLAUDE_CODE_OAUTH_TOKEN`.
+
+Three ways out, all deliberate choices rather than fixes:
+
+- **Set `ANTHROPIC_API_KEY`** and accept metered API billing for this one
+  workflow.
+- **Delete `.github/workflows/claude-security-review.yml`.** The general review
+  pass already prompts for secrets handling, sops rules and auto-executing
+  hooks, so the coverage loss is smaller than it looks.
+- **Narrow when it runs** — `on: workflow_dispatch` instead of `on:
+  pull_request` — so it is available on demand without gating every PR.
+
+Verify whichever you pick by re-running the check, not by reading the workflow:
+a green `review` and a still-red `security` is the state that means only half
+the decision has been made.
