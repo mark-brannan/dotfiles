@@ -99,30 +99,20 @@ project-specific facts belong in that project's own CLAUDE.md.
   it's pre-authorization: push (and mark ready) the moment CI comes back
   green, without circling back to re-confirm.
 - This stops at merge, not before it. Getting a PR to ready-and-green is
-  mine to drive; merging it is a separate, explicit action unless told
+  mine by default; merging it is a separate, explicit action unless told
   otherwise for a given PR or repo. (Added 2026-08-20.)
-- **Opening a PR is silent, and doesn't auto-subscribe.** Don't ask "want
-  me to watch this PR?", and don't subscribe to its webhook events by
-  default either — `subscribe_pr_activity` wakes the session on *every*
-  comment and check-run, not just the terminal state, so it trades one
-  noisy question for a stream of noisy wakes. Push, open the PR, stop.
-  Mark is usually fine waiting for the next natural touchpoint (asking
-  about it, or a later session on that branch) rather than being woken
-  live. (Corrected 2026-08-20: superseded the same-day "subscribe by
-  default" version below within the hour — it just moved the noise from
-  chat to wakes instead of removing it.)
+- Don't ask "want me to watch this PR?" — subscribe yourself, or don't,
+  per the token-budget rule below. Either way, no question. (Added
+  2026-08-20.)
 
-### Babysitting a PR: only when asked, and event-driven when you do
+### Babysitting a PR is cheap; polling for it is not
 
-- Subscribing (`subscribe_pr_activity`) is opt-in, not automatic — use it
-  only when Mark explicitly asks you to watch, babysit, or autofix a PR,
-  or when he says something urgent needs to land now (e.g. "take it
-  straight to main" skips branching entirely and never needs this). For
-  everything else, silence between push and next touchpoint is correct,
-  not a gap to fill.
-- **Wake on events, not timers**, whenever you *are* subscribed. Subscribing
-  costs nothing idle and fires the moment a check finishes or a comment
-  lands — cheaper and faster than checking back. "I'll check again in a
+- **Above ~100k tokens this session, don't subscribe.** Push, open the PR,
+  and end the turn with a follow-up prompt plus: "You should archive this
+  chat now. It's at ~Nk tokens." Fire-and-forget — no webhook, no wake,
+  pick it up fresh next time. (Added 2026-08-20.)
+- **Wake on events, not timers.** Subscribing to PR activity costs nothing
+  idle and fires the moment a check finishes or a comment lands — cheaper and faster than checking back. "I'll check again in a
   few minutes" is a polling loop in disguise; if a check is still running,
   say so and stop.
 - **Never bind a scheduled wakeup to a live session** to re-poll a PR — no
