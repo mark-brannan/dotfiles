@@ -518,6 +518,15 @@ Three ways out, all deliberate choices rather than fixes:
 - **Narrow when it runs** — `on: workflow_dispatch` instead of `on:
   pull_request` — so it is available on demand without gating every PR.
 
+**Taken: `workflow_dispatch`.** No OAuth billing, and the check no longer
+shows red on every PR for a credential that was never going to be set. Run it
+by hand when wanted:
+
+```bash
+gh workflow run claude-security-review.yml --repo mark-brannan/dotfiles
+gh run list --workflow claude-security-review.yml --repo mark-brannan/dotfiles --limit 1
+```
+
 Verify whichever you pick by re-running the check, not by reading the workflow:
 a green `review` and a still-red `security` is the state that means only half
 the decision has been made.
