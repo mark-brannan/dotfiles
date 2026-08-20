@@ -1,0 +1,33 @@
+name: Claude Security Review
+
+# Dedicated security-focused scan (secrets, injection, unsafe execution) on
+# every PR, separate from the general Claude code-review pass.
+#
+# Caution: this action is not hardened against prompt injection and should
+# only run against trusted PRs (it does here, since only the owner pushes).
+
+permissions:
+  pull-requests: write
+  contents: read
+
+on:
+  pull_request:
+
+concurrency:
+  group: claude-security-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          exclude-directories: archive
