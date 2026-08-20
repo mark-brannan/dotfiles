@@ -102,7 +102,8 @@ project-specific facts belong in that project's own CLAUDE.md.
   mine by default; merging it is a separate, explicit action unless told
   otherwise for a given PR or repo. (Added 2026-08-20.)
 - **Opening a PR is silent.** Don't ask "want me to watch this PR?" —
-  subscribe to it yourself, by default, the moment it's created. That
+  subscribe to its webhook events yourself, by default, the moment it's
+  created (never polling — see "Wake on events, not timers" below). That
   question is itself a message to Mark before CI has even started, which
   defeats "tell him once, when green." The only chat output a new PR
   produces is the single green-and-done message below, unless something
