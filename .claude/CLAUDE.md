@@ -154,6 +154,12 @@ irritation; missing it costs me a decision I have to live with.
 - **One-time operations leave no permanent scaffolding.** Snapshot the
   before-state somewhere disposable; don't build audit tables and revert
   commands that outlive the task.
+- **Read the slice, not the file.** Tool output is pinned in context and
+  re-sent every turn, so it is the most expensive thing in a session.
+  `sed -n '1,80p'`, `grep` with a head limit, `head`/`jq` — not a whole-file
+  Read or an unbounded listing. When a question needs a broad sweep, send a
+  subagent: it spends its own window and returns a summary. Budget notes:
+  `.claude/docs/token-budget.md`.
 - **Give yourself a way to verify.** Tests, a diff, a re-read, a browser, a
   second pass. Closing your own feedback loop matters more than any
   instruction here.
