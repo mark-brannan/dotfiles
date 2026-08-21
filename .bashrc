@@ -160,9 +160,27 @@ alias dotsync='yadm pull --rebase --autostash && yadm alt && yadm status --short
 # Secrets decrypted by `yadm bootstrap` (sops+age) land here, never in git.
 # See secrets/*.sops.env and .config/yadm/bootstrap. Mirrors the loop in .zshrc;
 # without it, bash-only hosts never load them. The glob is unquoted on purpose,
-# and the -r test covers the no-match case.
+# and the -r test covers the no-match case. claude-token.env is excluded on
+# purpose — see the `claude` wrapper below, which scopes
+# CLAUDE_CODE_OAUTH_TOKEN to just that command instead of exporting it into
+# every shell and everything the shell spawns.
 for _secret_file in "$HOME"/.config/secrets/*.env; do
+    case "$_secret_file" in
+        */claude-token.env) continue ;;
+    esac
     [ -r "$_secret_file" ] && . "$_secret_file"
 done
 unset _secret_file
 export CLAUDE_CODE_TMPDIR="$HOME/.local/state/claude-tmpdir"
+
+# CLAUDE_CODE_OAUTH_TOKEN stays out of the general environment (see the
+# excluded loop above) and is exported only for the duration of this one
+# command, in a subshell, so it never leaks into the interactive shell.
+claude() {
+    _tok="$HOME/.config/secrets/claude-token.env"
+    if [ -r "$_tok" ]; then
+        ( . "$_tok" && command claude "$@" )
+    else
+        command claude "$@"
+    fi
+}
