@@ -65,6 +65,7 @@ degrades to `~/.claude/state/global` if it isn't checked out.
 
 | hook | event | what it does |
 | --- | --- | --- |
+| `session-start-seed-refresh.sh` | SessionStart | re-runs the cloud seed so a reused container tracks this repo, not the commit it was provisioned from |
 | `session-start-continuity.sh` | SessionStart | injects the open board, where the last three sessions left off, and the week's decision load |
 | `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, then commits and pushes the state repo |
 | `measure-git-events.sh` | PostToolUse | logs branches created, PRs opened, cherry-picks |
@@ -139,7 +140,15 @@ Two guards make the `INSTALL` allowlist safe to expand:
   `SKIP_GLOBS` hard-blocks `.gitconfig*`, `.gitignore` and anything
   sops-shaped even if added to `INSTALL` by mistake.
 
-A fourth scar: **seeding without pruning is why a deleted hook keeps running.**
+A fourth scar: **the setup script runs once, at container creation, not once
+per session.** Containers are checkpointed and reused, so the seed froze at
+whatever it cloned when the environment was provisioned and a rule edited here
+reached only the sessions that happened to get a cold VM. The installer now
+pulls the seed before installing from it, and `session-start-seed-refresh.sh`
+re-runs it on every SessionStart — live rather than pinned, because a stale
+standing order in an interactive session is worse than a changed one.
+
+A fifth scar: **seeding without pruning is why a deleted hook keeps running.**
 The container seeded it once, the repo dropped it, and the `$HOME` copy is still
 there and still wins. `PRUNE_DIRS` names the directories the script wholly owns,
 where anything not in `INSTALL` is a leftover and gets removed; `PRUNE_NEVER` is

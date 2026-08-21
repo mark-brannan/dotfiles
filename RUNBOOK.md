@@ -147,6 +147,26 @@ exit 0
 
 Measured cost on a cold VM: about 5s, against a ~5 minute window.
 
+Paste it into **every** environment, not just the one in front of you. An
+environment created before this existed has no seed at all, and a session
+started in it is indistinguishable from one that has it until something is
+missing — which was the whole failure. As of 2026-08-21 that means
+`Default (with tailscale)`, `Trusted` and `Full network access`.
+
+**The setup script runs once, when the container is created**, and the
+container is then checkpointed and reused. So the blob's `git clone` is the
+seed's only chance to be fresh, and it is a no-op forever after. Two things
+close that gap and both are in this repo, not in the web form:
+`cloud-session-setup.sh` pulls the seed before installing from it, and
+`session-start-seed-refresh.sh` re-runs the whole installer on every
+SessionStart. A rule edited here therefore reaches the next session with no
+re-provision — deliberately live rather than pinned, because these are
+interactive sessions and a stale standing order is worse than a changed one.
+
+Only `CLAUDE.md` cannot be refreshed in place: it is loaded before any hook
+runs. When the refresh rewrites it, the hook emits the new copy as
+`additionalContext` so the current session gets it too.
+
 **2 — Sources.** Add **both**:
 
 - `mark-brannan/dotfiles` — carries `.claude/settings.json`, so any session
@@ -456,6 +476,21 @@ grep -n 'the-hook-name' ~/.claude/settings.json  # is it wired?
 The seed is not the only path that works: a repo carrying its own
 `.claude/settings.json` gets its project settings loaded in a cloud session even
 with no user-scope settings at all. What the seed buys is the *other* repos.
+
+## A cloud session is running an old rule
+
+The seed checkout at `~/.local/share/dotfiles-seed` is a real clone, so ask it:
+
+```bash
+git -C ~/.local/share/dotfiles-seed log --oneline -1
+```
+
+Behind `origin/main` means the refresh is not running. Either the container
+predates it — `ls ~/.claude/hooks/session-start-seed-refresh.sh` — or the pull
+failed, which the installer reports rather than swallowing:
+`CLOUD_SESSION=1 sh ~/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh`
+prints the reason. A blocked proxy leaves the last-known-good seed in place on
+purpose; that is a stale session, not a broken one.
 
 ## A deleted hook keeps running
 
