@@ -45,6 +45,19 @@ IFS=$'\t' read -r tp sid cwd tool_name tool_cmd <<<"$(printf '%s' "$input" | jq 
 [ -n "$tp" ] && [ -f "$tp" ] && [ -n "$sid" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
+# A git event means an actual git-state change, not every Bash call: the jq
+# pass is too expensive to run after `ls`. The set is git_event_re in
+# lib-state.sh -- shared with measure-git-events.sh so the counter and the
+# display can never disagree about what counts. Both fields are tested, not
+# one falling back to the other: an MCP tool has no `.command`, and a Bash
+# call whose command does not match must not then match on the tool name.
+if [ "$EVENT" = git ]; then
+  printf '%s' "$input" \
+    | jq -r '[(.tool_input.command // ""), (.tool_name // "")] | join("\n")' \
+    | grep -qE "$(git_event_re)" \
+    || exit 0
+fi
+
 JQPROG="$HOOK_DIR/session-metrics.jq"
 [ -f "$JQPROG" ] || exit 0
 
@@ -75,7 +88,7 @@ if [ "$EVENT" = posttooluse ]; then
   mkdir -p "$LIVE" 2>/dev/null || exit 0
   is_git=0
   printf '%s\n%s' "$tool_cmd" "$tool_name" \
-    | grep -qE '\bgit\s+(commit|push|merge|rebase|cherry-pick|checkout|switch|tag)\b|create_pull_request' \
+    | grep -qE "$(git_event_re)" \
     && is_git=1
 
   count=0; pending_git=0
@@ -171,45 +184,25 @@ printf '%s\n' "$metrics" | jq -c \
   && mv -f "$tmp" "$OUT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 
 # ------------------------------------------------------------ event block
-# Shown to Mark at the moments that matter -- this is the ONLY readout he
-# sees (desktop UI has no statusline row), so it's a regular pulse plus the
-# moments that always matter (a question, a git action, session end), never
-# a "only when something moved" filter -- and never sent to the model, so
-# the running decision count costs nothing to display.
+# Shown to Mark at the moments that matter -- a question put to him, a git
+# event, a pulse tick, the end of the session -- and never sent to the
+# model, so the running decision count costs nothing to display.
 #
-# SHOWN keeps the last-displayed snapshot of the handful of fields printed
-# below, written only when a block actually prints (not on every silent
-# recompute) -- diffing against it is what lets a changed field stand out.
-SHOWN="$LIVE/$sid.shown.json"
+# `stop` fires unconditionally, every single turn -- unlike `question`,
+# `git` and `pulse`, which only fire when something actually happened (or,
+# for pulse, every PULSE_N calls). Left unguarded, a stop block posts after
+# every reply and buries the rare git/nag ones in noise until they're
+# effectively the only thing Mark ever sees. So a stop only shows when it's
+# carrying something: a nag firing, or dirty/unpushed/uncommitted work.
+# Other events always show -- they already earned it by being rare (or, for
+# pulse, by being rate-limited).
 if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
-  prev=$(cat "$SHOWN" 2>/dev/null || echo '{}')
-  jq -c --argjson prev "$prev" '
-  def k: if . >= 1000 then "\(. / 1000 | floor)k" else "\(.)" end;
-  def evname: {question: "decision point", git: "git event",
-                stop: "session end", pulse: "pulse"}[.last_event] // "pulse";
-  # mark($old): prefix with "▲" when the raw value differs from the last
-  # value actually shown to Mark (not the last computed value -- a field
-  # that changed since the last *displayed* block is the one worth flagging).
-  def mark($old): if $old == null or . != $old then "▲\(.)" else "\(.)" end;
-  def markk($old): if $old == null or . != $old then "▲\(. | k)" else (. | k) end;
-  {systemMessage: (
-     "⛁ \(evname) · \(.repo)@\(.branch // "?")\n"
-   + "  decisions \(.decisions.total | mark($prev.decisions_total))"
-   + (if .last_event == "question" then " (+1 being asked now)" else "" end)
-   + "  (\(.decisions.scoping | mark($prev.scoping)) scoping · \(.decisions.inline | mark($prev.inline)) inline · \(.decisions.gate | mark($prev.gate)) gate)\n"
-   + "  cost      \(.output_tokens | markk($prev.output_tokens)) out · ctx peak \(.context_peak | markk($prev.context_peak)) · \(.user_turns | mark($prev.user_turns)) prompts · \(.tool_calls | mark($prev.tool_calls)) tools\n"
-   + "  work      \(.commits | mark($prev.commits)) commits · \(.dirty | mark($prev.dirty)) dirty · \(.unpushed | mark($prev.unpushed)) unpushed"
-   + (if .unpushed > 0 then "  ← not safe to kill" else "" end)),
-   shown: {decisions_total: .decisions.total, scoping: .decisions.scoping,
-           inline: .decisions.inline, gate: .decisions.gate,
-           output_tokens: .output_tokens, context_peak: .context_peak,
-           user_turns: .user_turns, tool_calls: .tool_calls,
-           commits: .commits, dirty: .dirty, unpushed: .unpushed}}' "$OUT" 2>/dev/null > "$SHOWN.tmp.$$"
-  if [ -s "$SHOWN.tmp.$$" ]; then
-    jq -c '.shown' "$SHOWN.tmp.$$" > "$SHOWN.$$" 2>/dev/null \
-      && mv -f "$SHOWN.$$" "$SHOWN" 2>/dev/null
-    jq -c '{systemMessage}' "$SHOWN.tmp.$$" 2>/dev/null
+  if [ "$EVENT" = stop ]; then
+    jq -e -L "$HOOK_DIR" 'include "lib-metrics-fmt";
+      (nag != "") or (.dirty > 0) or (.unpushed > 0) or (.commits > 0)' \
+      "$OUT" >/dev/null 2>&1 || exit 0
   fi
-  rm -f "$SHOWN.tmp.$$" 2>/dev/null
+  jq -c -L "$HOOK_DIR" \
+    'include "lib-metrics-fmt"; {systemMessage: block}' "$OUT" 2>/dev/null
 fi
 exit 0
