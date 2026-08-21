@@ -134,9 +134,14 @@ A Claude Code cloud environment configures exactly four things: **name, network
 access, environment variables, and a setup script.** Repositories are *not*
 part of the environment — they attach per session, as sources.
 
-**1 — Setup script.** Paste this verbatim into the environment's setup-script
-field. It only clones and delegates, so the logic stays version-controlled here
-rather than going stale in a web form:
+**1 — Setup script.** The field only takes pasted text, so every environment's
+script is version-controlled here as the source of truth and pasted in by
+hand — the field itself is never the record.
+
+`Trusted` and `Full network access` take
+[`cloud-session-setup.sh`](.local/bin/cloud-session-setup.sh)'s caller
+verbatim. It only clones and delegates, so the logic stays in the repo rather
+than going stale in a web form:
 
 ```sh
 git clone -q https://github.com/mark-brannan/dotfiles \
@@ -145,13 +150,20 @@ CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-se
 exit 0
 ```
 
+`Default (with tailscale)` needs tailscale installed before the seed exists to
+delegate to, so it can't be a bare clone-and-delegate — paste
+[`cloud-session-setup-tailscale.sh`](.local/bin/cloud-session-setup-tailscale.sh)
+verbatim instead; it ends with the same clone-and-delegate. Neither variant is
+executed by the platform — both files exist only so the pasted text has an
+authoritative copy in git. Keep them in sync by hand if either changes.
+
 Measured cost on a cold VM: about 5s, against a ~5 minute window.
 
-Paste it into **every** environment, not just the one in front of you. An
-environment created before this existed has no seed at all, and a session
-started in it is indistinguishable from one that has it until something is
-missing — which was the whole failure. As of 2026-08-21 that means
-`Default (with tailscale)`, `Trusted` and `Full network access`.
+Paste the matching variant into **every** environment, not just the one in
+front of you. An environment created before this existed has no seed at all,
+and a session started in it is indistinguishable from one that has it until
+something is missing — which was the whole failure. As of 2026-08-21 that
+means `Default (with tailscale)`, `Trusted` and `Full network access`.
 
 **The setup script runs once, when the container is created**, and the
 container is then checkpointed and reused. So the blob's `git clone` is the
