@@ -1,0 +1,28 @@
+# gitleaks configuration.
+#
+# Uses the full upstream ruleset unmodified and narrows it only where a
+# finding is provably not a secret. Do not redefine upstream rules here --
+# the built-in patterns are more carefully written than a hand-rolled
+# replacement.
+#
+# Before adding an allowlist entry, ask whether the value should instead be
+# encrypted (sops) or removed. Allowlisting is the last resort, not the
+# first fix. Keep every entry scoped with condition = "AND" so it silences
+# one string in one place, never a whole file -- a blanket path exclusion
+# also silences every future rule on that file, which is how scanners
+# quietly stop working.
+
+[extend]
+useDefault = true
+
+# sops ciphertext is high-entropy by construction. Flagging it would mean
+# flagging the mechanism working correctly. The age *public* key in
+# .sops.yaml is likewise not a secret -- it is published so anyone can
+# encrypt to this host; the private key never enters the repo (it lives at
+# ~/.config/sops/age/keys.txt, gitignored, and is never tracked).
+[[allowlists]]
+description = "sops ciphertext and the age public recipient are not secrets"
+regexes = [
+  '''ENC\[AES256_GCM,data:[A-Za-z0-9+/=,_-]+\]''',
+  '''age1[0-9a-z]{58}''',
+]
