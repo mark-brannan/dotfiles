@@ -1,0 +1,52 @@
+name: Shellcheck
+
+# Syntax/correctness lint for every tracked shell script. Worth having on
+# its own rather than folded into secret-scan.yml: this catches a different
+# class of mistake, and the scripts here are exactly the ones CLAUDE.md
+# flags for extra scrutiny -- .claude/hooks/*, .config/yadm/hooks/*, and
+# .config/yadm/bootstrap all execute automatically (session start/stop, git
+# commit, machine bootstrap). A shellcheck-caught bug in one of those is a
+# bug that runs unattended on every session or every commit, on every
+# machine, at the next dotsync.
+#
+# Runs on every branch push, not just PRs against main: a claude/* branch
+# pushed without a PR should still get feedback at push time, same
+# reasoning as secret-scan.yml.
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: shellcheck-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          command -v shellcheck || (sudo apt-get update && sudo apt-get install -y shellcheck)
+          # --severity=warning: at the point this job was added, the
+          # existing scripts already carried ~20 info/style-level notes
+          # (SC1091 unfollowed sources, SC2015 A&&B||C, SC2012/13/16) and
+          # nothing at warning or above. Failing on those would make this
+          # job red on day one over pre-existing style, not a bug it
+          # caught -- exactly the "gate that cries wolf" failure mode.
+          # Tightening to catch style too is a deliberate later choice, not
+          # a default.
+          #
+          # POSIX sh scripts (see CLAUDE.md: bootstrap, pre_commit run where
+          # bash may not be what /bin/sh points at) get -s sh; everything
+          # else here is bash-shebanged and checked as such.
+          shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit
+          shellcheck --severity=warning .claude/hooks/*.sh .claude/cloud-setup.sh .local/bin/*.sh
