@@ -33,6 +33,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 
 **Claude Code — a real machine**
 - [Wire the hooks on a real machine](#wire-the-hooks-on-a-real-machine)
+- [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
 
 **GitHub repository**
 - [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
@@ -284,6 +285,59 @@ bash ~/.claude/hooks/statusline-metrics.sh   # prints the status line, or nothin
 
 Then start a session: `session-start-continuity.sh` injecting the board is the
 end-to-end proof.
+
+## Change what the metrics readouts show
+
+Two readouts print session metrics: the **statusline row**, always on, and the
+**event block**, shown at a question, a git event and session end. They share
+one vocabulary and one set of layouts in `.claude/hooks/lib-metrics-fmt.jq`.
+Edit that file, not the scripts.
+
+| File | What it owns |
+| --- | --- |
+| `session-metrics.jq` | the measurement — tokens, turns, decisions, time |
+| `metrics-live.sh` | writes the cache; prints the two-line event block |
+| `statusline-metrics.sh` | prints the one-line statusline row |
+| `lib-metrics-fmt.jq` | **every field and both layouts** |
+
+Fields are `env`, `cost`, `time`, `dec`, `turns`, `work` (plus `split`, unused).
+Layouts are `row` and `block`. Both draw from one `fields` list, so field order
+cannot drift between them.
+
+**Hooks load from `$HOME/.claude/hooks/`, not from a clone.** Edit the file
+under `$HOME`, or copy it there afterwards — a change made only in another
+checkout of this repo will render nothing different and give no error.
+
+Then verify — this is the step that matters, because **every call site ends in
+`2>/dev/null`**. That is correct for a hook, since a broken format must never
+break a session, but it means a jq syntax error looks exactly like "no metrics
+yet":
+
+```bash
+metrics-preview.sh --fields
+```
+
+It runs the real scripts — not a copy of their jq — against your newest
+transcript, and prints: the compile check, the two paths that must stay silent,
+the event block for all three event types, the statusline row, each field with
+its width, and a column ruler. Exit status is non-zero if any check fails, so
+it also works as a pre-commit or CI step:
+
+```bash
+metrics-preview.sh --quiet
+```
+
+Silent and exit 0 when everything passes; prints only the failures otherwise.
+
+The two silence checks are there because a regression in either is invisible
+during a session rather than noisy: a leak on the `prompt` event turns the
+block into model context instead of display, and a leak in the git-command
+filter runs a transcript-wide jq pass after every `ls`.
+
+Widths worth knowing: the block's header pads to 30 columns, and the desktop
+UI prefixes **each line** with `PostToolUse:<tool> says:` — 50 characters on
+its own for a long MCP tool name — then wraps around 75. `--fields` shows which
+field is eating the budget when a line wraps.
 
 ## Set the auth token for the PR review workflows
 
