@@ -269,6 +269,35 @@ Auto-refresh does not reopen the gate it bypasses (M1): with the
 touch-required key, every tag it can accept began as a physical human act.
 Consumers that want a ceiling anyway can pin `--max-tag` per environment.
 
+**Workspace trust does not gate this (verified 2026-08-21).** P0's V1 found
+that a cloud workspace has `hasTrustDialogAccepted: false` in `~/.claude.json`,
+that no interactive dialog exists to change it headlessly, and that the harness
+refuses to write the flag directly — with the session logging `Ignoring N
+permissions.allow entries ... this workspace has not been trusted`. Read as
+"synced config is inert in cloud", that would sink this whole section. It isn't:
+the gate is **project scope**, not user scope. Direct test — a `SessionStart`
+hook declared only in a user-scope `~/.claude/settings.json`, run in a workspace
+with no trust record at all — fired normally. V3's skill result is the same
+shape: seeded `~/.claude/skills` loaded in the very session where a project
+`.claude/` was being ignored.
+
+So the seed and refresh stages install to `~/.claude`, and that is exactly the
+scope trust leaves alone. Three consequences the design has to carry:
+
+- **Never rely on a project `.claude/settings.json` in an ephemeral session.**
+  Anything that must fire everywhere lives on the installer's INSTALL list and
+  lands user-scope. This is already how `cloud-session-setup.sh` works; it is
+  now a requirement rather than a convenience.
+- **Permissions are the unresolved half.** Hooks and skills are confirmed
+  user-scope-honored; whether `permissions.allow` from *user* scope survives an
+  untrusted workspace was not isolated — V1 only observed the project-scope
+  message. Until measured (V5 below), assume a cloud session may run with
+  permissions degraded and design hooks to fail visibly rather than silently.
+- **The brief reports it.** `.sync-status.json` and the SessionStart brief
+  record the workspace trust flag alongside the installed tag, so a session
+  running with a degraded permission set says so rather than being diagnosed a
+  week later from behaviour.
+
 Bumping the pin needs **no web-form edits** — the form changes only on key
 rotation. (Fallback design, simpler but weaker ops: a full commit SHA in the
 form. It inherits the snapshot problem — the pin only takes effect when the
@@ -440,7 +469,8 @@ proxy, but the state repo 403s until attached per-session.
   lower signed tag; must be rejected); namespace binding (a signature made
   outside `namespaces="git"` must not verify); fingerprint cross-check
   warning; tag resolution version-sorts (`v10` after `v9`, not lexically);
-  SKIP_GLOBS tripwire; prune with KEEP; yadm-machine refusal; dry-run parity.
+  user-scope install in an untrusted
+  workspace (hooks must still fire); SKIP_GLOBS tripwire; prune with KEEP; yadm-machine refusal; dry-run parity.
 - **Composite action smoke test**: a workflow in this repo consumes the action
   at HEAD-SHA, then asserts `$HOME/.claude/CLAUDE.md` matches the checkout and
   `.sync-status.json` says `complete: true`.
@@ -482,9 +512,11 @@ survey shows the asks are currently scattered and stale-botted:
 
 ## 12. Verify before building
 
-1. **V1** — user-scope honored in cloud when materialized: seed a file via the
-   setup script, assert hooks/settings fire with no project `.claude/`.
-   (Expected yes: the deny-list test already showed it live.)
+1. **V1** — user-scope honored in cloud when materialized. **Answered yes,
+   with a caveat** ([results](https://github.com/mark-brannan/dotfiles/issues/17#issuecomment-5373161830)):
+   user-scope hooks and skills fire; project-scope `.claude/settings.json` is
+   ignored in an untrusted cloud workspace and cannot be trusted headlessly.
+   See §6.3. Leaves V5 open.
 2. **V2** — private repo as second env source: is it cloned/attached at setup
    time, or only via `add_repo` mid-session? Community reports say git
    credentials are populated for SessionStart hooks but not setup scripts —
@@ -492,13 +524,18 @@ survey shows the asks are currently scattered and stale-botted:
    though the seed stage can't. Determines the README note and nothing else.
 3. **V3** — seeded `~/.claude/skills` load in cloud sessions: seed one no-op
    skill, ask for it. Decides whether skills join the INSTALL list.
-4. **V4** — snapshot caching bounds: edit a comment in the setup script,
+4. **V5** — user-scope `permissions.allow` in an untrusted workspace: seed a
+   permission user-scope in a cloud environment, attempt a call it allows, and
+   see whether it is honored or the "not been trusted" message names it.
+   Decides whether §6.3's degraded-permissions caveat is real or theoretical.
+5. **V4** — snapshot caching bounds: edit a comment in the setup script,
    confirm invalidation; measure how stale an untouched environment's seed
    actually gets. Calibrates how load-bearing the refresh stage is.
 
 ## 13. Rollout
 
-- **P0** — V1-V4 experiments; file results on #17.
+- **P0** — V1-V5 experiments; file results on #17. V1/V2/V3 answered
+  2026-08-21 and folded into §6.3; V4's staleness half and V5 remain.
 - **P1** — installer atomicity + status file + brief line, still tracking
   `main`. Fixes T3/T7 immediately; no ceremony change yet.
 - **P2** — release script, first signed tag, ruleset, guard hook, bootstrap
