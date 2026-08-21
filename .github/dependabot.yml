@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Pins on third-party GitHub Actions (checkout@v5, setup-python@v6, etc.)
+  # are a supply-chain surface: an unpinned or stale action version is one
+  # of the more common real-world CI compromise vectors. This repo is
+  # public and its Actions runs have write access to PRs -- keep them
+  # current rather than frozen at whatever version was current when a
+  # workflow was written.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

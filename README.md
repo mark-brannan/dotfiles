@@ -1,32 +1,34 @@
-These are my dotfiles, managed with [yadm](https://yadm.io). Secrets, where any are
-tracked, are encrypted at rest with [sops](https://github.com/getsops/sops) +
-[age](https://github.com/FiloSottile/age) — see `.sops.yaml`.
+My dotfiles, managed with [yadm](https://yadm.io).
 
-Use at your own risk:
+## Set up a machine
+
 ```
 yadm clone git@github.com:mark-brannan/dotfiles.git
-
-yadm status
-yadm diff
-
-yadm bootstrap   # installs sops/age if missing, decrypts anything sops-managed
+yadm bootstrap    # installs nothing; decrypts sops-managed secrets
+dotsync           # the sync routine, from here on
 ```
 
-`.config/yadm/bootstrap` runs automatically after `yadm clone`, or manually via
-`yadm bootstrap`. It expects the machine's own age key to already exist at
-`~/.config/sops/age/keys.txt` (never tracked in this repo — restore it out-of-band, e.g.
-from a password manager) before it can decrypt anything.
+That's it. `.config/yadm/bootstrap` also runs automatically right after
+`yadm clone`.
 
-## Keeping machines in sync
+Two things it needs that git can't give you:
 
-`dotsync` (alias, defined in `.bashrc` and `.zsh_aliases`) is the whole routine:
+* **`yadm`, `sops` and `age` on `PATH`.** `apt-get install yadm age` /
+  `brew install yadm age sops`; sops on Linux is a
+  [release binary](https://github.com/getsops/sops/releases).
+* **The machine's age key at `~/.config/sops/age/keys.txt`**, restored
+  out-of-band from a password manager. It is never tracked here. Without it
+  everything still installs — only the secrets stay ciphertext.
+
+`dotsync` (alias, defined in `.bashrc` and `.zsh_aliases`) is the whole
+day-to-day routine:
 
 ```
 yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
 
-`--autostash` matters — a dirty `$HOME` is the normal state, and without it every
-pull stops with "cannot pull with rebase: You have unstaged changes."
+**Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — Claude Code cloud
+environment setup, secrets, and troubleshooting.
 
 ## Conventions that keep it quiet
 
@@ -43,22 +45,16 @@ pull stops with "cannot pull with rebase: You have unstaged changes."
   never-sync paths and secret-shaped values in added lines. Override a false
   positive with `YADM_ALLOW_SECRET=1 yadm commit`. Run `.local/bin/dotfiles-triage.sh`
   for a full inventory of `$HOME` against the same policy.
+* **Secrets are sops+age, and plaintext never lands in the worktree.**
+  Ciphertext sits tracked at `secrets/<name>.sops.env`; bootstrap decrypts each
+  into `~/.config/secrets/<name>.env`, which is gitignored *and* outside the git
+  worktree, so a later `yadm add` cannot sweep it up. Shells source
+  `~/.config/secrets/*.env` at startup.
 * **Tool config that a tool rewrites lives outside git.** `~/.npmrc` is the case
   in point: npm overwrites it with an auth token on every login, so the settings
   live in `.profile`/`.zshenv` as `NPM_CONFIG_*` and the file itself is ignored.
-
-## Migrating a machine that predates the `.npmrc` change
-
-`.npmrc` used to be tracked. On a host that hasn't pulled since, `yadm pull` will
-refuse ("local changes would be overwritten") or delete the file along with any npm
-auth token in it. Save it first:
-
-```
-cp ~/.npmrc /tmp/npmrc.bak
-yadm checkout -- .npmrc
-dotsync
-cp /tmp/npmrc.bak ~/.npmrc   # now ignored; keeps the token, settings come from the shell
-```
+  (A host that hasn't pulled since that change needs
+  [a migration step](RUNBOOK.md#a-pull-refuses-local-changes-would-be-overwritten).)
 
 ## Session continuity hooks
 
@@ -69,6 +65,7 @@ degrades to `~/.claude/state/global` if it isn't checked out.
 
 | hook | event | what it does |
 | --- | --- | --- |
+| `session-start-seed-refresh.sh` | SessionStart | re-runs the cloud seed so a reused container tracks this repo, not the commit it was provisioned from |
 | `session-start-continuity.sh` | SessionStart | injects the open board, where the last three sessions left off, and the week's decision load |
 | `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, then commits and pushes the state repo |
 | `measure-git-events.sh` | PostToolUse | logs branches created, PRs opened, cherry-picks |
@@ -104,32 +101,16 @@ Claude Code cloud sessions run as root on a throwaway Ubuntu VM with no
 `~/.claude/settings.json`. **Project settings still load** when the repo is a
 session source — confirmed 2026-08-19, a symphony `PreToolUse` hook fired in a
 cloud session with no user-scope settings at all — so a repo carrying its own
-`.claude/settings.json` already closes the gap for itself. The hooks below
-resolve to `$CLAUDE_PROJECT_DIR/.claude/hooks/` when `$HOME/.claude/hooks/` is
-absent, which is exactly that case.
+`.claude/settings.json` already closes the gap for itself.
 
 What the seed script buys is the *other* repos: standing orders, `rules/` and
 the hooks in a session working on something that has no `.claude/` of its own,
 plus `deniedMcpServers` at user scope. `.local/bin/cloud-session-setup.sh`
-installs a chosen subset of this repo into `$HOME`. Paste this into the
-environment's setup-script field (Claude Code → environment settings):
+installs a chosen subset of this repo into `$HOME`.
 
-```
-git clone -q https://github.com/mark-brannan/dotfiles \
-  "$HOME/.local/share/dotfiles-seed" 2>/dev/null
-CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh"
-exit 0
-```
-
-**Also add `mark-brannan/claude_prompts_scratch` as a second source** on the
-same environment. The continuity hooks below read the board from it and write
-their state back to it, and the setup script cannot clone it — a VM has no
-credentials for a private repo at setup time. Without it the hooks still run
-but write to `~/.claude/state/global`, which dies with the container.
-
-The setup field only clones and delegates, so the logic stays version-controlled
-here rather than going stale in a web form. Measured cost on a cold VM: about
-5s total, against a ~5 minute window.
+**The procedure — the setup-script blob, the two sources, and how to verify —
+is [RUNBOOK.md § Create a cloud environment](RUNBOOK.md#create-a-cloud-environment).**
+The rest of this section is why it is built that way.
 
 **Deliberately not yadm**, even though yadm manages everything else here:
 
@@ -144,8 +125,11 @@ here rather than going stale in a web form. Measured cost on a cold VM: about
 * `yadm clone` also prompts on `/dev/tty` to run the bootstrap, which would
   hang the setup window.
 
-Edit the `INSTALL` allowlist in the script to add files. Two guards make that
-safe to expand:
+The setup field only clones and delegates, so the logic stays version-controlled
+here rather than going stale in a web form. Measured cost on a cold VM: about
+5s total, against a ~5 minute window.
+
+Two guards make the `INSTALL` allowlist safe to expand:
 
 * It **refuses to run where `$HOME` is yadm-managed** — every real machine has
   a yadm repo, an ephemeral VM never does — and skips entirely unless
@@ -156,8 +140,26 @@ safe to expand:
   `SKIP_GLOBS` hard-blocks `.gitconfig*`, `.gitignore` and anything
   sops-shaped even if added to `INSTALL` by mistake.
 
+A fourth scar: **the setup script runs once, at container creation, not once
+per session.** Containers are checkpointed and reused, so the seed froze at
+whatever it cloned when the environment was provisioned and a rule edited here
+reached only the sessions that happened to get a cold VM. The installer now
+pulls the seed before installing from it, and `session-start-seed-refresh.sh`
+re-runs it on every SessionStart — live rather than pinned, because a stale
+standing order in an interactive session is worse than a changed one.
+
+A fifth scar: **seeding without pruning is why a deleted hook keeps running.**
+The container seeded it once, the repo dropped it, and the `$HOME` copy is still
+there and still wins. `PRUNE_DIRS` names the directories the script wholly owns,
+where anything not in `INSTALL` is a leftover and gets removed; `PRUNE_NEVER` is
+the tripwire for shared directories like `.claude` itself, which also holds
+`state/`, `projects/`, `todos/` and `settings.local.json` that the script never
+put there.
+
 `sh .local/bin/cloud-session-setup.sh --dry-run` previews the whole thing and
 is safe to run on any machine, including yadm-managed ones.
+
+## Archive
 
 `archive/` holds content carried over from the old chezmoi layout that isn't checked out
 live into `$HOME` on any current machine — SignalK Pi plugin config (superseded by the

@@ -7,7 +7,9 @@
 # $HOME/.config/secrets/<name>.env — a path that is NOT tracked and IS gitignored
 # (see .gitignore), so plaintext never sits inside the git working tree and can't
 # get swept up by a later `yadm add`. .zshrc/.bashrc source everything under
-# ~/.config/secrets/*.env at shell startup.
+# ~/.config/secrets/*.env at shell startup, EXCEPT claude-token.env, which is
+# scoped to a `claude` wrapper function instead so the token isn't exported
+# into every shell and everything it spawns.
 set -eu
 
 need() { command -v "$1" >/dev/null 2>&1; }

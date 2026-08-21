@@ -11,20 +11,23 @@ permissions:
   contents: read
 
 on:
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
-  group: claude-security-${{ github.event.pull_request.number }}
+  group: claude-security-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
+          # ref is only ever github.sha now — this workflow no longer runs
+          # on pull_request — but harmless to keep for a future PR-scoped
+          # workflow_dispatch input.
 
       - uses: anthropics/claude-code-security-review@main
         with:

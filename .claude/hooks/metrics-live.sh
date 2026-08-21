@@ -4,9 +4,11 @@
 #
 # Why a cache file at all: `session-metrics.jq` slurps the whole transcript,
 # which is fine once at Stop but not on every statusline render (those fire
-# several times a second). So the expensive part runs only on the events that
-# actually change the numbers -- a prompt, a question put to Mark, a git
-# event -- and the statusline just prints what is already on disk.
+# several times a second), and not on every tool call either now that a
+# PostToolUse pulse fires on all of them. The expensive part runs only when
+# a block is actually about to print -- a prompt, a question put to Mark, a
+# pulse tick, a coalesced git action, Stop -- and the statusline just prints
+# what is already on disk.
 #
 # One file per session, keyed by session_id: parallel sessions are normal
 # here, and per-session paths mean two of them never write the same file.
@@ -24,30 +26,48 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-EVENT="${1:-tool}"          # prompt | question | git | stop | statusline
+EVENT_ARG="${1:-}"          # explicit override; only statusline and tests pass this now
 MAX_AGE="${2:-0}"           # seconds; >0 means "skip if cache is fresher"
 SHOW="${3:-}"               # "show" -> also print a systemMessage block
-
-# `show` on an event that Claude can read would make the block context, not
-# display. Only PreToolUse/PostToolUse/Stop keep systemMessage display-only;
-# on UserPromptSubmit and SessionStart the model sees it, so those never show.
-case "$EVENT" in prompt|statusline) SHOW="" ;; esac
 
 # One jq for all three fields: the statusline reaches this code on every
 # render, and three spawns before the staleness check was most of its cost.
 input=$(cat 2>/dev/null || echo '{}')
-IFS=$'\t' read -r tp sid cwd <<<"$(printf '%s' "$input" | jq -r \
+IFS=$'\t' read -r tp sid cwd tool_name tool_cmd hook_name <<<"$(printf '%s' "$input" | jq -r \
   '[(.transcript_path // ""), (.session_id // ""),
-    (.cwd // .workspace.current_dir // "")] | @tsv')"
+    (.cwd // .workspace.current_dir // ""),
+    (.tool_name // ""), (.tool_input.command // ""),
+    (.hook_event_name // "")] | @tsv')"
 [ -n "$tp" ] && [ -f "$tp" ] && [ -n "$sid" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
+# Default EVENT to hook_event_name verbatim, lowercased, so a new hook
+# needs no matching entry here. question is the one specialized case.
+if [ -n "$EVENT_ARG" ]; then
+  EVENT="$EVENT_ARG"
+elif [ "$hook_name" = PreToolUse ] && [ "$tool_name" = AskUserQuestion ]; then
+  EVENT="$tool_name"
+else
+  EVENT=$(printf '%s' "${hook_name:-tool}" | tr '[:upper:]' '[:lower:]')
+fi
+
+# `show` on an event that Claude can read would make the block context, not
+# display -- true for UserPromptSubmit and SessionStart. Guarding SessionStart
+# is dropped for now: it's the one moment with no other visibility into
+# session state, worth the per-session token cost to see it. UserPromptSubmit
+# fires every turn, so it stays suppressed.
+case "$EVENT" in prompt|userpromptsubmit|statusline) SHOW="" ;; esac
+
 # A git event means an actual git-state change, not every Bash call: the jq
-# pass is too expensive to run after `ls`.
+# pass is too expensive to run after `ls`. The set is git_event_re in
+# lib-state.sh -- shared with measure-git-events.sh so the counter and the
+# display can never disagree about what counts. Both fields are tested, not
+# one falling back to the other: an MCP tool has no `.command`, and a Bash
+# call whose command does not match must not then match on the tool name.
 if [ "$EVENT" = git ]; then
   printf '%s' "$input" \
-    | jq -r '.tool_input.command // .tool_name // ""' \
-    | grep -qE '\bgit\s+(commit|push|merge|rebase|cherry-pick|checkout|switch|tag)\b|create_pull_request' \
+    | jq -r '[(.tool_input.command // ""), (.tool_name // "")] | join("\n")' \
+    | grep -qE "$(git_event_re)" \
     || exit 0
 fi
 
@@ -56,6 +76,99 @@ JQPROG="$HOOK_DIR/session-metrics.jq"
 
 LIVE="$(state_dir)/metrics/live"
 OUT="$LIVE/$sid.json"
+
+# ------------------------------------------------------------- pulse/coalesce
+# EVENT=posttooluse fires on EVERY tool call (settings.json matches all
+# tools, no per-tool matcher). Two jobs, both driven by a small counter file
+# the statusline never touches -- it only ever reads/writes $OUT, so this
+# file is safe to use as a debounce the 15s statusline refresh can't stomp:
+#
+#   pulse    a block every PULSE_N tool calls, so a long non-git stretch
+#            (reading, editing, debugging) still gets a regular readout
+#            instead of showing nothing until the next git event or Stop.
+#            PULSE_N=8: roughly one read/edit/check cycle -- frequent enough
+#            that a 20-minute silent stretch still gets 2-3 pulses, coarse
+#            enough that a grep/read sweep doesn't spam a block per call.
+#   coalesce a git-matching call (commit/push/rebase/...) doesn't print
+#            immediately. It marks a "pending" flag and recomputes silently.
+#            The block only prints once a NON-git tool call arrives -- i.e.
+#            when the streak actually ends -- so `git add && git commit &&
+#            git push`, or a rebase's wall of checkouts, prints exactly one
+#            block reflecting the final state, not one per call.
+#
+#            Coalescing only kicks in after GIT_EARLY_N git events have
+#            already printed individually this session: the first few git
+#            actions are exactly the ones Mark most wants to see land in
+#            real time, so they show immediately, uncoalesced. Streaks are
+#            only worth collapsing once git activity is established as
+#            routine for the session.
+PULSE_N="${METRICS_PULSE_N:-1}"
+GIT_EARLY_N="${METRICS_GIT_EARLY_N:-3}"
+if [ "$EVENT" = posttooluse ]; then
+  PULSE="$LIVE/$sid.pulse.json"
+  mkdir -p "$LIVE" 2>/dev/null || exit 0
+  is_git=0
+  printf '%s\n%s' "$tool_cmd" "$tool_name" \
+    | grep -qE "$(git_event_re)" \
+    && is_git=1
+
+  count=0; pending_git=0; git_seen=0
+  if [ -f "$PULSE" ]; then
+    IFS=$'\t' read -r count pending_git git_seen <<<"$(jq -r \
+      '[(.count // 0), (if .pending_git then 1 else 0 end), (.git_seen // 0)] | @tsv' "$PULSE" 2>/dev/null)"
+    [ -n "$count" ] || count=0
+    [ -n "$pending_git" ] || pending_git=0
+    [ -n "$git_seen" ] || git_seen=0
+  fi
+
+  do_print=0
+  DISPLAY_KIND=""
+  if [ "$is_git" -eq 1 ]; then
+    if [ "$git_seen" -lt "$GIT_EARLY_N" ]; then
+      # Still under the early-git quota: print this one immediately rather
+      # than folding it into a streak.
+      git_seen=$((git_seen + 1))
+      do_print=1
+      DISPLAY_KIND="git"
+      count=0
+      pending_git=0
+    else
+      # Quota spent: coalesce as before -- recompute so $OUT stays current,
+      # stay silent, the streak isn't over yet.
+      count=0
+      pending_git=1
+    fi
+  else
+    if [ "$pending_git" -eq 1 ]; then
+      # The streak just ended: flush the one block for it.
+      do_print=1
+      DISPLAY_KIND="git"
+      count=0
+      pending_git=0
+    else
+      count=$((count + 1))
+      if [ "$count" -ge "$PULSE_N" ]; then
+        do_print=1
+        DISPLAY_KIND="pulse"
+        count=0
+      fi
+    fi
+  fi
+
+  jq -n --argjson c "$count" --argjson p "$([ "$pending_git" -eq 1 ] && echo true || echo false)" \
+    --argjson g "$git_seen" \
+    '{count: $c, pending_git: $p, git_seen: $g}' > "$PULSE.$$" 2>/dev/null \
+    && mv -f "$PULSE.$$" "$PULSE" 2>/dev/null || rm -f "$PULSE.$$" 2>/dev/null
+
+  # A tool call mid-streak (git or not, below PULSE_N) needs nothing beyond
+  # the counter bookkeeping above -- no reason to pay for the full transcript
+  # slurp below on every single call. Only a print (streak-end flush, or a
+  # pulse tick) needs $OUT current, and it'll be recomputed fresh right here
+  # regardless of how stale it was, so skipping the recompute in between
+  # never shows stale numbers, only fewer silent writes.
+  [ "$do_print" -eq 1 ] || exit 0
+  EVENT="$DISPLAY_KIND"
+fi
 
 # Throttle: the statusline asks constantly, events ask rarely. An event
 # always recomputes; the statusline only does so if the cache has gone stale.
@@ -94,28 +207,55 @@ if [ -n "$work_root" ]; then
 fi
 
 mkdir -p "$LIVE" 2>/dev/null || exit 0
+
+# --------------------------------------------------------- break-time tracking
+# Store last-activity timestamp. If gap >= 25 min since last activity, auto-reset
+# break timer. Else accumulate time since last break across sessions.
+ACTIVITY_FILE="$(state_dir)/metrics/last_activity.json"
+mkdir -p "$(dirname "$ACTIVITY_FILE")" 2>/dev/null || true
+now_ts=$(date +%s)
+time_since_break_seconds=0
+
+if [ -f "$ACTIVITY_FILE" ]; then
+  last_activity_ts=$(jq -r '.last_activity_timestamp // 0' "$ACTIVITY_FILE" 2>/dev/null || echo 0)
+  last_break_ts=$(jq -r '.last_break_timestamp // 0' "$ACTIVITY_FILE" 2>/dev/null || echo 0)
+
+  # If we have a last activity time, check the gap
+  if [ "$last_activity_ts" -gt 0 ]; then
+    gap=$((now_ts - last_activity_ts))
+    # 25 minutes = 1500 seconds
+    if [ "$gap" -ge 1500 ]; then
+      # Gap is long enough to count as a break -- reset the timer
+      last_break_ts=$now_ts
+    fi
+  fi
+
+  # Calculate time since last break
+  if [ "$last_break_ts" -gt 0 ]; then
+    time_since_break_seconds=$((now_ts - last_break_ts))
+  fi
+fi
+
+# Update activity file with new timestamps
+jq -n --argjson la "$now_ts" --argjson lb "${last_break_ts:-0}" \
+  '{last_activity_timestamp: $la, last_break_timestamp: $lb}' > "$ACTIVITY_FILE.$$" 2>/dev/null \
+  && mv -f "$ACTIVITY_FILE.$$" "$ACTIVITY_FILE" 2>/dev/null || rm -f "$ACTIVITY_FILE.$$" 2>/dev/null
+
 tmp="$OUT.$$"
 printf '%s\n' "$metrics" | jq -c \
   --arg ev "$EVENT" --arg now "$now" \
   --argjson d "${dirty:-0}" --argjson u "${unpushed:-0}" --argjson c "${ncommits:-0}" \
-  --arg sha "$start_sha" \
+  --arg sha "$start_sha" --argjson tsb "$time_since_break_seconds" \
   '.session + {last_event: $ev, updated_at: $now, start_sha: $sha,
-               dirty: $d, unpushed: $u, commits: $c}' > "$tmp" 2>/dev/null \
+               dirty: $d, unpushed: $u, commits: $c, time_since_break_seconds: $tsb}' > "$tmp" 2>/dev/null \
   && mv -f "$tmp" "$OUT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 
 # ------------------------------------------------------------ event block
 # Shown to Mark at the moments that matter -- a question put to him, a git
-# event, the end of the session -- and never sent to the model, so the
-# running decision count costs nothing to display.
-[ "$SHOW" = show ] && [ -f "$OUT" ] && jq -c '
-  def k: if . >= 1000 then "\(. / 1000 | floor)k" else "\(.)" end;
-  def evname: {question: "decision point", git: "git event", stop: "session end"}[.last_event] // .last_event;
-  {systemMessage: (
-     "⛁ \(evname) · \(.repo)@\(.branch // "?")\n"
-   + "  decisions \(.decisions.total)"
-   + (if .last_event == "question" then " (+1 being asked now)" else "" end)
-   + "  (\(.decisions.scoping) scoping · \(.decisions.inline) inline · \(.decisions.gate) gate)\n"
-   + "  cost      \(.output_tokens | k) out · ctx peak \(.context_peak | k) · \(.user_turns) prompts · \(.tool_calls) tools\n"
-   + "  work      \(.commits) commits · \(.dirty) dirty · \(.unpushed) unpushed"
-   + (if .unpushed > 0 then "  ← not safe to kill" else "" end))}' "$OUT" 2>/dev/null
+# event, a pulse tick, the end of the session -- and never sent to the
+# model, so the running decision count costs nothing to display.
+if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
+  jq -c -L "$HOOK_DIR" \
+    'include "lib-metrics-fmt"; {systemMessage: block}' "$OUT" 2>/dev/null
+fi
 exit 0

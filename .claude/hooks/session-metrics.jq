@@ -101,13 +101,32 @@ to_entries as $E
                   and (.value.content // "") != "")
     | .key ] as $humans
 
+# Persisted excerpts -- the friction excerpt and decisions[].question -- are
+# written to metrics/ and pushed, so secret-shaped values come out of them
+# first. The token-prefix list is the one `.config/yadm/hooks/pre_commit`
+# uses, deliberately; the key-name list is wider, because that gate guards
+# tracked prose in a public repo where a false positive blocks a commit, and
+# this one guards a metrics excerpt where a false positive costs one
+# unreadable line. clean_human has already dropped fenced blocks and pasted
+# tool output -- where most pasted credentials live -- so this is here for the
+# loose `export API_KEY=...` line that was never in a fence. The question is
+# assistant text rather than pasted input, but the assistant routinely quotes
+# a config line back when asking which value to use, so it runs through the
+# same filter.
+| def redact:
+    gsub("(?i)(?<k>(api|access|auth|oauth|bearer|client|secret|private|refresh|session)[_-]?(key|token|secret)|_authtoken|passwo?r?d|passphrase|credential)(?<s>\\s*[:=]\\s*)[^\\s'\"]{6,}";
+         "\(.k)\(.s)[redacted]")
+    | gsub("(?i)\\b(?<b>bearer)\\s+[A-Za-z0-9._~+/=-]{16,}"; "\(.b) [redacted]")
+    | gsub("npm_[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|BEGIN [A-Z ]*PRIVATE KEY";
+           "[redacted]");
+
 # --- decisions -----------------------------------------------------------
 # Two mechanisms, both mechanically detectable:
 #   AskUserQuestion -- an explicit, structured hand-off
 #   prose           -- the last assistant text before a human turn is an ask
 #                      (see is_ask): a trailing question, an enumerated
 #                      escalation, or either of those under a fenced block
-| ([ $tools[] | select(.name == "AskUserQuestion")
+([ $tools[] | select(.name == "AskUserQuestion")
      | {i: .i, mechanism: "AskUserQuestion",
         n: ((.input.questions // []) | length),
         text: ((.input.questions // []) | map(.question) | join(" | "))} ]
@@ -141,7 +160,234 @@ to_entries as $E
                elif .mechanism == "prose" then "gate"
                elif .n > 2 then "gate"
                else "inline" end),
-        question: (.text | .[0:300])} ]) as $decisions
+        question: (.text | redact | .[0:300])} ]) as $decisions
+
+# --- friction --------------------------------------------------------------
+# A friction event is a human turn that contradicts, corrects, overrides or
+# rebukes the assistant turn before it. Anchored at the human enqueue index,
+# same as $humans, so friction and decisions share one timeline. Full spec:
+# claude_prompts_scratch/state/global/log/2026-08-21-friction-metric-spec.md
+
+# Text of every human enqueue, keyed by turn index -- same source as $humans.
+| ([ $E[] | select(.value.type == "queue-operation" and .value.operation == "enqueue"
+                   and (.value.content // "") != "")
+    | {i: .key, text: .value.content} ]) as $human_texts
+
+# Assistant text, one entry per assistant record that has any, keyed by index.
+| ([ $E[] | select(.value.type == "assistant") | .key as $i
+    | ([ .value.message.content[]? | select(.type == "text") | .text ] | join("\n")) as $t
+    | select($t != "")
+    | {i: $i, text: $t} ]) as $atext
+
+# Tool-result text, keyed by index. The index is load-bearing for the caps
+# check below, which may only look at output that already existed when the
+# human turn was written.
+| ([ $E[] | select(.value.type == "user") | .key as $i
+    | .value.message.content[]? | select(.type == "tool_result")
+    | {i: $i,
+       t: (.content | if type == "array" then ([ .[] | .text? // empty ] | join("\n"))
+                      elif type == "string" then .
+                      else "" end)} ]) as $tool_texts
+
+# The same text flattened to a set of lines, so clean_human can strip
+# pasted hook/command output out of human turns before any regex runs, and a
+# quoted command result cannot trip the S3 quote-back check. A set, not an
+# array: clean_human tests every line of every human turn against it, and
+# `index` on an array is a linear scan.
+| ([ $tool_texts[].t ]
+   | map(split("\n")[]) | map(gsub("^\\s+|\\s+$"; ""))
+   | map(select(. != ""))
+   | reduce .[] as $l ({}; .[$l] = true)) as $tool_lines
+
+# Whole-transcript interrupt/decline markers, for S7. Zero-cost: neither
+# calibration transcript hits it, but it is free to compute.
+| ([ $E[] | .key as $i | .value
+    | (( .message.content[]? | select(.type == "tool_result")
+         | (.content | if type == "array" then ([ .[] | .text? // empty ] | join(" "))
+                        elif type == "string" then . else "" end) ) // "") as $trtext
+    | select(($trtext | test("doesn'?t want to proceed|The user declined"))
+             or ((tostring) | test("\\[Request interrupted by user")))
+    | $i ]) as $veto_at
+
+| def strip_fences: gsub("```[^`]*```"; "");
+def clean_human:
+    strip_fences | split("\n")
+    | map(gsub("^\\s+|\\s+$"; ""))
+    | map(select(test("^Stop says:") | not))
+    | map(select(test("^>") | not))
+    | map(select(. as $l | ($tool_lines | has($l)) | not))
+    | join("\n");
+
+def s1_first: test("(?i)^(no|nope|wrong|not)\\b[?.,!:]?");
+def s1_conduct: test("(?i)stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|you'?re not making|quantify");
+def s1_any: test("(?i)you'?re not|that'?s (wrong|not)|I (said|told you)|not what I|disagree|stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|quantify");
+def s2_retract: test("(?i)^(fair|you'?re right|that (claim|was) (was )?wrong|bad call|my mistake|I was wrong|I (hadn'?t|misread|assumed)|dropping it|scratch that)");
+def s5_undo: test("(?i)^(no[,.!]?\\s*)?(take (it|that|this)? ?out|remove|revert|undo|put (it )?back|don'?t|stop)\\b");
+def s8_pushback: test("(?i)I('d| would) still|I disagree|doesn'?t change the answer|recommend(ation)?:? (ignore|reject|don'?t)|that case stands");
+def s4_words: test("(?i)fuck\\w*|dumb|stupid|idiot|thick (silicon )?skull");
+
+# Words already said by Claude or a tool, lowercased, so a shouted identifier
+# Claude itself printed (SHOW, EVENT_ARG, PR, WSL) never counts as heat.
+#
+# Prior-only, not whole-transcript. Scanning the whole transcript let a word
+# Claude first uttered *after* the shout retroactively suppress it: append one
+# assistant turn saying "right, absolutely, not what asked for" and the
+# preceding ABSOLUTELY NOT WHAT I ASKED FOR downgraded from rebuke to
+# override. Words are attributed to the record they appeared in, and each
+# human turn is scored against the set as it stood at that point.
+([ ($atext[] | {i: .i, t: .text}), ($tool_texts[] | {i: .i, t: .t}) ]
+ | map({i: .i, w: (.t | [ scan("[A-Za-z]{3,}") ] | map(ascii_downcase))})) as $src_words
+
+# One snapshot of that set per human turn, from a single ordered pass. jq
+# values are persistent, so parking the accumulator in .snap stores a
+# reference, not a copy of every word seen so far -- the naive
+# "filter $src_words by index inside the per-turn map" is quadratic in the
+# transcript, and this runs in a blocking Stop hook.
+| (reduce (([ $humans[] | {i: ., h: true} ] + [ $src_words[] | {i: .i, h: false, w: .w} ])
+           | sort_by([.i, (if .h then 0 else 1 end)]))[] as $r
+     ({seen: {}, snap: {}};
+      if $r.h then .snap[$r.i | tostring] = .seen
+      else .seen = (reduce $r.w[] as $w (.seen; .[$w] = true)) end)
+   | .snap) as $seen_before
+
+| def s4_caps($seen):
+    ([ scan("[A-Z]{3,}") ]
+     | map(select(test("[0-9_]") | not))
+     | map(. as $w | select(($seen | has($w | ascii_downcase)) | not))
+     | length) >= 3;
+
+([ $tools[] | select(is_mutating) | .i ]) as $mut_is
+| def mutated_between($lo; $hi): [ $mut_is[] | select(. > $lo and . < $hi) ] | length > 0;
+def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_text;
+
+# One record per human turn, everything the tags need already resolved.
+($humans | to_entries | map(
+    .key as $pos | .value as $h
+    | (if $pos == 0 then -1 else $humans[$pos - 1] end) as $prev
+    | (($human_texts[] | select(.i == $h) | .text) // "") as $raw
+    | ($raw | clean_human) as $clean
+    | (prev_ask($h) != null and ($clean | length) < 40) as $is_answer
+    | ($clean | s1_conduct) as $conduct_hit
+    # A short reply to a question is "no" answering, not friction -- unless
+    # it hit the conduct subset (stop hedging/quantify/...), which is never
+    # a bare answer regardless of length.
+    | ($conduct_hit or (($is_answer | not) and ($clean | (s1_first or s1_any)))) as $lexicon
+    | ($lexicon and $conduct_hit) as $lexicon_conduct
+    | ([ $clean | scan("\"([^\"]{20,})\"") ] | map(.[0])) as $quotes
+    # $before_text is every prior assistant turn concatenated, so building it
+    # for each human turn is quadratic in the transcript -- and it is only
+    # ever read when the turn actually contains a quote, which is rare. jq's
+    # `and` short-circuits, so keeping it on the right-hand side means most
+    # turns never pay for it. This runs in a blocking Stop hook: on a 600-turn
+    # synthetic transcript the friction pass cost 7.7s before this and the
+    # $tool_lines set below, 3.4s after, against a 1.1s pre-friction baseline.
+    | (($quotes | length) > 0
+       and (([ $atext[] | select(.i < $h) | .text ] | join("\n")) as $before_text
+            | $quotes | any(. as $q | $before_text | contains($q)))) as $quote
+    | mutated_between($prev; $h) as $mutated_before
+    | ((($clean | split("\n") | first) // "") | s5_undo) as $undo_line
+    | ($undo_line and $mutated_before) as $undo
+    | (($seen_before[$h | tostring]) // {}) as $seen
+    | ($clean as $c | ($c | s4_caps($seen)) or ($c | s4_words)) as $heat
+    | first($atext[] | select(.i > $h)) as $next
+    | ((($next.text // "")[0:200]) | s2_retract) as $retracted
+    | (($veto_at | map(select(. > $prev and . <= $h)) | length) > 0) as $veto
+    | ([ (if $lexicon then "lexicon" else empty end),
+         (if $quote   then "quote"   else empty end),
+         (if $undo    then "undo"    else empty end),
+         (if $heat    then "heat"    else empty end),
+         (if $veto    then "veto"    else empty end) ]) as $tags
+    # The cleaned text, not $raw: the excerpt is persisted and pushed, and
+    # $raw still carries whatever the human pasted in -- fenced blocks, hook
+    # output, a captured command result. clean_human already stripped those
+    # for the detectors; keeping the excerpt on the same text means nothing
+    # reaches disk that the metric did not actually read.
+    | {i: $h, pos: $pos, text: ($clean | redact), tags: $tags,
+       lexicon_conduct: $lexicon_conduct, retracted: $retracted,
+       has_event: (($tags | length) > 0 or $retracted)}
+  )) as $human_tagged
+
+# Sequential pass: `repeat` and `type` both depend on the previous *event*,
+# not the previous human turn, so this can't be a per-record map.
+| (reduce ($human_tagged[] | select(.has_event)) as $ht
+    ({events: [], last_h: -1, last_pos: -1};
+     ( .last_h != -1
+       and ((($ht.pos) - .last_pos) <= 2)
+       and (mutated_between(.last_h; $ht.i) | not) ) as $repeat
+     | ( if ($ht.tags | any(. == "heat" or . == "quote"))
+           or $ht.lexicon_conduct
+           # A repeat that was not retracted is forced to rebuke. Kept
+           # deliberately: on the contentious fixture repeat is 7 of 11 and
+           # rebuke is also 7, which reads like the classifier is measuring
+           # consecutiveness rather than severity -- it is not. Dropping this
+           # clause moves exactly one event (rebuke 7 -> 6, override 2 -> 3),
+           # measured; the other six rebukes come from heat, quote or a
+           # conduct lexicon hit on their own.
+           or ($repeat and ($ht.retracted | not))
+         then "rebuke"
+         elif $ht.retracted then "correction"
+         else "override"
+         end ) as $type
+     | .events += [ $ht + {repeat: $repeat, type: $type} ]
+     | .last_h = $ht.i | .last_pos = $ht.pos
+    )
+  ).events as $friction_events
+
+# --- pushback: assistant re-argues in the turn right after a tagged human
+# turn (lexicon/undo/heat -- not a bare quote or silent retraction).
+| ([ $atext[] | select(.text | s8_pushback) | .i as $ai
+    | last($humans[] | select(. < $ai)) as $ph
+    | select($ph != null)
+    | ($friction_events[] | select(.i == $ph)) as $ev
+    | select($ev.tags | any(. == "lexicon" or . == "undo" or . == "heat")) ]
+  | length) as $pushback
+
+| ([ $friction_events | to_entries[]
+     | .key as $seq | .value
+     | {ts: $now, session_id: $sid, repo: $repo, branch: $branch,
+        seq: ($seq + 1),
+        turn_index: .i,
+        type: .type,
+        tags: .tags,
+        retracted: .retracted,
+        repeat: .repeat,
+        excerpt: (.text | .[0:300])} ]) as $friction
+
+# --- time ----------------------------------------------------------------
+# Three numbers, because they answer different questions and no one of them
+# substitutes for another:
+#   elapsed  how long the chat has been open. Not "work" -- a 4h session with
+#            a lunch in it reads 4h -- but it is the number that predicts
+#            cost, because an old session re-sends a large context.
+#   active   elapsed with every silence clamped to CAP. Walking away stops
+#            the clock; thinking for a minute does not.
+#   split    of that active time, which side was busy. The gap that ends in
+#            Mark typing is his (reading, deciding); every other gap is the
+#            agent's (thinking, tools, waiting on a command).
+# Measured on eight sessions of this project, elapsed ran 5x active on the
+# long one (270m vs 50m) and identical on the short ones -- the clamp only
+# bites where someone left the room.
+| def epoch: sub("\\.[0-9]+"; "") | fromdateiso8601;
+
+  120 as $cap
+
+| ([ $E[].value | select(.timestamp != null)
+     | {t: (.timestamp | epoch),
+        # only a human enqueue with text closes an idle gap as Mark's; the
+        # duplicate `user` record for the opening prompt is skipped for the
+        # same reason it is skipped when counting turns
+        h: (.type == "queue-operation" and .operation == "enqueue"
+            and ((.content // "") != ""))} ]
+   | sort_by(.t)) as $ev
+
+| (($ev | length) as $n
+   | if $n > 1 then [ range(1; $n) | {d: ($ev[.].t - $ev[.-1].t), h: $ev[.].h} ]
+     else [] end) as $gaps
+
+| (if ($ev | length) > 1 then ($ev[-1].t - $ev[0].t) else 0 end
+   | round) as $elapsed_s
+| (([ $gaps[] | ([.d, $cap] | min) ] | add) // 0 | round) as $active_s
+| (([ $gaps[] | select(.h) | ([.d, $cap] | min) ] | add) // 0 | round) as $human_s
 
 | def sumu(f): ([ $amsgs[] | (.message.usage | f) // 0 ] | add) // 0;
 
@@ -155,6 +401,12 @@ to_entries as $E
       started_at: ([ $E[].value.timestamp | select(. != null) ] | min),
       ended_at:   ([ $E[].value.timestamp | select(. != null) ] | max),
       version:    ([ $E[].value.version | select(. != null) ] | last),
+      # seconds; see the time block above for what each one measures
+      elapsed_seconds: $elapsed_s,
+      active_seconds:  $active_s,
+      human_seconds:   $human_s,
+      agent_seconds:   ($active_s - $human_s),
+      idle_seconds:    ($elapsed_s - $active_s),
       model:      ([ $E[].value | select(.type=="assistant")
                      | .message.model | select(. != null) ] | last),
       user_turns: ($humans | length),
@@ -166,6 +418,15 @@ to_entries as $E
       input_tokens: sumu(.input_tokens),
       cache_creation_tokens: sumu(.cache_creation_input_tokens),
       cache_read_tokens: sumu(.cache_read_input_tokens),
+      # Cache churn: creation/read as a percent. A cold start makes one
+      # creation burst against zero reads, so a single-digit ratio is
+      # normal; anything sustained above ~30% means the prompt cache kept
+      # missing mid-session -- a stale-cache/reload proxy, not a token-cost
+      # one. Null (not 0) when there were no reads at all, so a one-turn
+      # session doesn't read as either healthy or churning.
+      cache_churn_pct: (sumu(.cache_read_input_tokens) as $r
+        | if $r > 0 then ((sumu(.cache_creation_input_tokens) / $r * 100) | round)
+          else null end),
       context_peak: (([ $amsgs[] | .message.usage
                         | ((.input_tokens // 0) + (.cache_read_input_tokens // 0)
                            + (.cache_creation_input_tokens // 0)) ] | max) // 0),
@@ -181,7 +442,16 @@ to_entries as $E
         scoping: ([ $decisions[] | select(.type == "scoping") ] | length),
         inline:  ([ $decisions[] | select(.type == "inline") ]  | length),
         gate:    ([ $decisions[] | select(.type == "gate") ]    | length)
+      },
+      friction: {
+        total:      ($friction | length),
+        correction: ([ $friction[] | select(.type == "correction") ] | length),
+        override:   ([ $friction[] | select(.type == "override") ]   | length),
+        rebuke:     ([ $friction[] | select(.type == "rebuke") ]     | length),
+        repeat:     ([ $friction[] | select(.repeat) ]                | length),
+        pushback:   $pushback
       }
     },
-    decisions: $decisions
+    decisions: $decisions,
+    friction: $friction
   }

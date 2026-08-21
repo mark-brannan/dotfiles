@@ -1,0 +1,48 @@
+name: Hook seed check
+
+# Every hook settings.json references must also be seeded by
+# cloud-session-setup.sh. If it isn't, the hook silently no-ops in every cloud
+# session -- and a no-op is indistinguishable from a hook that ran and passed.
+# This invariant was prose in CLAUDE.md and got broken anyway
+# (no-late-pr-subscribe.sh, PR #24), so it is a check now.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  seeded:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Every settings.json hook is in the INSTALL list
+        run: |
+          set -euo pipefail
+          grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' .claude/settings.json \
+            | sort -u > /tmp/referenced
+          # The INSTALL heredoc-style list ends at the closing quote.
+          sed -n '/^INSTALL="/,/^"/p' .local/bin/cloud-session-setup.sh \
+            | grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' \
+            | sort -u > /tmp/installed
+          missing=$(comm -23 /tmp/referenced /tmp/installed)
+          if [ -n "$missing" ]; then
+            echo "::error::settings.json references hooks that cloud-session-setup.sh never seeds:"
+            echo "$missing"
+            echo "Add them to INSTALL in .local/bin/cloud-session-setup.sh."
+            exit 1
+          fi
+          echo "ok: all $(wc -l < /tmp/referenced) referenced hooks are seeded"
+      - name: settings.json hooks run from \$HOME only
+        run: |
+          set -euo pipefail
+          if grep -q 'CLAUDE_PROJECT_DIR/.claude/hooks' .claude/settings.json; then
+            echo "::error::settings.json falls back to \$CLAUDE_PROJECT_DIR for a hook."
+            echo "In a cloud session on a third-party repo that executes THAT repo's"
+            echo "hooks under user-scope trust. Seed the hook to \$HOME instead."
+            exit 1
+          fi
+          echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
