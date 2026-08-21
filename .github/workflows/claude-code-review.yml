@@ -57,6 +57,11 @@ jobs:
             top-level summary. If you find nothing, say so briefly instead of inventing
             findings.
 
+          # 8 turns was not enough once a PR touched a few hundred lines: the
+          # run ended "Reached maximum number of turns" and posted nothing --
+          # a red X meaning "the reviewer ran out of budget", indistinguishable
+          # from a real finding. Comments cannot go inside claude_args; the
+          # action passes that block through to the CLI verbatim.
           claude_args: |
-            --max-turns 8
+            --max-turns 20
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
