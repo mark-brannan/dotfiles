@@ -87,3 +87,9 @@ boards/
 .local/bin/age-keygen
 .local/bin/sops
 .local/bin/claude
+
+# --- nested checkouts, never content ---
+# `git worktree add` under .claude/ puts a whole second checkout of this repo
+# inside the worktree, which here is $HOME. Untracked it is one `git add -A`
+# from being committed into itself.
+.claude/worktrees/
