@@ -134,11 +134,20 @@ Two guards make the `INSTALL` allowlist safe to expand:
 * It **refuses to run where `$HOME` is yadm-managed** — every real machine has
   a yadm repo, an ephemeral VM never does — and skips entirely unless
   `CLOUD_SESSION=1` or `CLAUDE_CODE_REMOTE=true`.
-* Overwriting is necessary on a VM but never silent: identical files are a
-  no-op, a symlink destination is refused as some other manager's, and a
-  differing file is copied to `~/.dotfiles-replaced/` before being replaced.
-  `SKIP_GLOBS` hard-blocks `.gitconfig*`, `.gitignore` and anything
-  sops-shaped even if added to `INSTALL` by mistake.
+* The install itself is atomic: every INSTALL entry is staged into a
+  versioned `~/.claude-config/releases/<sha>/` directory, then a single
+  symlink flip (`~/.claude-config/current`) is the only step that changes
+  what a session actually reads — a session never sees half the old set and
+  half the new one. `$HOME` paths reach that content through their own
+  symlinks into `current`, created once and never touched again. A real
+  file found where a symlink belongs (a leftover from before this design, or
+  something else's) is copied to `~/.dotfiles-replaced/` before being
+  replaced — never silently discarded. `SKIP_GLOBS` hard-blocks
+  `.gitconfig*`, `.gitignore` and anything sops-shaped even if added to
+  `INSTALL` by mistake. `~/.claude/.sync-status.json`, written last, records
+  what actually landed — channel, sha, timestamp and whether the install
+  came out complete — and a missing or `complete: false` file is what the
+  SessionStart brief reports as a degraded session.
 
 A fourth scar: **the setup script runs once, at container creation, not once
 per session.** Containers are checkpointed and reused, so the seed froze at
@@ -148,13 +157,16 @@ pulls the seed before installing from it, and `session-start-seed-refresh.sh`
 re-runs it on every SessionStart — live rather than pinned, because a stale
 standing order in an interactive session is worse than a changed one.
 
-A fifth scar: **seeding without pruning is why a deleted hook keeps running.**
-The container seeded it once, the repo dropped it, and the `$HOME` copy is still
-there and still wins. `PRUNE_DIRS` names the directories the script wholly owns,
-where anything not in `INSTALL` is a leftover and gets removed; `PRUNE_NEVER` is
-the tripwire for shared directories like `.claude` itself, which also holds
-`state/`, `projects/`, `todos/` and `settings.local.json` that the script never
-put there.
+A fifth scar: **seeding without pruning is why a deleted hook kept running.**
+The container seeded it once, the repo dropped it, and the `$HOME` copy was
+still there and still won. The atomic redesign above fixes this structurally
+rather than by sweeping stale files: `OWNED_DIRS` names the directories the
+script wholly owns and links into `$HOME` as a whole (`.claude/hooks`,
+`.claude/rules`), so a file dropped from `INSTALL` just isn't in the next
+staged release — no separate prune step to keep in sync. `OWNED_NEVER` is the
+tripwire for shared directories like `.claude` itself, which also holds
+`state/`, `projects/`, `todos/` and `settings.local.json` that the script
+never put there.
 
 `sh .local/bin/cloud-session-setup.sh --dry-run` previews the whole thing and
 is safe to run on any machine, including yadm-managed ones.

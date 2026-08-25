@@ -200,9 +200,12 @@ decision, not a default.
 seed script reads are set inline by the paste blob (`CLOUD_SESSION=1`) or by the
 harness (`CLAUDE_CODE_REMOTE=true`), so the field stays empty.
 
-**Verify** on the next session: `session-start-continuity.sh` prints the board
-at the top. If it instead prints a "state repo NOT available" notice, step 2
-did not take — see [attaching it to a running
+**Verify** on the next session: `session-start-continuity.sh` prints a
+`config: <channel>@<sha> (installed <timestamp>)` line, then the board. A
+`config: DEGRADED` line means the installer never ran or didn't finish —
+see [a deleted hook keeps running](#a-deleted-hook-keeps-running) for the
+same `~/.claude/.sync-status.json` check. If it instead prints a "state repo
+NOT available" notice, step 2 did not take — see [attaching it to a running
 session](#attach-the-state-repo-to-a-running-session).
 
 ## Attach the state repo to a running session
@@ -238,10 +241,11 @@ Two guards make expansion safe, and both will simply refuse rather than warn:
 - The script refuses to run where `$HOME` is yadm-managed, and skips entirely
   unless `CLOUD_SESSION=1` or `CLAUDE_CODE_REMOTE=true`.
 
-If the new file lives in a directory not already in `PRUNE_DIRS`, decide
+If the new file lives in a directory not already in `OWNED_DIRS`, decide
 whether that directory is *wholly owned* by this script. Only wholly-owned leaf
-directories go in `PRUNE_DIRS`; `PRUNE_NEVER` lists the shared ones that must
-never be pruned.
+directories go in `OWNED_DIRS` — the script links them into `$HOME` as a
+single symlink to the staged release rather than mirroring them file by file;
+`OWNED_NEVER` lists the shared ones that must never be linked that way.
 
 **Every hook `.claude/settings.json` references must be in `INSTALL`.** A hook
 wired in settings but missing from the seed is a silent no-op in every cloud
@@ -560,15 +564,24 @@ purpose; that is a stale session, not a broken one.
 
 ## A deleted hook keeps running
 
-The container seeded it once, the repo dropped it, and the `$HOME` copy is
-still there. Hook commands resolve against `$HOME/.claude/hooks/` and the file
-is present, so it runs — removing it from the repo changed nothing about this
-container.
+`$HOME/.claude/hooks` is a symlink to `~/.claude-config/current/.claude/hooks`
+(and `.claude/rules` the same), so a file dropped from `INSTALL` simply isn't
+in the next staged release — there is no separate prune step to fall out of
+sync, unlike the per-file-copy design this replaced. If a stale hook is still
+running, check first that its directory is actually in `OWNED_DIRS` in
+`.local/bin/cloud-session-setup.sh` — a file outside those two directories is
+linked individually and a rename can leave the old name behind:
 
-This is what `PRUNE_DIRS` in `.local/bin/cloud-session-setup.sh` exists for: any
-file in a pruned directory that is not in `INSTALL` is removed on the next seed.
-If a stale hook survived, its directory is not in `PRUNE_DIRS`. Add it if the
-script wholly owns that directory; delete the file by hand either way.
+```bash
+ls -la ~/.claude/hooks   # should be a symlink -> ~/.claude-config/current/.claude/hooks
+cat ~/.claude/.sync-status.json   # sha/installed_at of what's actually live
+```
+
+If the symlink target is stale (points at a release dir other than
+`~/.claude-config/current`'s own target, or is missing), re-run the installer:
+`CLOUD_SESSION=1 sh ~/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh`.
+If the hook's directory isn't in `OWNED_DIRS` at all, add it there — that's the
+structural fix, not a one-off `rm`.
 
 ## Nothing decrypts on a new machine
 
