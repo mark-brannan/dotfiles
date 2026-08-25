@@ -147,7 +147,10 @@ Two guards make the `INSTALL` allowlist safe to expand:
   `INSTALL` by mistake. `~/.claude/.sync-status.json`, written last, records
   what actually landed — channel, sha, timestamp and whether the install
   came out complete — and a missing or `complete: false` file is what the
-  SessionStart brief reports as a degraded session.
+  SessionStart brief reports as a degraded session. A stage that came up
+  short — a source missing, a copy failed — is discarded rather than
+  activated, so the previous complete release keeps serving the session;
+  superseded releases are removed only after a flip, never before one.
 
 A fourth scar: **the setup script runs once, at container creation, not once
 per session.** Containers are checkpointed and reused, so the seed froze at
