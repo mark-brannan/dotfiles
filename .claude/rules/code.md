@@ -129,7 +129,11 @@ A PR whose diff touches **only** the board/state file (`kanban.md` or
 whatever the repo names it) needs no review and no approval to ask for —
 it's a card, not code; nothing installs it, and the next session to read the
 board fixes anything wrong with it in the same breath it's reading it in
-anyway. Set this up once per repo, not per PR:
+anyway. Only wire this up on a repo where PR authorship is trusted (solo
+maintainer, own bots) — the board is exactly the file a session-start hook
+reads into every future session's context, so skipping review on it is
+skipping review on a live prompt-injection surface, not just inert data.
+Set this up once per repo, not per PR:
 
 - Repo settings: auto-merge enabled, branch deletes on merge.
 - Every review bot the repo runs (CodeRabbit, `claude-review`, etc.) is
@@ -141,11 +145,13 @@ anyway. Set this up once per repo, not per PR:
   immediately, since a board-only diff triggers nothing else.
 
 Keep the merge-rule diff test and the bot skip-filters matched to each
-other — widen one without the other and either unreviewed changes slip past
-a filter that no longer covers them, or a board PR waits on a review it was
-supposed to be exempt from. This does not apply to a repo whose board edits
-already go straight to `main` with no PR at all (e.g. `claude_prompts_scratch`)
-— there's no PR here to auto-merge.
+other — the two can drift in either direction, and each is wrong a
+different way: a bot-skip filter *wider* than the merge rule lets non-board
+changes bypass review, while a bot-skip filter *narrower* than the merge
+rule leaves a board-only PR waiting on a bot it was supposed to be exempt
+from. This does not apply to a repo whose board edits already go straight
+to `main` with no PR at all (e.g. `claude_prompts_scratch`) — there's no PR
+here to auto-merge.
 
 ### Babysitting a PR is cheap; polling for it is not
 
