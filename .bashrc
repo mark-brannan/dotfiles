@@ -157,6 +157,12 @@ fi
 # pull, and `yadm alt` so os-alternates relink immediately afterwards.
 alias dotsync='yadm pull --rebase --autostash && yadm alt && yadm status --short'
 
+# Run from inside the plain ~/dotfiles clone after committing there: pushes it,
+# then folds that same history into $HOME via yadm so edits made in the clone
+# don't need a separate manual sync step. Only makes sense from that clone --
+# $HOME itself is yadm's own worktree, not a plain repo `git push` understands.
+alias dotpush='git push && (cd ~ && dotsync)'
+
 # Secrets decrypted by `yadm bootstrap` (sops+age) land here, never in git.
 # See secrets/*.sops.env and .config/yadm/bootstrap. Mirrors the loop in .zshrc;
 # without it, bash-only hosts never load them. The glob is unquoted on purpose,
