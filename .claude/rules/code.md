@@ -20,6 +20,12 @@ project-specific facts belong in that project's own CLAUDE.md.
 - Recover a tangled graph by branching from current HEAD, not by rewriting
   commits under my feet. Re-check HEAD against the remote before any history
   surgery; it may have moved since session start.
+- **A rejected `--force-with-lease` is a stop, not a step toward `--force`.**
+  The lease refused because the remote moved — someone or something else
+  pushed. Fetch, read what landed, and rebase onto it or come to me. Reaching
+  for `--force` there destroys work that was never yours to discard, and it
+  looks identical to a clean push afterwards. Scar: 2026-08-26, clobbered a
+  rebase on `claude/drap-noaa-colorbar-tiles` while re-signing a commit.
 - Prefer `rm` or an edit over `git rm` for files being replaced, so deletions
   stay unstaged until I commit them.
 - **Work on main by default. Branch-vs-main is a rule, not a judgment
@@ -175,6 +181,24 @@ project-specific facts belong in that project's own CLAUDE.md.
 - **npm publish: no OTP.** My npm account uses browser 2FA with a passkey.
   Run plain `npm publish` and let it open (or print) the auth URL; I approve
   in my browser. Don't ask me for authenticator codes or pass `--otp`.
+- **The auth URL npm prints is redacted before it reaches you.** It looks
+  like a bearer token to the harness's output filter, so it comes back as
+  `https://www.npmjs.com/auth/cli/***` no matter how you capture it (stdout,
+  a log file). Hand me the exact command
+  (`cd <pkg> && npm publish [--tag alpha] [--access public]`) and tell me to
+  run it myself in my own terminal, where the real URL is visible.
+  - If the local `npm` is too old to print a URL at all and just throws
+    `EOTP` (check `npm --version`; hit at 9.2.0), rerun through
+    `npx -y npm@latest publish ...` — a current CLI supports the
+    browser/passkey flow an old one doesn't.
+  - Each failed attempt mints a fresh, unrelated auth URL — a login done for
+    a different purpose doesn't retroactively authorize a pending publish.
+    After I approve in the browser, retry the same `npm publish` command;
+    don't assume it went through.
+  - The browser passkey prompt offers "do not challenge npm
+    publish/trust from this IP for N minutes" — checking it covers every
+    `npm publish` from this machine for that window, so batch multiple
+    packages inside it instead of re-prompting per package.
 
 ## Design
 
