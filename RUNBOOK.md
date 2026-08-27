@@ -52,6 +52,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Nothing decrypts on a new machine](#nothing-decrypts-on-a-new-machine)
 - [PR checks fail immediately with an empty credential](#pr-checks-fail-immediately-with-an-empty-credential)
 - [The security-review workflow cannot use an OAuth token](#the-security-review-workflow-cannot-use-an-oauth-token)
+- [A dev server in WSL2 is unreachable from any other device](#a-dev-server-in-wsl2-is-unreachable-from-any-other-device)
 
 ---
 
@@ -644,3 +645,39 @@ gh run list --workflow claude-security-review.yml --repo mark-brannan/dotfiles -
 Verify whichever you pick by re-running the check, not by reading the workflow:
 a green `review` and a still-red `security` is the state that means only half
 the decision has been made.
+
+## A dev server in WSL2 is unreachable from any other device
+
+A server started inside WSL2 answers on every address from inside WSL —
+loopback, LAN, Tailscale — and times out from a phone, a tablet, or even the
+Windows host it is running on. Nothing is wrong with the server. Under
+mirrored networking WSL shares the Windows network namespace, so Windows
+Firewall governs its inbound traffic and blocks it by default.
+
+From the Windows host itself, `localhost` works with no change:
+
+```
+http://localhost:<port>/
+```
+
+To reach it from another device, open the ports once, in an **administrator**
+PowerShell on Windows. The `VMCreatorId` is WSL's, and is the same GUID on
+every machine:
+
+```powershell
+New-NetFirewallHyperVRule -Name WSL-DevServers -DisplayName "WSL dev servers" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 3010,8742 -Action Allow
+```
+
+Verify from a *different* device on the LAN or the tailnet — not from the
+Windows host, whose `localhost` worked before the rule and proves nothing:
+
+```shell
+curl -s -m 5 -o /dev/null -w '%{http_code}\n' http://<lan-or-tailscale-ip>:<port>/
+```
+
+`200` (or a redirect) means the rule took. A timeout means it did not — check
+`Get-NetFirewallHyperVRule -Name WSL-DevServers` exists and that the ports in
+it match the ones actually listening.
+
+Remove it with `Remove-NetFirewallHyperVRule -Name WSL-DevServers`, and edit
+`-LocalPorts` rather than adding a second rule when the set of ports changes.
