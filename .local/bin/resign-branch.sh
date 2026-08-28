@@ -35,6 +35,14 @@ git config user.signingkey >/dev/null 2>&1 || {
 }
 
 git fetch -q "$remote" "$branch"
+
+if git rev-parse --verify -q "$branch" >/dev/null; then
+  ahead=$(git rev-list --count "$remote/$branch..$branch")
+  [ "$ahead" -eq 0 ] || {
+    echo "resign-branch: local $branch has $ahead commit(s) not on $remote/$branch — refusing to reset and discard them. Push or rebase them onto $remote/$branch first." >&2
+    exit 1
+  }
+fi
 git checkout -q -B "$branch" "$remote/$branch"
 
 base=$(git merge-base "$branch" "$remote/HEAD") || {
@@ -42,8 +50,13 @@ base=$(git merge-base "$branch" "$remote/HEAD") || {
   exit 1
 }
 
+git rev-list --merges "$base..$branch" | grep -q . && {
+  echo "resign-branch: $branch..$base contains merge commit(s) — a plain rebase would drop them and their conflict resolutions. Refusing; re-sign manually with --rebase-merges if that's really what you want." >&2
+  exit 1
+}
+
 echo "resign-branch: re-signing $(git rev-list --count "$base..$branch") commit(s) on $branch"
-GIT_SEQUENCE_EDITOR=true git rebase -q -S "$base" "$branch"
+GIT_SEQUENCE_EDITOR=true git rebase -q -S --force-rebase "$base" "$branch"
 
 echo "resign-branch: verifying signatures"
 # Note: with gpg.format ssh, %G? reports E unless gpg.ssh.allowedSignersFile
