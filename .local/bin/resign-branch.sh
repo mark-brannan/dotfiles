@@ -37,18 +37,24 @@ git config user.signingkey >/dev/null 2>&1 || {
 git fetch -q "$remote" "$branch"
 git checkout -q -B "$branch" "$remote/$branch"
 
-base=$(git merge-base "$branch" "$remote/HEAD" 2>/dev/null) || base=$(git rev-list --max-parents=0 "$branch")
+base=$(git merge-base "$branch" "$remote/HEAD") || {
+  echo "resign-branch: couldn't determine merge-base against $remote/HEAD — is it set? (git remote set-head $remote -a)" >&2
+  exit 1
+}
 
 echo "resign-branch: re-signing $(git rev-list --count "$base..$branch") commit(s) on $branch"
 GIT_SEQUENCE_EDITOR=true git rebase -q -S "$base" "$branch"
 
 echo "resign-branch: verifying signatures"
+# Note: with gpg.format ssh, %G? reports E unless gpg.ssh.allowedSignersFile
+# is configured for your own key — set that up first, or this loop will
+# false-alarm on good signatures and train you to ignore it.
 git log --pretty='%H %G?' "$base..$branch" | while read -r sha status; do
   case "$status" in
     G) : ;;
-    *) echo "resign-branch: $sha did not verify locally (status $status)" >&2 ;;
+    *) echo "resign-branch: $sha did not verify locally (status $status)" >&2; exit 1 ;;
   esac
-done
+done || { echo "resign-branch: aborting push, not all commits verified" >&2; exit 1; }
 
 git push --force-with-lease "$remote" "$branch"
 echo "resign-branch: pushed $branch to $remote"
