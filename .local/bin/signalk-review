@@ -1,0 +1,168 @@
+#!/bin/sh
+# signalk-review — stand up an isolated test rig for one PR of
+# signalk-noaa-space-weather, without touching your everyday checkout or the
+# shared ~/.signalk:3010 instance.
+#
+# POSIX sh. Deps: git, node, npm — nothing else. Every PR gets its own git
+# worktree (fetched by PR number via refs/pull/<n>/head, so you never need to
+# know or guess the branch name) and its own throwaway signalk-server config
+# + port, so it never fights your main dev symlink, your uncommitted work in
+# ~/signalk-noaa-space-weather, or anyone else on the shared 3010 instance.
+# Nothing here needs the dev-server.lock in ~/.signalk/locks/ — it's a
+# separate instance.
+#
+# Usage:
+#   signalk-review <pr-number>            # fetch, build, start; print URLs
+#   signalk-review --stop <pr-number>     # kill that PR's server
+#   signalk-review --clean <pr-number>    # stop, then remove its worktree
+#   signalk-review --list                 # show what's currently checked out
+#
+# Env overrides:
+#   SIGNALK_REVIEW_REPO   path to your signalk-noaa-space-weather clone
+#                         (default: ~/signalk-noaa-space-weather)
+#   SIGNALK_REVIEW_ROOT   where worktrees + configs live
+#                         (default: ~/.signalk-review)
+#   SIGNALK_REVIEW_REMOTE remote to fetch pull refs from (default: origin)
+
+set -eu
+
+REPO="${SIGNALK_REVIEW_REPO:-$HOME/signalk-noaa-space-weather}"
+ROOT="${SIGNALK_REVIEW_ROOT:-$HOME/.signalk-review}"
+REMOTE="${SIGNALK_REVIEW_REMOTE:-origin}"
+# Ports 3000/3001 are symphony's; 3010 is the shared ~/.signalk dev instance.
+# PR rigs live above that range, one per PR number so ports don't collide.
+BASE_PORT=3100
+
+die() { echo "signalk-review: $*" >&2; exit 1; }
+
+[ -d "$REPO/.git" ] || die "no repo at $REPO (set SIGNALK_REVIEW_REPO)"
+command -v git >/dev/null || die "git not found"
+command -v node >/dev/null || die "node not found"
+command -v npm >/dev/null || die "npm not found"
+
+port_for() { echo $((BASE_PORT + $1)); }
+worktree_dir() { echo "$ROOT/pr-$1"; }
+config_dir() { echo "$ROOT/pr-$1-config"; }
+pidfile() { echo "$ROOT/pr-$1.pid"; }
+
+list_rigs() {
+  [ -d "$ROOT" ] || { echo "no PR rigs yet"; return; }
+  for wt in "$ROOT"/pr-*; do
+    case "$wt" in *-config) continue ;; esac
+    [ -d "$wt" ] || continue
+    n=$(basename "$wt" | sed 's/^pr-//')
+    pf=$(pidfile "$n")
+    if [ -f "$pf" ] && kill -0 "$(cat "$pf")" 2>/dev/null; then
+      state="running :$(port_for "$n")  http://127.0.0.1:$(port_for "$n")/signalk-noaa-space-weather/"
+    else
+      state="stopped"
+    fi
+    echo "PR $n  $state  $wt"
+  done
+}
+
+stop_rig() {
+  n="$1"
+  pf=$(pidfile "$n")
+  if [ -f "$pf" ]; then
+    pid=$(cat "$pf")
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      echo "stopped PR $n server (pid $pid)"
+    fi
+    rm -f "$pf"
+  else
+    echo "PR $n: no running server tracked"
+  fi
+}
+
+clean_rig() {
+  n="$1"
+  stop_rig "$n"
+  wt=$(worktree_dir "$n")
+  cfg=$(config_dir "$n")
+  if [ -d "$wt" ]; then
+    git -C "$REPO" worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
+  fi
+  rm -rf "$cfg"
+  git -C "$REPO" branch -D "review/pr-$n" 2>/dev/null || true
+  echo "removed worktree and config for PR $n"
+}
+
+start_rig() {
+  n="$1"
+  mkdir -p "$ROOT"
+  wt=$(worktree_dir "$n")
+  cfg=$(config_dir "$n")
+  port=$(port_for "$n")
+
+  echo "fetching PR #$n..."
+  git -C "$REPO" fetch "$REMOTE" "pull/$n/head:review/pr-$n" \
+    || git -C "$REPO" fetch "$REMOTE" "pull/$n/head" \
+    || die "could not fetch PR #$n from $REMOTE"
+
+  if [ -d "$wt" ]; then
+    echo "worktree already exists at $wt, resetting to latest fetch..."
+    git -C "$wt" checkout review/pr-$n 2>/dev/null || git -C "$wt" checkout FETCH_HEAD
+    git -C "$wt" reset --hard FETCH_HEAD
+  else
+    git -C "$REPO" worktree add "$wt" review/pr-$n 2>/dev/null \
+      || git -C "$REPO" worktree add "$wt" FETCH_HEAD
+  fi
+
+  echo "building..."
+  ( cd "$wt" && npm install --no-audit --no-fund && npm run build )
+
+  mkdir -p "$cfg/node_modules" "$cfg/plugin-config-data"
+  ln -sfn "$wt" "$cfg/node_modules/signalk-noaa-space-weather"
+  [ -f "$cfg/settings.json" ] || cat > "$cfg/settings.json" <<EOF
+{ "port": $port, "interfaces": {} }
+EOF
+  [ -f "$cfg/plugin-config-data/signalk-noaa-space-weather.json" ] || \
+    cat > "$cfg/plugin-config-data/signalk-noaa-space-weather.json" <<'EOF'
+{ "enabled": true, "enableLogging": false, "configuration": {} }
+EOF
+
+  # signalk-server must already be resolvable from the worktree's own
+  # node_modules (npm install above pulls it in as a devDependency-adjacent
+  # dep only if declared; if not, fall back to a global/linked install).
+  SERVER_BIN=""
+  for candidate in \
+    "$wt/node_modules/signalk-server/bin/signalk-server" \
+    "$REPO/node_modules/signalk-server/bin/signalk-server" \
+    "$(command -v signalk-server 2>/dev/null || true)"
+  do
+    [ -n "$candidate" ] && [ -e "$candidate" ] && { SERVER_BIN="$candidate"; break; }
+  done
+  if [ -z "$SERVER_BIN" ]; then
+    echo "no signalk-server binary found; installing one into $cfg..."
+    ( cd "$cfg" && npm install --no-audit --no-fund signalk-server )
+    SERVER_BIN="$cfg/node_modules/signalk-server/bin/signalk-server"
+  fi
+
+  echo "starting on port $port..."
+  ( cd "$cfg" && \
+    SIGNALK_NODE_CONFIG_DIR="$cfg" PORT="$port" \
+    setsid nohup node "$SERVER_BIN" > "$ROOT/pr-$n.log" 2>&1 < /dev/null & \
+    echo $! > "$(pidfile "$n")" )
+  sleep 3
+
+  addr=$(hostname -I 2>/dev/null | awk '{print $1}')
+  echo
+  echo "PR #$n test rig:"
+  echo "  http://127.0.0.1:$port/signalk-noaa-space-weather/"
+  [ -n "$addr" ] && echo "  http://$addr:$port/signalk-noaa-space-weather/"
+  echo "  log: $ROOT/pr-$n.log"
+  echo "  stop with: signalk-review --stop $n"
+}
+
+case "${1:-}" in
+  --list) list_rigs ;;
+  --stop) shift; [ $# -eq 1 ] || die "usage: signalk-review --stop <pr-number>"; stop_rig "$1" ;;
+  --clean) shift; [ $# -eq 1 ] || die "usage: signalk-review --clean <pr-number>"; clean_rig "$1" ;;
+  -h|--help|"") sed -n '2,25p' "$0"; exit 0 ;;
+  *)
+    case "$1" in *[!0-9]*) die "expected a PR number, got '$1'" ;; esac
+    start_rig "$1"
+    ;;
+esac

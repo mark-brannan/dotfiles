@@ -1,0 +1,130 @@
+#!/bin/sh
+# signalk-webapp — start/stop the mock webapp rig (scripts/mock-webapp.mjs)
+# from signalk-noaa-space-weather, tracked by pidfile so stopping it never
+# has to guess which "node" process is safe to kill.
+#
+# Never uses pkill/killall by pattern: this machine runs plenty of other
+# node processes, and a pattern match is exactly the kind of "robust" that
+# kills the wrong thing. Every start writes a pidfile keyed by port; every
+# stop reads that pidfile and kills only that pid, after confirming it's
+# still the process that's listening.
+#
+# Usage:
+#   signalk-webapp [port]          start (default 8731); refuses cleanly
+#                                   if the port is already taken by
+#                                   something this script didn't start
+#   signalk-webapp --stop [port]   stop the rig on that port (default 8731)
+#   signalk-webapp --list          show every rig this script is tracking
+#
+# Env overrides:
+#   SIGNALK_REVIEW_REPO   path to your signalk-noaa-space-weather clone
+#   SIGNALK_REVIEW_ROOT   where pidfiles/logs live (default: ~/.signalk-review)
+
+set -eu
+
+REPO="${SIGNALK_REVIEW_REPO:-$HOME/signalk-noaa-space-weather}"
+ROOT="${SIGNALK_REVIEW_ROOT:-$HOME/.signalk-review}"
+DEFAULT_PORT=8731
+
+die() { echo "signalk-webapp: $*" >&2; exit 1; }
+
+pidfile() { echo "$ROOT/webapp-$1.pid"; }
+
+# True if some process is listening on $1, using whichever tool exists.
+port_busy() {
+  p="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -tiTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":$p\$"
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser "$p"/tcp >/dev/null 2>&1
+  else
+    return 1  # can't check; assume free rather than block the user
+  fi
+}
+
+list_rigs() {
+  [ -d "$ROOT" ] || { echo "no webapp rigs tracked"; return; }
+  found=0
+  for pf in "$ROOT"/webapp-*.pid; do
+    [ -f "$pf" ] || continue
+    found=1
+    port=$(basename "$pf" | sed -e 's/^webapp-//' -e 's/\.pid$//')
+    pid=$(cat "$pf")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "port $port  running (pid $pid)  http://127.0.0.1:$port/"
+    else
+      echo "port $port  stale pidfile (process gone) — cleaning up"
+      rm -f "$pf"
+    fi
+  done
+  [ "$found" = 1 ] || echo "no webapp rigs tracked"
+}
+
+stop_rig() {
+  port="$1"
+  pf=$(pidfile "$port")
+  if [ ! -f "$pf" ]; then
+    if port_busy "$port"; then
+      die "port $port is busy but not one this script started — not touching it. Find it yourself: lsof -i :$port"
+    fi
+    echo "port $port: nothing tracked, nothing to stop"
+    return
+  fi
+  pid=$(cat "$pf")
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid"
+    echo "stopped webapp rig on port $port (pid $pid)"
+  else
+    echo "port $port: tracked pid $pid was already gone"
+  fi
+  rm -f "$pf"
+}
+
+start_rig() {
+  port="$1"
+  mkdir -p "$ROOT"
+  [ -d "$REPO/.git" ] || die "no repo at $REPO (set SIGNALK_REVIEW_REPO)"
+  [ -f "$REPO/scripts/mock-webapp.mjs" ] || die "$REPO/scripts/mock-webapp.mjs not found"
+
+  pf=$(pidfile "$port")
+  if [ -f "$pf" ]; then
+    pid=$(cat "$pf")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "already running on port $port (pid $pid) — http://127.0.0.1:$port/"
+      return
+    fi
+    rm -f "$pf"  # stale
+  fi
+
+  if port_busy "$port"; then
+    die "port $port is already in use by something this script isn't tracking. Stop it yourself, or pick another port: signalk-webapp <other-port>"
+  fi
+
+  ( cd "$REPO" && \
+    setsid nohup node scripts/mock-webapp.mjs "$port" \
+      > "$ROOT/webapp-$port.log" 2>&1 < /dev/null & \
+    echo $! > "$pf" )
+  sleep 1
+
+  if ! kill -0 "$(cat "$pf")" 2>/dev/null; then
+    rm -f "$pf"
+    die "failed to start — see $ROOT/webapp-$port.log"
+  fi
+
+  addr=$(hostname -I 2>/dev/null | awk '{print $1}')
+  echo "mock webapp rig on port $port (pid $(cat "$pf")):"
+  echo "  http://127.0.0.1:$port/"
+  [ -n "$addr" ] && echo "  http://$addr:$port/"
+  echo "  log: $ROOT/webapp-$port.log"
+  echo "  stop with: signalk-webapp --stop $port"
+}
+
+case "${1:-}" in
+  --list) list_rigs ;;
+  --stop) shift; stop_rig "${1:-$DEFAULT_PORT}" ;;
+  -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+  *[!0-9]*) die "expected a port number, got '$1'" ;;
+  *) start_rig "${1:-$DEFAULT_PORT}" ;;
+esac
