@@ -1,15 +1,19 @@
 #!/bin/sh
-# signalk-review — stand up an isolated test rig for one PR of
-# signalk-noaa-space-weather, without touching your everyday checkout or the
-# shared ~/.signalk:3010 instance.
+# signalk-review — stand up an isolated test rig for one PR of a Signal K
+# plugin repo, without touching your everyday checkout or the shared
+# ~/.signalk:3010 instance.
+#
+# Not tied to signalk-noaa-space-weather: point SIGNALK_REVIEW_REPO at any
+# Signal K plugin repo (its package.json's "name" is what gets symlinked and
+# enabled) and it works the same way. Rigs for different plugins never
+# collide — the worktree, config and port are all keyed by "<plugin>-pr-<n>".
 #
 # POSIX sh. Deps: git, node, npm — nothing else. Every PR gets its own git
 # worktree (fetched by PR number via refs/pull/<n>/head, so you never need to
 # know or guess the branch name) and its own throwaway signalk-server config
 # + port, so it never fights your main dev symlink, your uncommitted work in
-# ~/signalk-noaa-space-weather, or anyone else on the shared 3010 instance.
-# Nothing here needs the dev-server.lock in ~/.signalk/locks/ — it's a
-# separate instance.
+# the repo, or anyone else on the shared 3010 instance. Nothing here needs
+# the dev-server.lock in ~/.signalk/locks/ — it's a separate instance.
 #
 # Usage:
 #   signalk-review <pr-number>            # fetch, build, start; print URLs
@@ -18,7 +22,7 @@
 #   signalk-review --list                 # show what's currently checked out
 #
 # Env overrides:
-#   SIGNALK_REVIEW_REPO   path to your signalk-noaa-space-weather clone
+#   SIGNALK_REVIEW_REPO   path to the plugin's clone
 #                         (default: ~/signalk-noaa-space-weather)
 #   SIGNALK_REVIEW_ROOT   where worktrees + configs live
 #                         (default: ~/.signalk-review)
@@ -30,7 +34,7 @@ REPO="${SIGNALK_REVIEW_REPO:-$HOME/signalk-noaa-space-weather}"
 ROOT="${SIGNALK_REVIEW_ROOT:-$HOME/.signalk-review}"
 REMOTE="${SIGNALK_REVIEW_REMOTE:-origin}"
 # Ports 3000/3001 are symphony's; 3010 is the shared ~/.signalk dev instance.
-# PR rigs live above that range, one per PR number so ports don't collide.
+# PR rigs live above that range, one per (plugin, PR number) so ports don't collide.
 BASE_PORT=3100
 
 die() { echo "signalk-review: $*" >&2; exit 1; }
@@ -40,24 +44,47 @@ command -v git >/dev/null || die "git not found"
 command -v node >/dev/null || die "node not found"
 command -v npm >/dev/null || die "npm not found"
 
-port_for() { echo $((BASE_PORT + $1)); }
-worktree_dir() { echo "$ROOT/pr-$1"; }
-config_dir() { echo "$ROOT/pr-$1-config"; }
-pidfile() { echo "$ROOT/pr-$1.pid"; }
+PLUGIN=$(node -p "require('$REPO/package.json').name" 2>/dev/null) \
+  || die "couldn't read \"name\" from $REPO/package.json"
+[ -n "$PLUGIN" ] || die "$REPO/package.json has no \"name\""
+
+# A stable small int per plugin, so different plugins land on different
+# base ports instead of all starting at 3100 and colliding on PR 1.
+plugin_offset() {
+  sum=0
+  i=0
+  n=${#PLUGIN}
+  while [ "$i" -lt "$n" ]; do
+    c=$(printf '%s' "$PLUGIN" | cut -c$((i + 1)))
+    sum=$((sum + $(printf '%d' "'$c")))
+    i=$((i + 1))
+  done
+  echo $((sum % 50 * 10))  # spread across a 500-port band above BASE_PORT
+}
+PLUGIN_BASE=$((BASE_PORT + $(plugin_offset)))
+
+port_for() { echo $((PLUGIN_BASE + $1)); }
+key() { echo "${PLUGIN}-pr-$1"; }
+worktree_dir() { echo "$ROOT/$(key "$1")"; }
+config_dir() { echo "$ROOT/$(key "$1")-config"; }
+pidfile() { echo "$ROOT/$(key "$1").pid"; }
 
 list_rigs() {
   [ -d "$ROOT" ] || { echo "no PR rigs yet"; return; }
-  for wt in "$ROOT"/pr-*; do
+  for wt in "$ROOT"/*-pr-*; do
     case "$wt" in *-config) continue ;; esac
     [ -d "$wt" ] || continue
-    n=$(basename "$wt" | sed 's/^pr-//')
-    pf=$(pidfile "$n")
+    base=$(basename "$wt")
+    plugin=${base%-pr-*}
+    n=${base##*-pr-}
+    pf="$ROOT/$base.pid"
+    port=$((BASE_PORT + $(PLUGIN="$plugin" plugin_offset) + n))
     if [ -f "$pf" ] && kill -0 "$(cat "$pf")" 2>/dev/null; then
-      state="running :$(port_for "$n")  http://127.0.0.1:$(port_for "$n")/signalk-noaa-space-weather/"
+      state="running :$port  http://127.0.0.1:$port/$plugin/"
     else
       state="stopped"
     fi
-    echo "PR $n  $state  $wt"
+    echo "$plugin PR $n  $state  $wt"
   done
 }
 
@@ -114,12 +141,12 @@ start_rig() {
   ( cd "$wt" && npm install --no-audit --no-fund && npm run build )
 
   mkdir -p "$cfg/node_modules" "$cfg/plugin-config-data"
-  ln -sfn "$wt" "$cfg/node_modules/signalk-noaa-space-weather"
+  ln -sfn "$wt" "$cfg/node_modules/$PLUGIN"
   [ -f "$cfg/settings.json" ] || cat > "$cfg/settings.json" <<EOF
 { "port": $port, "interfaces": {} }
 EOF
-  [ -f "$cfg/plugin-config-data/signalk-noaa-space-weather.json" ] || \
-    cat > "$cfg/plugin-config-data/signalk-noaa-space-weather.json" <<'EOF'
+  [ -f "$cfg/plugin-config-data/$PLUGIN.json" ] || \
+    cat > "$cfg/plugin-config-data/$PLUGIN.json" <<'EOF'
 { "enabled": true, "enableLogging": false, "configuration": {} }
 EOF
 
@@ -141,19 +168,20 @@ EOF
   fi
 
   echo "starting on port $port..."
+  logfile="$ROOT/$(key "$n").log"
   ( cd "$cfg" && \
     SIGNALK_NODE_CONFIG_DIR="$cfg" PORT="$port" \
-    setsid nohup node "$SERVER_BIN" > "$ROOT/pr-$n.log" 2>&1 < /dev/null & \
+    setsid nohup node "$SERVER_BIN" > "$logfile" 2>&1 < /dev/null & \
     echo $! > "$(pidfile "$n")" )
   sleep 3
 
   addr=$(hostname -I 2>/dev/null | awk '{print $1}')
   echo
-  echo "PR #$n test rig:"
-  echo "  http://127.0.0.1:$port/signalk-noaa-space-weather/"
-  [ -n "$addr" ] && echo "  http://$addr:$port/signalk-noaa-space-weather/"
-  echo "  log: $ROOT/pr-$n.log"
-  echo "  stop with: signalk-review --stop $n"
+  echo "$PLUGIN PR #$n test rig:"
+  echo "  http://127.0.0.1:$port/$PLUGIN/"
+  [ -n "$addr" ] && echo "  http://$addr:$port/$PLUGIN/"
+  echo "  log: $logfile"
+  echo "  stop with: signalk-review --stop $n   (with SIGNALK_REVIEW_REPO=$REPO)"
 }
 
 case "${1:-}" in
