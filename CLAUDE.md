@@ -16,6 +16,7 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 - `.config/yadm/bootstrap` — decrypts sops-managed secrets. Idempotent.
 - `.config/yadm/hooks/pre_commit` — the commit-time gate against credentials.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
+- `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
 - `.local/bin/cloud-session-setup.sh` — seeds a subset of this repo into `$HOME`
   on an ephemeral cloud VM.
 - `.claude/cloud-setup.sh` — writes `deniedMcpServers` at user scope.
@@ -85,7 +86,8 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 ## Shell scripts here
 
 - **POSIX `sh` unless there is a reason.** `bootstrap`, `pre_commit`,
-  `dotfiles-triage.sh` and `cloud-session-setup.sh` all run in places where
+  `dotfiles-triage.sh`, `dotfiles-add-secret.sh` and `cloud-session-setup.sh` all
+  run in places where
   bash may not be what `sh` points at.
 - **Fail closed on a gate, exit 0 on a convenience.** `pre_commit` aborts when
   it can't inspect the commit; `cloud-session-setup.sh` always exits 0, because

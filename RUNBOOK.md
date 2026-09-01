@@ -429,62 +429,28 @@ App. It needs no secret, so none of this affects it.
 
 ## Add a secret
 
-Ciphertext lives tracked at `~/secrets/<name>.sops.env`; `yadm bootstrap`
-decrypts each into `~/.config/secrets/<name>.env`, which is gitignored and
-outside the git working tree, so plaintext can never be swept up by a later
-`yadm add`. `.zshrc`/`.bashrc` source everything under `~/.config/secrets/*.env`
-at shell startup.
-
-Pick the name first — it is the only thing you edit. Everything below is
-copy-paste as-is once `NAME` is set:
-
 ```bash
-NAME=example
+dotfiles-add-secret.sh <name>
 ```
 
-Write the plaintext straight to its final path and encrypt it in place. Don't
-encrypt from `/tmp`: `.sops.yaml` matches on `secrets/` and on the
-`.sops.<ext>` suffix, so a file anywhere else fails with `no matching creation
-rules found`.
+That is the whole procedure. `<name>` is the only thing you choose: the
+ciphertext lands tracked at `~/secrets/<name>.sops.env`, and `yadm bootstrap`
+decrypts it to `~/.config/secrets/<name>.env`, which is gitignored and outside
+the git working tree so plaintext can never be swept up by a later `yadm add`.
+`.zshrc`/`.bashrc` source everything under `~/.config/secrets/*.env` at startup.
 
-```bash
-$EDITOR ~/secrets/$NAME.sops.env
-```
+The script opens `$EDITOR` on the new file — write `KEY=value` lines, one per
+line, no `export`, no quotes unless the value contains spaces — then encrypts
+in place, asks before committing, and runs the bootstrap. It refuses to stage
+anything it can't prove is ciphertext, and deletes the plaintext file if you
+quit the editor without writing any values. `--no-commit` stops short of the
+`yadm commit`.
 
-`KEY=value` lines, one per line, no `export`, no quotes unless the value
-contains spaces. Save and exit, then:
+*Verify:* it prints `==> encrypted ...` and `==> decrypted to ... (N value(s))`
+with N matching the lines you wrote. Anything else is a failure and it exits
+non-zero.
 
-```bash
-sops -e -i ~/secrets/$NAME.sops.env
-```
-
-Verify it is really ciphertext before it goes anywhere near a commit — a file
-that matched no creation rule is committed in the clear:
-
-```bash
-head -3 ~/secrets/$NAME.sops.env
-```
-
-Every line must read `KEY=ENC[AES256_GCM,...]`. If you see your own value, stop
-and re-run the `sops -e -i` line.
-
-```bash
-yadm add ~/secrets/$NAME.sops.env
-yadm commit -m "secrets: add $NAME"
-yadm bootstrap
-```
-
-*Verify:* the bootstrap prints `decrypted ... -> ~/.config/secrets/$NAME.env`,
-and
-
-```bash
-grep -c = ~/.config/secrets/$NAME.env
-```
-
-matches the number of `KEY=value` lines you wrote.
-
-The value only reaches a shell that started after the bootstrap — open a new
-one, or `source ~/.config/secrets/$NAME.env` in this one:
+The value only reaches shells started after the bootstrap:
 
 ```bash
 exec $SHELL -l
@@ -492,12 +458,25 @@ exec $SHELL -l
 
 On every other machine: `dotsync && yadm bootstrap`, then a fresh shell.
 
+**If the script isn't there** (a cloud session, a box mid-bootstrap), the same
+five steps by hand. Write the plaintext at its final path — `.sops.yaml` only
+matches `secrets/` and the `.sops.<ext>` suffix, so encrypting from `/tmp`
+fails with `no matching creation rules found`:
+
+```bash
+NAME=example
+$EDITOR ~/secrets/$NAME.sops.env
+sops -e -i ~/secrets/$NAME.sops.env
+head -3 ~/secrets/$NAME.sops.env    # every value must read KEY=ENC[AES256_GCM,...]
+yadm add ~/secrets/$NAME.sops.env && yadm commit -m "secrets: add $NAME" && yadm bootstrap
+```
+
 **Exception — a secret you do not want in every process.** The startup loop
 exports into every shell and everything it spawns. `claude-token.env` is
 excluded from that loop by name and sourced only inside the `claude` wrapper
-function (see `.zshrc`, the `claude()` function). If a new secret needs the
-same treatment, add its basename to the `case` in both `.zshrc` and `.bashrc`
-and scope it to its own wrapper; it will not be sourced automatically.
+function (see `.zshrc`). A new secret needing the same treatment gets its
+basename added to the `case` in both `.zshrc` and `.bashrc` and its own
+wrapper; the script does not do this for you.
 
 ## Rotate a secret
 
