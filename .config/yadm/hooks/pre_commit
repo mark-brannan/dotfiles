@@ -55,6 +55,11 @@ done
   y diff --cached -U0 --diff-filter=ACMR
   [ "$scan_worktree" = yes ] && y diff -U0 --diff-filter=ACMR
 } | grep '^+' | grep -v '^+++' |
+  # sops ciphertext is the point of this repo, not a leak: a value that is
+  # already ENC[...] is safe whatever its key is called. Without this, any
+  # secrets/*.sops.env holding an api_key/access_token/password key trips the
+  # detector below on its own ciphertext.
+  LC_ALL=C grep -vE '[:=][[:space:]]*"?ENC\[AES256_GCM,' |
   LC_ALL=C grep -inE "(_authtoken|api[_-]?key|secret[_-]?key|access[_-]?token|oauth_token|password)[[:space:]]*[:=][[:space:]]*['\"]?[^\$'\"[:space:]]{8,}|npm_[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|BEGIN [A-Z ]*PRIVATE KEY" |
   cut -c1-110 | head -5 |
   while IFS= read -r hit; do
