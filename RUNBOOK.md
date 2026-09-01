@@ -656,28 +656,32 @@ Firewall governs its inbound traffic and blocks it by default.
 
 From the Windows host itself, `localhost` works with no change:
 
-```
+```text
 http://localhost:<port>/
 ```
 
 To reach it from another device, open the ports once, in an **administrator**
 PowerShell on Windows. The `VMCreatorId` is WSL's, and is the same GUID on
-every machine:
+every machine. `-Profiles` is scoped to `Private,Domain` deliberately — the
+unscoped default is `Any`, which would leave these ports open on a `Public`
+profile too, e.g. the laptop on coffee-shop wifi:
 
 ```powershell
-New-NetFirewallHyperVRule -Name WSL-DevServers -DisplayName "WSL dev servers" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 3010,8742 -Action Allow
+New-NetFirewallHyperVRule -Name WSL-DevServers -DisplayName "WSL dev servers" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 3010,8742 -Profiles Private,Domain -Action Allow
 ```
 
 Verify from a *different* device on the LAN or the tailnet — not from the
 Windows host, whose `localhost` worked before the rule and proves nothing:
 
 ```shell
-curl -s -m 5 -o /dev/null -w '%{http_code}\n' http://<lan-or-tailscale-ip>:<port>/
+curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}\n' http://<lan-or-tailscale-ip>:<port>/
 ```
 
-`200` (or a redirect) means the rule took. A timeout means it did not — check
-`Get-NetFirewallHyperVRule -Name WSL-DevServers` exists and that the ports in
-it match the ones actually listening.
+`--connect-timeout` bounds the TCP handshake, not the whole transfer — a slow
+response otherwise reads the same as a blocked port. Any HTTP status code
+means the rule took, including `401`/`404`/`500`; only a timeout means it did
+not — check `Get-NetFirewallHyperVRule -Name WSL-DevServers` exists and that
+the ports in it match the ones actually listening.
 
 Remove it with `Remove-NetFirewallHyperVRule -Name WSL-DevServers`, and edit
 `-LocalPorts` rather than adding a second rule when the set of ports changes.
