@@ -428,27 +428,75 @@ App. It needs no secret, so none of this affects it.
 
 ## Add a secret
 
-Ciphertext lives tracked at `~/secrets/<name>.sops.env`; the bootstrap decrypts
-each into `~/.config/secrets/<name>.env`, which is gitignored and outside the
-git working tree, so plaintext can never be swept up by a later `yadm add`.
-`.zshrc`/`.bashrc` source everything under `~/.config/secrets/*.env` at startup.
+Ciphertext lives tracked at `~/secrets/<name>.sops.env`; `yadm bootstrap`
+decrypts each into `~/.config/secrets/<name>.env`, which is gitignored and
+outside the git working tree, so plaintext can never be swept up by a later
+`yadm add`. `.zshrc`/`.bashrc` source everything under `~/.config/secrets/*.env`
+at shell startup.
+
+Pick the name first — it is the only thing you edit. Everything below is
+copy-paste as-is once `NAME` is set:
 
 ```bash
-$EDITOR /tmp/new.env                    # KEY=value lines
-sops -e /tmp/new.env > ~/secrets/new.sops.env
-shred -u /tmp/new.env
-yadm add ~/secrets/new.sops.env
-yadm commit -m "secrets: add new"
-yadm bootstrap                          # decrypts it into ~/.config/secrets/
+NAME=example
 ```
 
-`.sops.yaml` matches on `secrets/` and on `.sops.<ext>` suffixes, so both
-conventions encrypt automatically. Verify before committing — a file that
-matched no creation rule is committed in the clear:
+Write the plaintext straight to its final path and encrypt it in place. Don't
+encrypt from `/tmp`: `.sops.yaml` matches on `secrets/` and on the
+`.sops.<ext>` suffix, so a file anywhere else fails with `no matching creation
+rules found`.
 
 ```bash
-head -5 ~/secrets/new.sops.env    # must be sops ciphertext, not your KEY=value
+$EDITOR ~/secrets/$NAME.sops.env
 ```
+
+`KEY=value` lines, one per line, no `export`, no quotes unless the value
+contains spaces. Save and exit, then:
+
+```bash
+sops -e -i ~/secrets/$NAME.sops.env
+```
+
+Verify it is really ciphertext before it goes anywhere near a commit — a file
+that matched no creation rule is committed in the clear:
+
+```bash
+head -3 ~/secrets/$NAME.sops.env
+```
+
+Every line must read `KEY=ENC[AES256_GCM,...]`. If you see your own value, stop
+and re-run the `sops -e -i` line.
+
+```bash
+yadm add ~/secrets/$NAME.sops.env
+yadm commit -m "secrets: add $NAME"
+yadm bootstrap
+```
+
+*Verify:* the bootstrap prints `decrypted ... -> ~/.config/secrets/$NAME.env`,
+and
+
+```bash
+grep -c = ~/.config/secrets/$NAME.env
+```
+
+matches the number of `KEY=value` lines you wrote.
+
+The value only reaches a shell that started after the bootstrap — open a new
+one, or `source ~/.config/secrets/$NAME.env` in this one:
+
+```bash
+exec $SHELL -l
+```
+
+On every other machine: `dotsync && yadm bootstrap`, then a fresh shell.
+
+**Exception — a secret you do not want in every process.** The startup loop
+exports into every shell and everything it spawns. `claude-token.env` is
+excluded from that loop by name and sourced only inside the `claude` wrapper
+function (see `.zshrc`, the `claude()` function). If a new secret needs the
+same treatment, add its basename to the `case` in both `.zshrc` and `.bashrc`
+and scope it to its own wrapper; it will not be sourced automatically.
 
 ## Rotate a secret
 
