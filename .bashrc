@@ -191,7 +191,10 @@ claude() {
     _gh_tok="$HOME/.config/secrets/github-token.env"
     (
         [ -r "$_tok" ] && . "$_tok"
-        [ -r "$_gh_tok" ] && . "$_gh_tok"
+        # github-token.env follows dotfiles-add-secret.sh's plain KEY=value
+        # convention (no `export`), so export it here for the MCP server
+        # subprocess to inherit it.
+        [ -r "$_gh_tok" ] && . "$_gh_tok" && export GITHUB_PERSONAL_ACCESS_TOKEN
         command claude "$@"
     )
 }
