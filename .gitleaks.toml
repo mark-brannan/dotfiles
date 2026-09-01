@@ -26,3 +26,13 @@ regexes = [
   '''ENC\[AES256_GCM,data:[A-Za-z0-9+/=,_-]+\]''',
   '''age1[0-9a-z]{58}''',
 ]
+
+# stop-commit.test.sh proves the Stop hook's gitleaks gate refuses a
+# credential-shaped string. The string has to exist in the test for the
+# test to mean anything; it is an invented AKIA key that was never issued.
+# Exact string, exact file, nothing else on that file is silenced.
+[[allowlists]]
+description = "the invented AWS key the stop-commit test feeds its own gitleaks gate"
+condition = "AND"
+paths = ['''^\.claude/hooks/stop-commit\.test\.sh$''']
+regexes = ['''AKIAQ7Z2M4X9J1B5K8T3''']

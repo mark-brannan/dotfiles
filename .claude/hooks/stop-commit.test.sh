@@ -208,6 +208,7 @@ ok 'branch wt: status' strhas "$SC_STATUS" '3 file(s) -> origin/claude/y'
 # --- gitleaks refusal restores the index ----------------------------------
 if command -v gitleaks >/dev/null 2>&1; then
   echo more > "$WB/README.md"; git -C "$WB" add README.md
+  # An invented key, never issued; allowlisted for this file in .gitleaks.toml.
   printf 'aws_key = "AKIAQ7Z2M4X9J1B5K8T3"\n' > "$WB/creds.txt"
   run "$WB"
   ok 'gitleaks: refused' has "$CKPT" 'NOT COMMITTED: gitleaks found'
