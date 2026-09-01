@@ -218,13 +218,21 @@ def clean_human:
     | map(select(. as $l | ($tool_lines | has($l)) | not))
     | join("\n");
 
-def s1_first: test("(?i)^(no|nope|wrong|not)\\b[?.,!:]?");
-def s1_conduct: test("(?i)stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|you'?re not making|quantify");
-def s1_any: test("(?i)you'?re not|that'?s (wrong|not)|I (said|told you)|not what I|disagree|stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|quantify");
+def s1_first_re: "(?i)^(no|nope|wrong|not)\\b[?.,!:]?";
+def s1_conduct_re: "(?i)stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|you'?re not making|quantify";
+def s1_any_re: "(?i)you'?re not|that'?s (wrong|not)|I (said|told you)|not what I|disagree|stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|quantify";
+def s5_undo_re: "(?i)^(no[,.!]?\\s*)?(take (it|that|this)? ?out|remove|revert|undo|put (it )?back|don'?t|stop)\\b";
+def s4_words_re: "(?i)fuck\\w*|dumb|stupid|idiot|thick (silicon )?skull";
+def s1_first: test(s1_first_re);
+def s1_conduct: test(s1_conduct_re);
+def s1_any: test(s1_any_re);
 def s2_retract: test("(?i)^(fair|you'?re right|that (claim|was) (was )?wrong|bad call|my mistake|I was wrong|I (hadn'?t|misread|assumed)|dropping it|scratch that)");
-def s5_undo: test("(?i)^(no[,.!]?\\s*)?(take (it|that|this)? ?out|remove|revert|undo|put (it )?back|don'?t|stop)\\b");
+def s5_undo: test(s5_undo_re);
 def s8_pushback: test("(?i)I('d| would) still|I disagree|doesn'?t change the answer|recommend(ation)?:? (ignore|reject|don'?t)|that case stands");
-def s4_words: test("(?i)fuck\\w*|dumb|stupid|idiot|thick (silicon )?skull");
+def s4_words: test(s4_words_re);
+# The exact substrings a detector fired on, so a friction record says what
+# tripped it rather than only that something did.
+def phrases($re): [ match($re; "g") | .string | select(. != "") ];
 
 # Words already said by Claude or a tool, lowercased, so a shouted identifier
 # Claude itself printed (SHOW, EVENT_ARG, PR, WSL) never counts as heat.
@@ -302,7 +310,15 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
     # output, a captured command result. clean_human already stripped those
     # for the detectors; keeping the excerpt on the same text means nothing
     # reaches disk that the metric did not actually read.
-    | {i: $h, pos: $pos, text: ($clean | redact), tags: $tags,
+    | ([ (if $lexicon then ($clean | phrases(s1_first_re), phrases(s1_conduct_re), phrases(s1_any_re)) else empty end),
+         (if $undo then ((($clean | split("\n") | first) // "") | phrases(s5_undo_re)) else empty end),
+         (if $heat then ($clean | phrases(s4_words_re)),
+                        ($clean | [ scan("[A-Z]{3,}") ] | map(select(test("[0-9_]") | not))
+                                 | map(select(($seen | has(ascii_downcase)) | not)))
+                   else empty end) ]
+       | add // [] | unique) as $hits
+    | ((last($atext[] | select(.i < $h)) // {text: ""}).text | redact | .[0:200]) as $prior
+    | {i: $h, pos: $pos, text: ($clean | redact), tags: $tags, hits: $hits, prior: $prior,
        lexicon_conduct: $lexicon_conduct, retracted: $retracted,
        has_event: (($tags | length) > 0 or $retracted)}
   )) as $human_tagged
@@ -351,7 +367,10 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
         tags: .tags,
         retracted: .retracted,
         repeat: .repeat,
-        excerpt: (.text | .[0:300])} ]) as $friction
+        slug: ($ARGS.named.slug // ""),
+        hits: .hits,
+        excerpt: (.text | .[0:300]),
+        prior: .prior} ]) as $friction
 
 # --- time ----------------------------------------------------------------
 # Three numbers, because they answer different questions and no one of them

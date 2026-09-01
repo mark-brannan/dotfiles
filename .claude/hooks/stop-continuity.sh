@@ -50,7 +50,7 @@ work_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
 metrics=$(jq -s \
   --arg sid "$sid" --arg repo "$work_repo" --arg branch "$work_branch" \
-  --arg cwd "$cwd" --arg now "$now" \
+  --arg cwd "$cwd" --arg now "$now" --arg slug "$today-$work_repo-${sid:0:8}" \
   -f "$JQPROG" "$tp" 2>/dev/null) || exit 0
 [ -n "$metrics" ] || exit 0
 
