@@ -127,36 +127,61 @@ exec 9>"$LOCK" 2>/dev/null || exit 0
 flock -w 90 9 2>/dev/null || exit 0
 
 # ------------------------------------------------------------ work repo
-# Salvage whatever the session left uncommitted: commit to the current
-# branch and push it. Only in a checkout Claude Code made (a .claude/worktrees
-# path or a claude/ branch), never on main/master, never on $HOME or the
-# state repo. Repo hooks and signing run as configured; a failed commit
-# leaves the files as they were. Every refusal is named in the checkpoint.
+# Salvage whatever the session left uncommitted in the repo it worked on:
+# commit to the current branch and push. Silent when there is nothing to
+# do; every refusal after that is named in the checkpoint so it can carry
+# whatever detail turns out to be useful.
 sc_note() { printf '\n## Stop-commit\n\n%s\n' "$1" >> "$ckpt"; }
-if [ -n "$work_root" ] && [ "$work_root" != "$(state_repo 2>/dev/null)" ] \
-   && [ "$work_root" != "$HOME" ] && [ "${CLAUDE_STOP_COMMIT:-on}" != off ] \
-   && [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ]; then
+sc_salvage() {
+  # --- silent exits: the normal case for most sessions ---------------------
+  # Not inside a git repo at all.
+  [ -n "$work_root" ] || return 0
+  # The state repo is committed by its own section below.
+  [ "$work_root" != "$(state_repo 2>/dev/null)" ] || return 0
+  # Deliberately switched off.
+  [ "${CLAUDE_STOP_COMMIT:-on}" != off ] || return 0
+  # Nothing uncommitted (tracked or untracked).
+  [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || return 0
+
+  # --- named refusals: something is dirty but we will not touch it ---------
+  # dotfiles: the worktree is $HOME and only yadm's pre_commit gate may
+  # commit there.
+  if [ "$work_root" = "$HOME" ]; then
+    sc_note "refused: checkout is \$HOME (yadm gate); not committing"; return 0
+  fi
+  # The default branch is never committed to unattended.
   case "$work_branch" in
-    main|master|HEAD|"") sc_note "refused: on \`$work_branch\`" ;;
-    *)
-      if ! { case "$work_root" in */.claude/worktrees/*) true ;; *) false ;; esac \
-             || [ "${work_branch#claude/}" != "$work_branch" ]; }; then
-        sc_note "refused: \`$work_root\` on \`$work_branch\` does not look Claude-made"
-      elif ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
-        sc_note "refused: no origin remote"
-      elif ! git -C "$work_root" add -A >/dev/null 2>&1 \
-        || ! git -C "$work_root" commit -q \
-             -m "wip: session ${sid:0:8} at Stop ($today)" \
-             -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
-        git -C "$work_root" reset -q >/dev/null 2>&1
-        sc_note "refused: commit failed (hook or signing) — files left as they were"
-      elif timeout 120 git -C "$work_root" push -q -u origin "$work_branch" >/dev/null 2>&1; then
-        sc_note "committed and pushed to \`$work_branch\`"
-      else
-        sc_note "committed to \`$work_branch\` but push failed — push by hand"
-      fi ;;
+    main|master|HEAD|"")
+      sc_note "refused: on \`$work_branch\`; uncommitted work left in place"; return 0 ;;
   esac
-fi
+  # Only a checkout Claude Code created: a .claude/worktrees path or a
+  # claude/ branch. A human's checkout on a human branch is not ours to
+  # commit into.
+  case "$work_root" in */.claude/worktrees/*) claude_made=1 ;; *) claude_made= ;; esac
+  [ "${work_branch#claude/}" != "$work_branch" ] && claude_made=1
+  if [ -z "$claude_made" ]; then
+    sc_note "refused: \`$work_root\` on \`$work_branch\` does not look Claude-made"; return 0
+  fi
+  # Nowhere to push.
+  if ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
+    sc_note "refused: no origin remote"; return 0
+  fi
+
+  # --- the commit: repo hooks and signing run as configured ----------------
+  if ! git -C "$work_root" add -A >/dev/null 2>&1 \
+     || ! git -C "$work_root" commit -q \
+          -m "wip: session ${sid:0:8} at Stop ($today)" \
+          -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
+    git -C "$work_root" reset -q >/dev/null 2>&1
+    sc_note "refused: commit failed (hook or signing) — files left as they were"; return 0
+  fi
+  if timeout 120 git -C "$work_root" push -q -u origin "$work_branch" >/dev/null 2>&1; then
+    sc_note "committed and pushed to \`$work_branch\`"
+  else
+    sc_note "committed to \`$work_branch\` but push failed — push by hand"
+  fi
+}
+sc_salvage
 
 # ------------------------------------------------------------ state repo
 state_is_repo || exit 0
