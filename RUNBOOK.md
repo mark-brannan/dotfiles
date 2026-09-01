@@ -687,14 +687,19 @@ From the Windows host itself, `localhost` works with no change:
 http://localhost:<port>/
 ```
 
-To reach it from another device, open the ports once, in an **administrator**
-PowerShell on Windows. The `VMCreatorId` is WSL's, and is the same GUID on
-every machine. `-Profiles` is scoped to `Private,Domain` deliberately — the
-unscoped default is `Any`, which would leave these ports open on a `Public`
-profile too, e.g. the laptop on coffee-shop wifi:
+To reach it from another device, open the ports once, on Windows. Mirrored
+mode routes this traffic through the ordinary Windows Firewall, not the
+Hyper-V VM firewall — `New-NetFirewallHyperVRule` looks right but is a no-op
+here; it governs NAT-mode WSL, and mirrored mode ignores it silently (the
+rule shows `Enabled: True` either way, which is what makes this fail quietly
+instead of erroring). `-Profile` is scoped to `Private,Domain` deliberately —
+the unscoped default is `Any`, which would leave these ports open on a
+`Public` profile too, e.g. the laptop on coffee-shop wifi:
+
+**PowerShell, admin:**
 
 ```powershell
-New-NetFirewallHyperVRule -Name WSL-DevServers -DisplayName "WSL dev servers" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 3010,8742 -Profiles Private,Domain -Action Allow
+New-NetFirewallRule -DisplayName "WSL dev servers (mirrored)" -Direction Inbound -Protocol TCP -LocalPort 3010,8742 -Profile Private,Domain -Action Allow
 ```
 
 Verify from a *different* device on the LAN or the tailnet — not from the
@@ -707,8 +712,15 @@ curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}\n' http://<lan-or-tail
 `--connect-timeout` bounds the TCP handshake, not the whole transfer — a slow
 response otherwise reads the same as a blocked port. Any HTTP status code
 means the rule took, including `401`/`404`/`500`; only a timeout means it did
-not — check `Get-NetFirewallHyperVRule -Name WSL-DevServers` exists and that
-the ports in it match the ones actually listening.
+not — check `Get-NetFirewallRule -DisplayName "WSL dev servers (mirrored)"`
+exists and that the ports in it match the ones actually listening.
 
-Remove it with `Remove-NetFirewallHyperVRule -Name WSL-DevServers`, and edit
-`-LocalPorts` rather than adding a second rule when the set of ports changes.
+Remove it with `Remove-NetFirewallRule -DisplayName "WSL dev servers
+(mirrored)"`, and edit `-LocalPort` rather than adding a second rule when the
+set of ports changes.
+
+If `networkingMode` in `.wslconfig` is `nat` instead of `mirrored`, this rule
+type is wrong for that mode — check
+[`Get-NetFirewallHyperVRule`](https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallhypervrule)
+and the `VMCreatorId` variant instead; not covered here because this fleet
+runs mirrored.
