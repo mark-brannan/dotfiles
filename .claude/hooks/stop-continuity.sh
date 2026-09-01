@@ -131,33 +131,35 @@ exec 9>"$LOCK" 2>/dev/null || exit 0
 flock -w 90 9 2>/dev/null || exit 0
 
 # ------------------------------------------------------------ work repo
-# Salvage whatever the session left uncommitted to a throwaway remote ref,
-# wip/session-<id>, built from a temporary index. The checkout, its branch
-# and its index are never touched; the ref is force-updated by this session
-# only. Skipped for $HOME (dotfiles: yadm gate) and the state repo.
+# Salvage whatever the session left uncommitted: commit to the current
+# branch and push it. Only in a checkout Claude Code made (a .claude/worktrees
+# path or a claude/ branch), never on main/master, never on $HOME or the
+# state repo. Repo hooks and signing run as configured; a failed commit
+# leaves the files as they were. Every refusal is named in the checkpoint.
 sc_note() { printf '\n## Stop-commit\n\n%s\n' "$1" >> "$ckpt"; }
 if [ -n "$work_root" ] && [ "$work_root" != "$SR" ] \
    && [ "$work_root" != "$HOME" ] && [ "${CLAUDE_STOP_COMMIT:-on}" != off ] \
    && [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ]; then
-  wip="wip/session-${sid:0:8}"
-  idx=$(mktemp) && export GIT_INDEX_FILE="$idx"
-  if ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
-    sc_note "refused: no origin remote"
-  elif git -C "$work_root" read-tree HEAD >/dev/null 2>&1 \
-    && git -C "$work_root" add -A >/dev/null 2>&1 \
-    && tree=$(git -C "$work_root" write-tree 2>/dev/null) \
-    && [ "$tree" != "$(git -C "$work_root" rev-parse 'HEAD^{tree}' 2>/dev/null)" ] \
-    && c=$(git -C "$work_root" commit-tree "$tree" -p HEAD \
-           -m "wip: $work_branch session ${sid:0:8} at Stop ($today)" 2>/dev/null); then
-    if timeout 120 git -C "$work_root" push -qf origin "$c:refs/heads/$wip" >/dev/null 2>&1; then
-      sc_note "salvaged to \`origin/$wip\` (\`$work_branch\` untouched)"
-    else
-      sc_note "salvage commit \`${c:0:8}\` built but push to \`$wip\` failed"
-    fi
-  else
-    sc_note "nothing to salvage after ignore rules, or commit-tree failed"
-  fi
-  unset GIT_INDEX_FILE; rm -f "$idx"
+  case "$work_branch" in
+    main|master|HEAD|"") sc_note "refused: on \`$work_branch\`" ;;
+    *)
+      if ! { case "$work_root" in */.claude/worktrees/*) true ;; *) false ;; esac \
+             || [ "${work_branch#claude/}" != "$work_branch" ]; }; then
+        sc_note "refused: \`$work_root\` on \`$work_branch\` does not look Claude-made"
+      elif ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
+        sc_note "refused: no origin remote"
+      elif ! git -C "$work_root" add -A >/dev/null 2>&1 \
+        || ! git -C "$work_root" commit -q \
+             -m "wip: session ${sid:0:8} at Stop ($today)" \
+             -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
+        git -C "$work_root" reset -q >/dev/null 2>&1
+        sc_note "refused: commit failed (hook or signing) — files left as they were"
+      elif timeout 120 git -C "$work_root" push -q -u origin "$work_branch" >/dev/null 2>&1; then
+        sc_note "committed and pushed to \`$work_branch\`"
+      else
+        sc_note "committed to \`$work_branch\` but push failed — push by hand"
+      fi ;;
+  esac
 fi
 
 # ------------------------------------------------------------ state repo
