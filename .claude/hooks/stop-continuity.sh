@@ -120,10 +120,6 @@ ckpt="$SD/log/auto/$today-$work_repo-${sid:0:8}.md"
   fi
 } > "$ckpt" 2>/dev/null
 
-# ------------------------------------------------------------ commit + push
-state_is_repo || exit 0
-SR=$(state_repo) || exit 0
-
 # One pusher at a time. Parallel sessions are the norm, and two concurrent
 # rebase-and-push loops in the same worktree corrupt each other's index.
 LOCK="${TMPDIR:-/tmp}/claude-state-push.lock"
@@ -137,7 +133,7 @@ flock -w 90 9 2>/dev/null || exit 0
 # state repo. Repo hooks and signing run as configured; a failed commit
 # leaves the files as they were. Every refusal is named in the checkpoint.
 sc_note() { printf '\n## Stop-commit\n\n%s\n' "$1" >> "$ckpt"; }
-if [ -n "$work_root" ] && [ "$work_root" != "$SR" ] \
+if [ -n "$work_root" ] && [ "$work_root" != "$(state_repo 2>/dev/null)" ] \
    && [ "$work_root" != "$HOME" ] && [ "${CLAUDE_STOP_COMMIT:-on}" != off ] \
    && [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ]; then
   case "$work_branch" in
@@ -163,6 +159,8 @@ if [ -n "$work_root" ] && [ "$work_root" != "$SR" ] \
 fi
 
 # ------------------------------------------------------------ state repo
+state_is_repo || exit 0
+SR=$(state_repo) || exit 0
 cd "$SR" 2>/dev/null || exit 0
 
 # A fresh cloud clone has no git filters wired: the clean/smudge programs
