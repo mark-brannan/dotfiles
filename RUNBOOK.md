@@ -33,6 +33,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 
 **Claude Code — a real machine**
 - [Wire the hooks on a real machine](#wire-the-hooks-on-a-real-machine)
+- [Route a repo's uncommitted files at Stop](#route-a-repos-uncommitted-files-at-stop)
 - [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
 
 **GitHub repository**
@@ -302,6 +303,62 @@ bash ~/.claude/hooks/statusline-metrics.sh   # prints the status line, or nothin
 
 Then start a session: `session-start-continuity.sh` injecting the board is the
 end-to-end proof.
+
+## Route a repo's uncommitted files at Stop
+
+The Stop hook salvages whatever a session left uncommitted in the repo it was
+working in, per the policy table in the private state repo:
+
+```
+~/claude_prompts_scratch/state/global/stop-commit.conf
+```
+
+One rule per line, first match wins:
+
+```
+<owner/repo glob>   state-to-main   <state path> [more paths]
+<owner/repo glob>   branch
+<owner/repo glob>   off
+```
+
+`state-to-main` sends the listed paths straight to `main` (signed, rebased,
+one commit per Stop) and everything else to the worktree's branch on origin.
+`branch` sends everything to the worktree's branch on origin, no PR. Both
+only ever commit non-state files from an isolated worktree; in a shared
+checkout they are listed in the checkpoint and left alone. A repo with no
+matching rule is `off`. Don't skip the rehearsal step: a rule that names the
+wrong state path silently routes to `off`, and the only place that shows is
+the dry run.
+
+1. Add the rule above the catch-all line. Paths are plain relative paths, no
+   globs, no `..`.
+2. Rehearse from any checkout of that repo, dirty or clean:
+
+   ```bash
+   bash ~/.claude/hooks/lib-stop-commit.sh --dry-run ~/path/to/repo
+   ```
+
+   Expect `policy:` to name the rule you wrote, then a `dry-run: N file(s)
+   would go to origin/...` line per destination. A `NOT COMMITTED:` line
+   names the gate that refused — an unconfigured git filter, a gitleaks
+   finding, a conflict with `origin/main` — and is what the real Stop would
+   report too.
+3. Nothing to install. The table is under `state/`, so the next Stop commits
+   and pushes it with the rest of the state repo, and every machine picks it
+   up at its next SessionStart.
+
+To confirm it fired: after the next Stop in that repo, the auto-checkpoint
+`state/global/log/auto/<date>-<repo>-<id>.md` has a `## Stop-commit` section,
+and the terminal shows one `stop-continuity:` line. An `off` repo shows
+nothing.
+
+To turn everything off at once, delete the file. To check the mechanism
+itself on a machine, run the suite — it builds its own origins and signing
+key and touches nothing outside a temp dir:
+
+```bash
+bash ~/.claude/hooks/stop-commit.test.sh   # expect "..., 0 failed"
+```
 
 ## Change what the metrics readouts show
 

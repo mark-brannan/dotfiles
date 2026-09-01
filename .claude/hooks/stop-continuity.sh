@@ -15,6 +15,13 @@
 #                                  2026-08-21-friction-metric-spec.md
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
 #
+# Then, before the state repo is pushed, it salvages the work repo: whatever
+# the session left uncommitted goes where that repo's policy says -- its
+# state paths to main, everything else to the worktree's branch, or nowhere
+# at all for a repo that has not opted in. The routing lives in
+# lib-stop-commit.sh; the policy table lives in the state repo. The outcome
+# is written into the checkpoint and shown to Mark as a one-line status.
+#
 # One file per session, not one shared append-only log: parallel sessions are
 # normal here, and per-session paths mean two of them never touch the same
 # file and so never conflict on push.
@@ -120,16 +127,32 @@ ckpt="$SD/log/auto/$today-$work_repo-${sid:0:8}.md"
   fi
 } > "$ckpt" 2>/dev/null
 
-# ------------------------------------------------------------ commit + push
-state_is_repo || exit 0
-SR=$(state_repo) || exit 0
-
 # One pusher at a time. Parallel sessions are the norm, and two concurrent
-# rebase-and-push loops in the same worktree corrupt each other's index.
+# rebase-and-push loops in the same worktree corrupt each other's index. The
+# same lock covers the work-repo salvage below: two sessions in one repo
+# must not race each other onto its main.
 LOCK="${TMPDIR:-/tmp}/claude-state-push.lock"
 exec 9>"$LOCK" 2>/dev/null || exit 0
 flock -w 90 9 2>/dev/null || exit 0
 
+# ------------------------------------------------------------ work repo
+# The state repo is handled by the loop below, never here.
+SC_STATUS=""
+if [ -n "$work_root" ] && [ "$work_root" != "$(state_repo 2>/dev/null)" ] \
+   && [ -f "$HOOK_DIR/lib-stop-commit.sh" ]; then
+  # shellcheck source=lib-stop-commit.sh
+  . "$HOOK_DIR/lib-stop-commit.sh"
+  sc_run "$work_root" "$sid" "$ckpt" 2>/dev/null
+fi
+# A successful hook's stdout is never shown; systemMessage is. Print only
+# when the policy did something or refused to -- an `off` repo stays silent.
+if [ -n "$SC_STATUS" ]; then
+  jq -n --arg m "stop-continuity: $SC_STATUS" '{systemMessage: $m}'
+fi
+
+# ------------------------------------------------------------ commit + push
+state_is_repo || exit 0
+SR=$(state_repo) || exit 0
 cd "$SR" 2>/dev/null || exit 0
 
 # A fresh cloud clone has no git filters wired: the clean/smudge programs

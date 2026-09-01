@@ -54,6 +54,7 @@ INSTALL="
 .claude/rules/code.md
 .claude/rules/writing.md
 .claude/hooks/lib-state.sh
+.claude/hooks/lib-stop-commit.sh
 .claude/hooks/session-metrics.jq
 .claude/hooks/lib-metrics-fmt.jq
 .claude/hooks/session-start-continuity.sh
