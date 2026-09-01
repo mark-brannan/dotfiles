@@ -175,7 +175,7 @@ sc_salvage() {
     git -C "$work_root" reset -q >/dev/null 2>&1
     sc_note "refused: commit failed (hook or signing) — files left as they were"; return 0
   fi
-  if timeout 120 git -C "$work_root" push -q -u origin "$work_branch" >/dev/null 2>&1; then
+  if timeout 120 git -C "$work_root" push -q -u origin -- "$work_branch" >/dev/null 2>&1; then
     sc_note "committed and pushed to \`$work_branch\`"
   else
     sc_note "committed to \`$work_branch\` but push failed — push by hand"
