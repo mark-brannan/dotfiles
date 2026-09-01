@@ -67,8 +67,8 @@ degrades to `~/.claude/state/global` if it isn't checked out.
 | --- | --- | --- |
 | `session-start-seed-refresh.sh` | SessionStart | re-runs the cloud seed so a reused container tracks this repo, not the commit it was provisioned from |
 | `session-start-continuity.sh` | SessionStart | injects the open board, where the last three sessions left off, and the week's decision load |
-| `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, salvages the work repo's uncommitted files per policy, then commits and pushes the state repo |
-| `lib-stop-commit.sh` | (sourced by Stop) | routes a work repo's uncommitted files by the policy table in the state repo: state paths to `main`, the rest to the worktree's branch, or nothing at all |
+| `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, then commits and pushes the state repo |
+| `lib-stop-commit.sh` | (sourced by Stop) | commits the work repo's uncommitted files per `stop-commit.conf` in the state repo — see RUNBOOK |
 | `measure-git-events.sh` | PostToolUse | logs branches created, PRs opened, cherry-picks |
 | `no-persistent-polling.sh` | PreToolUse | denies wakeups bound to a live session, which re-send its whole context on every fire |
 
@@ -90,20 +90,6 @@ wired.** The clean/smudge programs (sops among them) are not on `PATH`, so a
 and the damage only shows up later. `stop-continuity.sh` checks
 `.gitattributes` against `git config filter.<name>.clean` before staging and
 refuses, recording the refusal in the checkpoint rather than skipping quietly.
-
-A fourth, added 2026-09-01, is a set of refusals rather than a scar: **the
-Stop hook never loses a file, and never touches a repo that hasn't opted
-in.** Where a session's uncommitted files go is a policy per repo, held in
-one private file in the state repo so that opting in is a line, not a PR,
-and turning it all off is deleting the file. The routing keeps four
-invariants that each cost something once elsewhere: no `git add -A` outside
-an isolated worktree; the repo's own signing and commit hooks always run,
-plus gitleaks when it is on `PATH`, and a refusal wins; the commit bound for
-`main` is built in a throwaway worktree of `origin/main`, so a conflict or a
-killed hook can only damage a directory about to be deleted; and no PR is
-opened — a salvaged branch is a backup, not a handoff. The policy table is
-an interim home; whether it should live in each repo instead is an open
-question on the global board.
 
 `session-metrics.jq` types each question put to Mark by what it cost him:
 `scoping` (before any file was written — cheap), `inline` (a bounded choice

@@ -15,12 +15,8 @@
 #                                  2026-08-21-friction-metric-spec.md
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
 #
-# Then, before the state repo is pushed, it salvages the work repo: whatever
-# the session left uncommitted goes where that repo's policy says -- its
-# state paths to main, everything else to the worktree's branch, or nowhere
-# at all for a repo that has not opted in. The routing lives in
-# lib-stop-commit.sh; the policy table lives in the state repo. The outcome
-# is written into the checkpoint and shown to Mark as a one-line status.
+# Then it commits the work repo's uncommitted files per policy (see
+# lib-stop-commit.sh) and finally commits and pushes the state repo.
 #
 # One file per session, not one shared append-only log: parallel sessions are
 # normal here, and per-session paths mean two of them never touch the same
@@ -128,47 +124,34 @@ ckpt="$SD/log/auto/$today-$work_repo-${sid:0:8}.md"
 } > "$ckpt" 2>/dev/null
 
 # One pusher at a time. Parallel sessions are the norm, and two concurrent
-# rebase-and-push loops in the same worktree corrupt each other's index. The
-# same lock covers the work-repo salvage below: two sessions in one repo
-# must not race each other onto its main.
+# rebase-and-push loops in the same worktree corrupt each other's index.
 LOCK="${TMPDIR:-/tmp}/claude-state-push.lock"
 exec 9>"$LOCK" 2>/dev/null || exit 0
 flock -w 90 9 2>/dev/null || exit 0
 
 # ------------------------------------------------------------ work repo
-# The state repo is handled by the loop below, never here.
 SC_STATUS=""
-if [ -n "$work_root" ] && [ "$work_root" != "$(state_repo 2>/dev/null)" ] \
-   && [ -f "$HOOK_DIR/lib-stop-commit.sh" ]; then
-  # shellcheck source=lib-stop-commit.sh
-  . "$HOOK_DIR/lib-stop-commit.sh"
+# shellcheck source=lib-stop-commit.sh
+. "$HOOK_DIR/lib-stop-commit.sh" 2>/dev/null \
+  || { echo '**NOT COMMITTED** — lib-stop-commit.sh is missing' >> "$ckpt"; exit 0; }
+if [ -n "$work_root" ] && [ "$work_root" != "$(state_repo 2>/dev/null)" ]; then
   sc_run "$work_root" "$sid" "$ckpt" 2>/dev/null
 fi
-# A successful hook's stdout is never shown; systemMessage is. Print only
-# when the policy did something or refused to -- an `off` repo stays silent.
-if [ -n "$SC_STATUS" ]; then
-  jq -n --arg m "stop-continuity: $SC_STATUS" '{systemMessage: $m}'
-fi
+# Plain stdout is never shown on a successful hook; systemMessage is.
+[ -n "$SC_STATUS" ] && jq -n --arg m "stop-continuity: $SC_STATUS" '{systemMessage: $m}'
 
 # ------------------------------------------------------------ commit + push
 state_is_repo || exit 0
 SR=$(state_repo) || exit 0
 cd "$SR" 2>/dev/null || exit 0
 
-# A fresh cloud clone has no git filters wired: the clean/smudge programs
-# (sops and friends) are not on PATH, so `git add` through an unconfigured
-# filter writes mangled content and the damage is only visible later. Refuse
-# instead, and say so in the checkpoint rather than skipping quietly.
-if [ -f .gitattributes ] && grep -qE '(^|[[:space:]])filter=' .gitattributes; then
-  for f in $(sed -nE 's/.*[[:space:]]filter=([A-Za-z0-9_.-]+).*/\1/p' .gitattributes \
-             | sort -u); do
-    if ! git config --get "filter.$f.clean" >/dev/null 2>&1; then
-      printf '\n**NOT COMMITTED** — git filter `%s` is declared in .gitattributes\n' "$f" >> "$ckpt"
-      printf 'but not configured in this clone, so committing would mangle content.\n' >> "$ckpt"
-      printf 'Run the repo'"'"'s filter setup, or commit by hand from a real machine.\n' >> "$ckpt"
-      exit 0
-    fi
-  done
+# A fresh cloud clone has no git filters wired; staging through one would
+# mangle content. Refuse and say so in the checkpoint.
+# shellcheck disable=SC2034
+SC_CKPT=""
+if ! sc_filters_ok "$SR"; then
+  printf '\n**NOT COMMITTED** — %s\n' "$SC_REASON" >> "$ckpt"
+  exit 0
 fi
 
 git add state/ >/dev/null 2>&1
