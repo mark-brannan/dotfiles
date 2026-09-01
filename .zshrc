@@ -169,27 +169,32 @@ export NVM_DIR="$HOME/.nvm"
 [ -f ~/.zsh_aliases ] && source ~/.zsh_aliases
 
 # Secrets decrypted by `yadm bootstrap` (sops+age) land here, never in git.
-# See secrets/*.sops.env and .config/yadm/bootstrap. claude-token.env is
-# excluded from this loop on purpose — see the `claude` wrapper below, which
-# scopes CLAUDE_CODE_OAUTH_TOKEN to just that command instead of exporting it
+# See secrets/*.sops.env and .config/yadm/bootstrap. claude-token.env and
+# github-token.env are excluded from this loop on purpose — see the `claude`
+# wrapper below, which scopes CLAUDE_CODE_OAUTH_TOKEN and
+# GITHUB_PERSONAL_ACCESS_TOKEN to just that command instead of exporting them
 # into every shell and everything the shell spawns.
 for _secret_file in "$HOME"/.config/secrets/*.env(N); do
   case "$_secret_file" in
-    */claude-token.env) continue ;;
+    */claude-token.env|*/github-token.env) continue ;;
   esac
   [ -r "$_secret_file" ] && source "$_secret_file"
 done
 unset _secret_file
 
-# CLAUDE_CODE_OAUTH_TOKEN stays out of the general environment (see the
-# excluded loop above) and is exported only for the duration of this one
-# command, in a subshell, so it never leaks into the interactive shell.
+# CLAUDE_CODE_OAUTH_TOKEN and GITHUB_PERSONAL_ACCESS_TOKEN stay out of the
+# general environment (see the excluded loop above) and are exported only
+# for the duration of this one command, in a subshell, so they never leak
+# into the interactive shell. GITHUB_PERSONAL_ACCESS_TOKEN shares this
+# wrapper because it's only ever needed by the GitHub MCP server that
+# `claude` itself launches.
 claude() {
   local _tok="$HOME/.config/secrets/claude-token.env"
-  if [ -r "$_tok" ]; then
-    ( source "$_tok" && command claude "$@" )
-  else
+  local _gh_tok="$HOME/.config/secrets/github-token.env"
+  (
+    [ -r "$_tok" ] && source "$_tok"
+    [ -r "$_gh_tok" ] && source "$_gh_tok"
     command claude "$@"
-  fi
+  )
 }
 
