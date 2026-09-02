@@ -37,6 +37,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 
 **GitHub repository**
 - [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
+- [Re-sign a branch whose commits are unsigned](#re-sign-a-branch-whose-commits-are-unsigned)
 
 **Secrets**
 - [Add a secret](#add-a-secret)
@@ -426,6 +427,46 @@ being true, that workflow needs revisiting before the credential does.
 
 CodeRabbit is configured by `.coderabbit.yaml` and authenticates as a GitHub
 App. It needs no secret, so none of this affects it.
+
+## Re-sign a branch whose commits are unsigned
+
+**When:** a PR says *"All commits must have verified signatures"*, or the
+`no-unsigned-push` hook refused a push. Commits come out unsigned from cloud
+sessions (no key on the VM), from plumbing such as `git commit-tree`, and
+from anything run with `-c commit.gpgsign=false`. The fix is the same for
+all three, and it runs from any machine that has the signing key, never from
+the cloud session.
+
+From any checkout of the repo; it works in a throwaway worktree, so the
+branch you have checked out and any uncommitted work are untouched:
+
+```bash
+resign-branch.sh <branch>
+```
+
+It resets local `<branch>` to `origin/<branch>`, rebases onto the tip of the
+default branch with `-S` (which re-signs every commit and drops any "Update
+branch" merge commits), verifies each one locally, and force-pushes with
+lease. It also runs when the branch is merely behind the default branch, so
+it doubles as a signed, linear "Update branch". Running it on a branch that
+already verifies and is up to date does nothing. It refuses
+if you have local commits on the branch that are not on origin, if the rebase
+conflicts, or if linearizing would drop content from a hand-resolved merge
+commit — in every case the branch is left as it was. Your working tree is
+never touched, dirty or not: all the rewriting happens in a throwaway
+worktree, so there is nothing to stash first.
+
+Verify on GitHub — every line must say `true`:
+
+```bash
+gh api repos/<owner>/<repo>/pulls/<n>/commits --jq '.[]|"\(.sha[0:7]) \(.commit.verification.verified) \(.commit.message|split("\n")[0])"'
+```
+
+If the local verify step reports every commit as `U` or `E` instead of
+`G`, `~/.ssh/allowed_signers` is missing or in the wrong column order. The
+format is `<email> <key-type> <key>` — email first, unlike
+`authorized_keys`. The script builds a temporary one when none is
+configured, so this only matters for `git log --show-signature` by hand.
 
 ## Add a secret
 
