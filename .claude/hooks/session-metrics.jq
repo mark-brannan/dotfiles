@@ -319,7 +319,7 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
          (if $undo then ((($clean | split("\n") | first) // "") | phrases(s5_undo_re)) else empty end),
          (if $heat then ($clean | phrases(s4_words_re)),
                         ($clean | [ scan("[A-Z]{3,}") ] | map(select(test("[0-9_]") | not))
-                                 | map(select(($seen | has(ascii_downcase)) | not)))
+                                 | map(. as $w | select(($seen | has($w | ascii_downcase)) | not)))
                    else empty end) ]
        | add // [] | unique) as $hits
     | ((last($atext[] | select(.i < $h)) // {text: ""}).text | redact
