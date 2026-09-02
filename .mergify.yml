@@ -1,0 +1,6 @@
+# Enables the Mergify merge queue. Queue a PR with `@mergifyio queue`
+# instead of clicking "Update branch" and waiting for it to go green;
+# Mergify rebases/updates it, runs CI, and merges once checks pass.
+queue_rules:
+  - name: default
+    merge_method: squash
