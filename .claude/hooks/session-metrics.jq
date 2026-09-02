@@ -220,7 +220,12 @@ def clean_human:
 
 def s1_first_re: "(?i)^(no|nope|wrong|not)\\b[?.,!:]?";
 def s1_conduct_re: "(?i)stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|you'?re not making|quantify";
-def s1_any_re: "(?i)you'?re not|that'?s (wrong|not)|I (said|told you)|not what I|disagree|stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|quantify";
+def s1_any_re: "(?i)you'?re not|that'?s (wrong|not)|I (said|told you)|not what I|disagree|stop (hedging|arguing|speculating)|don'?t (want to hear|hedge)|quantify|have to remind you|already happened|you keep (saying|doing)|not the first time";
+# A paragraph of an assistant turn that opens by owning a mistake. Scored on
+# its own, not through a human turn, so a woopsy Claude caught itself still
+# gets logged. Tested per line (jq's ^ only anchors the string) with at most
+# 30 chars of lead-in, so a mention deep in prose does not count.
+def s9_self_re: "(?i)^[^\\n]{0,30}?((mistake|correction|error) on my side|my mistake|I (misread|got that wrong))";
 def s5_undo_re: "(?i)^(no[,.!]?\\s*)?(take (it|that|this)? ?out|remove|revert|undo|put (it )?back|don'?t|stop)\\b";
 def s4_words_re: "(?i)fuck\\w*|dumb|stupid|idiot|thick (silicon )?skull";
 def s1_first: test(s1_first_re);
@@ -317,7 +322,9 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
                                  | map(select(($seen | has(ascii_downcase)) | not)))
                    else empty end) ]
        | add // [] | unique) as $hits
-    | ((last($atext[] | select(.i < $h)) // {text: ""}).text | redact | .[0:200]) as $prior
+    | ((last($atext[] | select(.i < $h)) // {text: ""}).text | redact
+       | .[0:120] | . as $head
+       | ([ match("^[\\s\\S]{40,}?[.!?](?=\\s|$)") ] | if length > 0 then .[0].string else $head end)) as $prior
     | {i: $h, pos: $pos, text: ($clean | redact), tags: $tags, hits: $hits, prior: $prior,
        lexicon_conduct: $lexicon_conduct, retracted: $retracted,
        has_event: (($tags | length) > 0 or $retracted)}
@@ -370,7 +377,17 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
         slug: ($ARGS.named.slug // ""),
         hits: .hits,
         excerpt: (.text | .[0:300]),
-        prior: .prior} ]) as $friction
+        prior: .prior} ]) as $friction_human
+| ([ $atext[] | (first(.text | split("\n")[] | select(test(s9_self_re))) // empty) as $line
+     | {ts: $now, session_id: $sid, repo: $repo, branch: $branch,
+        seq: 0, turn_index: .i, type: "self_report", tags: ["self_report"],
+        retracted: false, repeat: false,
+        slug: ($ARGS.named.slug // ""),
+        hits: [ $line | match(s9_self_re) | .captures[0].string ],
+        excerpt: ($line | redact | .[0:300]),
+        prior: ""} ]) as $self_reports
+| (($friction_human + $self_reports) | sort_by(.turn_index)
+   | to_entries | map(.value + {seq: (.key + 1)})) as $friction
 
 # --- time ----------------------------------------------------------------
 # Three numbers, because they answer different questions and no one of them
@@ -463,7 +480,8 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
         gate:    ([ $decisions[] | select(.type == "gate") ]    | length)
       },
       friction: {
-        total:      ($friction | length),
+        total:      ($friction_human | length),
+        self_report: ($self_reports | length),
         correction: ([ $friction[] | select(.type == "correction") ] | length),
         override:   ([ $friction[] | select(.type == "override") ]   | length),
         rebuke:     ([ $friction[] | select(.type == "rebuke") ]     | length),
