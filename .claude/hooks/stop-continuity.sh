@@ -95,7 +95,7 @@ ckpt="$SD/log/auto/$today-$work_repo-${sid:0:8}.md"
     "- \(.output_tokens) output tokens, context peak \(.context_peak)",
     "- decisions: \(.decisions.total) total (\(.decisions.scoping) scoping, \(.decisions.inline) inline, \(.decisions.gate) gate)",
     "- friction: \(.friction.total) total (\(.friction.correction) correction, \(.friction.override) override, \(.friction.rebuke) rebuke, \(.friction.pushback) pushback)",
-    "- blocked: \(.blocked.total // 0) tool calls refused (\(.blocked.classifier // 0) classifier, \(.blocked.hook // 0) hook, \(.blocked.rule // 0) rule)"'
+    "- blocked: \(.blocked.total // 0) tool calls refused (\(.blocked.classifier // 0) classifier, \(.blocked.rule // 0) rule, \(.blocked.user // 0) user-declined)"'
 
   if [ -n "$work_root" ]; then
     echo

@@ -212,22 +212,35 @@ to_entries as $E
 # --- blocked: the harness refused a tool call --------------------------------
 # Not human friction -- nobody corrected anything, the permission layer said
 # no. Tracked separately because it costs Mark the same currency: a retry, a
-# workaround, or a decision he has to make about his own settings. Previously
-# invisible, so "the classifier keeps blocking things" was an impression with
-# no number behind it. The tool is the last tool_use before the refusal;
-# tool_use and its result are adjacent, so nearest-preceding is exact.
-| ([ $E[] | select(.value.type == "user") | .key as $i
-    | .value.message.content[]? | select(.type == "tool_result")
-    | ((.content | if type == "array" then ([ .[] | .text? // empty ] | join("\n"))
-                   elif type == "string" then . else "" end) // "") as $t
-    | select($t | test("Permission for this action was denied|denied by (a )?(hook|permission rule)"))
-    | ([ $tools[] | select(.i < $i) ] | last) as $tu
+# workaround, or a decision about his own settings. Previously invisible, so
+# "the classifier keeps blocking things" was an impression with no number.
+#
+# `toolDenialKind` is set by the harness on the denial record itself, so this
+# reads a field rather than matching prose -- a denial message is written by
+# whichever hook refused and cannot be pattern-matched in general. Observed
+# values: automode-blocked, automode-unavailable, permission-rule,
+# user-rejected. An unrecognised value passes through under its own name
+# rather than being dropped, so a new kind shows up as itself instead of
+# silently vanishing.
+| ([ $E[] | .value | select(.type == "assistant")
+    | .message.content[]? | select(.type == "tool_use")
+    | {key: (.id // ""), value: {name: .name, input: .input}} ] | from_entries) as $tool_by_id
+
+# Correlated by tool_use_id, not by position: one assistant turn can issue
+# several tool_use blocks that all share its transcript index, so picking the
+# nearest preceding one mislabels which call in a parallel batch was refused.
+| ([ $E[] | .key as $i | .value | select(.toolDenialKind != null)
+    | .toolDenialKind as $k
+    | ([ .message.content[]? | select(.type == "tool_result") | .tool_use_id ] | first) as $tid
+    | ($tool_by_id[$tid // ""] // {}) as $tu
     | {i: $i,
-       kind: (if ($t | test("auto mode classifier")) then "classifier"
-              elif ($t | test("(?i)hook")) then "hook"
-              else "rule" end),
+       kind: (if ($k | startswith("automode")) then "classifier"
+              elif $k == "permission-rule" then "rule"
+              elif $k == "user-rejected" then "user"
+              else $k end),
+       raw: $k,
        tool: ($tu.name // ""),
-       target: (($tu.input.command // $tu.input.file_path // "") | .[0:160])} ]) as $blocked
+       target: ((($tu.input.command // $tu.input.file_path // "") | tostring) | .[0:160])} ]) as $blocked
 
 | def strip_fences: gsub("```[^`]*```"; "");
 def clean_human:
@@ -466,8 +479,8 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
       blocked: {
         total:      ($blocked | length),
         classifier: ([ $blocked[] | select(.kind == "classifier") ] | length),
-        hook:       ([ $blocked[] | select(.kind == "hook") ]       | length),
-        rule:       ([ $blocked[] | select(.kind == "rule") ]       | length)
+        rule:       ([ $blocked[] | select(.kind == "rule") ]       | length),
+        user:       ([ $blocked[] | select(.kind == "user") ]       | length)
       },
       friction: {
         total:      ($friction | length),
