@@ -1,0 +1,16 @@
+# Enables the Mergify merge queue. Queue a PR with `@mergifyio queue`
+# instead of clicking "Update branch" and waiting for it to go green;
+# Mergify rebases/updates it, runs CI, and merges once checks pass.
+#
+# main has no branch protection, so queue_conditions is explicit here --
+# without it Mergify falls back to branch-protection required checks,
+# which is none, and would merge without waiting on CI at all.
+queue_rules:
+  - name: default
+    merge_method: squash
+    queue_conditions:
+      - check-success=gitleaks
+      - check-success=trufflehog
+      - check-success=secrets-encrypted
+      - check-success=shellcheck
+      - check-success=seeded

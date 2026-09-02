@@ -1,0 +1,21 @@
+# Findings gitleaks should not fail on, by fingerprint
+# (commit:path:rule:line). A fingerprint identifies a finding without
+# repeating the value, which is why this file exists rather than an
+# allowlist regex in .gitleaks.toml -- writing the string there would put it
+# on main, and this repo's own pre_commit gate refuses that, correctly.
+#
+# Scope each entry to one finding. Never a bare path: that also silences
+# every future rule on the file, which is how scanners quietly stop working.
+
+# A fake AWS key in a test fixture on the closed #59 branch
+# (.claude/hooks/stop-commit.test.sh:211). The test writes it to a temp file
+# to prove the Stop-commit hook's gitleaks pass refuses the commit -- the
+# string existing is the test working, not a leak. Never a real key.
+#
+# The scan covers full history across every ref, so this failed gitleaks on
+# every PR, including ones whose diff never touched it. Allowlisted rather
+# than removed because #59's branch still holds work to port onto main (the
+# gitleaks pass itself, and --dry-run); deleting the ref would put those
+# commits up for garbage collection. Drop this entry once #59 is ported and
+# the branch is gone.
+13296707336bcefa1299fdfd445b6f248b9c91c2:.claude/hooks/stop-commit.test.sh:generic-api-key:211
