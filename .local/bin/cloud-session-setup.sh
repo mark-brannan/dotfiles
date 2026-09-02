@@ -68,6 +68,7 @@ INSTALL="
 .claude/hooks/metrics-live.sh
 .claude/hooks/metrics-rollup.sh
 .claude/hooks/log-commit.sh
+.claude/hooks/log-host-commands.sh
 .claude/hooks/statusline-metrics.sh
 .claude/hooks/connector-budget.sh
 .claude/hooks/fixtures
