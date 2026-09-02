@@ -209,6 +209,26 @@ to_entries as $E
              or ((tostring) | test("\\[Request interrupted by user")))
     | $i ]) as $veto_at
 
+# --- blocked: the harness refused a tool call --------------------------------
+# Not human friction -- nobody corrected anything, the permission layer said
+# no. Tracked separately because it costs Mark the same currency: a retry, a
+# workaround, or a decision he has to make about his own settings. Previously
+# invisible, so "the classifier keeps blocking things" was an impression with
+# no number behind it. The tool is the last tool_use before the refusal;
+# tool_use and its result are adjacent, so nearest-preceding is exact.
+| ([ $E[] | select(.value.type == "user") | .key as $i
+    | .value.message.content[]? | select(.type == "tool_result")
+    | ((.content | if type == "array" then ([ .[] | .text? // empty ] | join("\n"))
+                   elif type == "string" then . else "" end) // "") as $t
+    | select($t | test("Permission for this action was denied|denied by (a )?(hook|permission rule)"))
+    | ([ $tools[] | select(.i < $i) ] | last) as $tu
+    | {i: $i,
+       kind: (if ($t | test("auto mode classifier")) then "classifier"
+              elif ($t | test("(?i)hook")) then "hook"
+              else "rule" end),
+       tool: ($tu.name // ""),
+       target: (($tu.input.command // $tu.input.file_path // "") | .[0:160])} ]) as $blocked
+
 | def strip_fences: gsub("```[^`]*```"; "");
 def clean_human:
     strip_fences | split("\n")
@@ -443,6 +463,12 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
         inline:  ([ $decisions[] | select(.type == "inline") ]  | length),
         gate:    ([ $decisions[] | select(.type == "gate") ]    | length)
       },
+      blocked: {
+        total:      ($blocked | length),
+        classifier: ([ $blocked[] | select(.kind == "classifier") ] | length),
+        hook:       ([ $blocked[] | select(.kind == "hook") ]       | length),
+        rule:       ([ $blocked[] | select(.kind == "rule") ]       | length)
+      },
       friction: {
         total:      ($friction | length),
         correction: ([ $friction[] | select(.type == "correction") ] | length),
@@ -453,5 +479,6 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
       }
     },
     decisions: $decisions,
-    friction: $friction
+    friction: $friction,
+    blocked: $blocked
   }

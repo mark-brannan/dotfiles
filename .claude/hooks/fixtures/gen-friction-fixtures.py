@@ -41,6 +41,36 @@ def edit_call(text=None):
                                   "cache_creation_input_tokens": 0}}}
 
 
+def denied_call(command, reason, tool="Bash"):
+    """An assistant tool call the permission layer refused.
+
+    Two records: the tool_use, then the tool_result carrying the denial. The
+    detector keys off the tool_result text and attributes it to the nearest
+    preceding tool_use, so the pair must stay adjacent and in this order.
+    """
+    inp = {"command": command} if tool == "Bash" else {"file_path": command}
+    use = {"type": "assistant", "timestamp": BASE_T,
+           "message": {"model": "claude-sonnet-5", "role": "assistant",
+                       "content": [{"type": "tool_use", "name": tool,
+                                    "input": inp}],
+                       "usage": {"input_tokens": 1, "output_tokens": 1,
+                                 "cache_read_input_tokens": 0,
+                                 "cache_creation_input_tokens": 0}}}
+    res = {"type": "user", "timestamp": BASE_T,
+           "message": {"role": "user",
+                       "content": [{"type": "tool_result",
+                                    "content": [{"type": "text", "text": reason}]}]}}
+    return [use, res]
+
+
+CLASSIFIER = ("Permission for this action was denied by the Claude Code auto "
+              "mode classifier. Reason: Blocked by classifier.")
+HOOK_DENY = ("Permission for this action was denied by a hook: "
+             "the pre-tool guard refused the call.")
+RULE_DENY = ("Permission for this action was denied by a permission rule "
+             "in settings.json.")
+
+
 contentious = [
     # row1 -- correction, lexicon, retracted
     human("No? Are we up to date? I thought this already landed a while back."),
@@ -117,7 +147,25 @@ with open("friction-calm.jsonl", "w") as f:
     for rec in calm:
         f.write(json.dumps(rec) + "\n")
 
+# Harness friction: tool calls the permission layer refused. No human turn
+# contradicts anything here, so friction must stay 0 while blocked counts 4 --
+# that separation is the whole point of the fixture.
+blocked = [
+    human("Add the allow rules and comment on the issue."),
+    *denied_call("gh issue comment 7 --body-file /tmp/x.md", CLASSIFIER),
+    *denied_call("settings.json", CLASSIFIER, tool="Edit"),
+    *denied_call("rm -rf /var/data", HOOK_DENY),
+    *denied_call("gh repo delete example/example", RULE_DENY),
+    atext("Those are blocked; the allow rules need your hand."),
+]
+
+with open("friction-blocked.jsonl", "w") as f:
+    for rec in blocked:
+        f.write(json.dumps(rec) + "\n")
+
+
 print(f"contentious: {len(contentious)} records, "
       f"{sum(1 for r in contentious if r['type']=='queue-operation')} human turns")
 print(f"calm: {len(calm)} records, "
       f"{sum(1 for r in calm if r['type']=='queue-operation')} human turns")
+print(f"blocked: {len(blocked)} records")
