@@ -86,6 +86,11 @@ check allow 'branch -D in string'       'git commit -m "hooks: block git branch 
 # --- not git at all ---
 check allow 'grep for the flag'         'grep -rn "git add -A" .'
 check allow 'gitleaks'                  'gitleaks protect --staged'
+check deny  'add -A in $(...)'           'x=$(git add -A)'
+check deny  'checkout . in $(...)'       'x=$(git checkout .)'
+check deny  'clean -f in subshell'       '(git clean -fd)'
+check deny  'stash pop in braces'        '{ git stash pop; }'
+check deny  'force push in backticks'    'x=`git push -f origin foo`'
 check allow 'empty'                     ''
 check allow 'echo prose'                'echo "run git push --force later"'
 

@@ -45,7 +45,7 @@ END {
   # Blank quoted strings: a flag inside a commit message is not a flag.
   gsub(/'\''[^'\'']*'\''/, " Q ", buf)
   gsub(/"[^"]*"/, " Q ", buf)
-  gsub(/&&|\|\||;|\||\n|\$\(|`/, "\n", buf)
+  gsub(/&&|\|\||;|\||\n|[()`{}]/, "\n", buf)
   nseg = split(buf, seg, "\n")
   for (s = 1; s <= nseg; s++) {
     nt = split(seg[s], t, /[ \t]+/)
