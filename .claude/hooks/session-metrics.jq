@@ -240,7 +240,10 @@ to_entries as $E
               else $k end),
        raw: $k,
        tool: ($tu.name // ""),
-       target: ((($tu.input.command // $tu.input.file_path // "") | tostring) | .[0:160])} ]) as $blocked
+       target: ((($tu.input.command // $tu.input.file_path // "") | tostring
+                  # redact before truncating: a 160-char cut can land mid-token
+                  # and leave a partial secret the pattern no longer matches.
+                  | redact) | .[0:160])} ]) as $blocked
 
 | def strip_fences: gsub("```[^`]*```"; "");
 def clean_human:
