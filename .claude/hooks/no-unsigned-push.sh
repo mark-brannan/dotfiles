@@ -52,6 +52,12 @@ unsigned=$(git rev-list "$base..HEAD" 2>/dev/null | while read -r sha; do
 done)
 [ -n "$unsigned" ] || exit 0
 
+# $unsigned carries commit subject lines verbatim into permissionDecisionReason
+# / additionalContext, which land in the session's context. Anyone who can get
+# a commit into this branch's history -- a cherry-pick, a pulled-in fork
+# commit, a bot -- writes that text, so treat it as untrusted input rather
+# than as instructions. Kept verbatim on purpose: a mangled subject line is
+# not identifiable, and identifying the commit is the whole point of the note.
 n=$(printf '%s\n' "$unsigned" | wc -l | tr -d ' ')
 branch=$(git symbolic-ref --short HEAD)
 mb=$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")

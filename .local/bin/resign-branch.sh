@@ -22,7 +22,8 @@
 #   3. otherwise rebases onto <remote>/HEAD with -S, which re-signs every
 #      commit, drops any "Update branch" merge commits and brings the branch
 #      up to date — a signed, linear stand-in for GitHub's "Update branch"
-#      button; a conflict aborts the rebase and exits 1, branch untouched
+#      button; a conflict aborts the rebase and exits 1, branch untouched.
+#      Refuses if linearizing would drop content from a hand-resolved merge
 #   4. verifies every rewritten commit locally, then force-pushes with lease
 #
 # Rewrites history. Single-author PR branches only; it refuses to run
@@ -96,6 +97,23 @@ echo "resign-branch: $total commit(s) on $branch, $unverified unverified, $merge
 if ! GIT_SEQUENCE_EDITOR=true g rebase -q -S --force-rebase "$target"; then
   g rebase --abort 2>/dev/null || true
   die "rebase onto $default conflicted; $branch is untouched. Resolve by hand: git rebase -S $target $branch"
+fi
+
+# A rebase linearizes through merge commits. That is intended for an
+# "Update branch" merge, which carries no content of its own -- but a merge
+# whose conflicts someone resolved by hand (GitHub's web editor, say) has
+# content that exists in no single parent, and replaying the parents' commits
+# can succeed with no conflict and quietly produce a different tree. Compare
+# the rebased tree against the tree a merge would have produced, and refuse
+# rather than push a silent content change.
+if [ "$merges" -gt 0 ]; then
+  want=$(g merge-tree --write-tree "$target" "$old" 2>/dev/null | head -1) || want=""
+  got=$(g rev-parse 'HEAD^{tree}')
+  if [ -z "$want" ]; then
+    die "$merges merge commit(s) on $branch and the equivalent merge does not apply cleanly, so the rebase result cannot be checked against it. $branch is untouched; resolve by hand."
+  elif [ "$want" != "$got" ]; then
+    die "rebasing dropped content from $merges merge commit(s) on $branch -- the rebased tree differs from the merge result, which means a hand-resolved merge was replayed differently. $branch is untouched. Merge $default in instead: git merge $target, then re-sign with: git rebase -S --force-rebase \$(git merge-base $target HEAD)"
+  fi
 fi
 
 unverified=$(count_unverified "$target..HEAD")

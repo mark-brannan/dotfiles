@@ -450,9 +450,11 @@ branch" merge commits), verifies each one locally, and force-pushes with
 lease. It also runs when the branch is merely behind the default branch, so
 it doubles as a signed, linear "Update branch". Running it on a branch that
 already verifies and is up to date does nothing. It refuses
-if you have local commits on the branch that are not on origin, if the
-working tree is dirty, or if the rebase conflicts — in every case the branch
-is left as it was.
+if you have local commits on the branch that are not on origin, if the rebase
+conflicts, or if linearizing would drop content from a hand-resolved merge
+commit — in every case the branch is left as it was. Your working tree is
+never touched, dirty or not: all the rewriting happens in a throwaway
+worktree, so there is nothing to stash first.
 
 Verify on GitHub — every line must say `true`:
 
