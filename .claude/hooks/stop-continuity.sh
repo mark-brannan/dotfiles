@@ -144,6 +144,10 @@ sc_salvage() {
   [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || return 0
 
   # --- named refusals: something is dirty but we will not touch it ---------
+  # These three cases are a provisional best-effort fallback, NOT a decided
+  # policy. Real per-repo policy -- where it lives, which repos commit
+  # direct to main, what the fallback should be -- is open in issue #61.
+  # Don't treat what runs here as the intended design just because it runs.
   # dotfiles: the worktree is $HOME and only yadm's pre_commit gate may
   # commit there.
   if [ "$work_root" = "$HOME" ]; then
