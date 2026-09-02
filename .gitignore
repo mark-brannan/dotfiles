@@ -8,6 +8,14 @@
 .gitconfig
 
 # --- credential material / machine identity: never sync, ever ---
+# .claude.json is co-owned with a running Claude Code, which rewrites it on its
+# own schedule -- measured mtime under a minute with no session doing anything.
+# It carries machineID, userID and oauthAccount, so it is per-machine by
+# construction and can never be synced. Both facts together are why credentials
+# NEVER go in it: there is no regeneration hook to write one from sops, and no
+# staleness detection on rotation except the 4xx you get on next use. Decided
+# 2026-09-01 after measuring an mcpServers header injection work and rejecting
+# it anyway. Do not reopen this to solve an MCP auth problem.
 .claude.json
 .claude.json.backup*
 .claude/.credentials.json
