@@ -1,137 +1,48 @@
-name: Claude Code Review
+name: Claude PR Review
 
-# Automatic Claude review of every PR diff. Complements CodeRabbit and the
-# dedicated security-review workflow — this pass is general correctness and
-# dotfiles-specific footguns (secrets handling, sops, hooks that auto-run).
+# An independent reviewer for every pull request -- advisory, and gated on the
+# pull request's content fingerprint so a Mergify update that changes nothing
+# costs nothing. The reviewer itself is shared: mark-brannan/.github holds the
+# workflow, the gate and the argument for both; this file is only the trigger
+# and this repository's brief for it.
 #
-# A run costs real tokens, so it only happens when the PR's content has
-# changed. `synchronize` also fires on every rebase -- and Mergify now keeps
-# open pull requests up to date with main, so that is no longer rare. The gate
-# below hashes the raw tree diff (paths, modes, blob ids) between the merge
-# base and HEAD -- not `git patch-id`, which ignores whitespace inside changed
-# lines -- and remembers each fingerprint in the Actions cache; a matching
-# fingerprint skips the review. It is recorded only once a comment from the
-# bot is actually on the PR, because the action exits green even when it
-# posted nothing. An evicted entry costs one extra review, never a missed one.
-# Ported from mark-brannan/symphony 66bdddc.
-#
-# Advisory only: no ruleset requires this check.
-#
-# Auth: needs the CLAUDE_CODE_OAUTH_TOKEN secret (mint one with
-# `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`).
+# Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (mint one with `claude setup-token`,
+# then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`). Until it exists the review
+# skips with a warning rather than failing every pull request.
 
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# The called workflow asks for exactly these; a caller may grant no less.
 permissions:
   contents: read
   pull-requests: write
   issues: read
   id-token: write
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-
-# Queue rather than cancel: a cancelled review has already spent its tokens
-# and never records its fingerprint, so the replacement run would spend them
-# again. The common trigger is a Mergify update, which queues behind the
-# running review and then skips on the fingerprint.
-concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
-
 jobs:
   review:
-    # Skip drafts, and skip fork PRs -- forks can't read the secret, so a
-    # run there only produces a red X that means nothing.
-    if: >-
-      !github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    # The cost guard. Wall clock is the resource actually worth bounding, and
-    # unlike --max-turns it cannot fail a run that already did its job: a
-    # review that posted and finished has finished, however many turns it
-    # took. Reviews have run 3-5 min; this is a runaway backstop, not a
-    # target.
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+    uses: mark-brannan/.github/.github/workflows/claude-review.yml@main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    with:
+      prompt: |
+        Review this pull request diff to a personal dotfiles repo.
 
-      - name: Fingerprint the PR's content
-        id: fp
-        env:
-          BASE: ${{ github.event.pull_request.base.ref }}
-        run: |
-          git fetch -q origin "$BASE"
-          raw=$(git diff-tree -r --no-commit-id "$(git merge-base "origin/$BASE" HEAD)" HEAD)
-          if [ -n "$raw" ]; then id=$(printf '%s\n' "$raw" | sha256sum | cut -d' ' -f1); else id=empty; fi
-          echo "id=$id" >> "$GITHUB_OUTPUT"
-          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+        This repo manages shell config, Claude Code hooks/settings, sops-encrypted
+        secrets, and a detect-secrets baseline. Attack surface worth extra scrutiny:
+          - anything that executes automatically (shell rc files, .claude/hooks/*,
+            git hooks, SessionStart/Stop hooks) — new or modified commands there
+            run unattended on every session/shell start.
+          - secrets handling: .sops.yaml rules, the secrets/ path, .secrets.baseline
+            — flag anything that could leak, weaken, or bypass encryption/detection.
+          - anything that widens permissions, adds a new remote/API call, or fetches
+            and executes remote content.
 
-      - name: Skip if this content was already reviewed
-        id: seen
-        uses: actions/cache/restore@v4
-        with:
-          path: .claude-reviewed
-          key: claude-review-pr${{ github.event.pull_request.number }}-${{ steps.fp.outputs.id }}
-          lookup-only: true
-
-      - if: steps.seen.outputs.cache-hit != 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          track_progress: true
-          prompt: |
-            Review this pull request diff to a personal dotfiles repo.
-
-            This repo manages shell config, Claude Code hooks/settings, sops-encrypted
-            secrets, and a detect-secrets baseline. Attack surface worth extra scrutiny:
-              - anything that executes automatically (shell rc files, .claude/hooks/*,
-                git hooks, SessionStart/Stop hooks) — new or modified commands there
-                run unattended on every session/shell start.
-              - secrets handling: .sops.yaml rules, the secrets/ path, .secrets.baseline
-                — flag anything that could leak, weaken, or bypass encryption/detection.
-              - anything that widens permissions, adds a new remote/API call, or fetches
-                and executes remote content.
-
-            Otherwise review for correctness bugs and clear simplification opportunities.
-            Skip pure style nits. Post inline comments on specific lines, then a short
-            top-level summary. If you find nothing, say so briefly instead of inventing
-            findings.
-
-          # No --max-turns, deliberately. It produced two false reds and zero
-          # true ones: at 8 it killed a review of a few-hundred-line diff
-          # mid-flight and posted nothing, and at 20 it failed the job AFTER
-          # Claude had posted a clean review in 21 turns -- the action treats
-          # "succeeded, but over budget" as an error, so the red X means "the
-          # reviewer ran long", indistinguishable from a real finding on the
-          # PR it is guarding. Turn count is not the cost worth bounding;
-          # timeout-minutes on the job above is, and it cannot discard work
-          # that already landed. Comments cannot go inside claude_args; the
-          # action passes that block through to the CLI verbatim.
-          claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
-
-      - if: steps.seen.outputs.cache-hit != 'true'
-        name: Confirm a review comment actually landed
-        id: posted
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          SINCE: ${{ steps.fp.outputs.since }}
-        run: |
-          n=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
-                --jq "[.[] | select(.user.login == \"claude[bot]\" and .created_at >= \"$SINCE\")] | length")
-          echo "posted=$([ "$n" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          [ "$n" -gt 0 ] || echo "::warning::no review comment posted; fingerprint not recorded"
-
-      - if: steps.seen.outputs.cache-hit != 'true' && steps.posted.outputs.posted == 'true'
-        name: Remember that this content was reviewed
-        run: echo "${{ steps.fp.outputs.id }}" > .claude-reviewed
-
-      - if: steps.seen.outputs.cache-hit != 'true' && steps.posted.outputs.posted == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .claude-reviewed
-          key: claude-review-pr${{ github.event.pull_request.number }}-${{ steps.fp.outputs.id }}
+        Otherwise review for correctness bugs and clear simplification opportunities.
+        Skip pure style nits. Post inline comments on specific lines, then a short
+        top-level summary. If you find nothing, say so briefly instead of inventing
+        findings.
+      allowed-tools: mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)
+      timeout-minutes: 15
