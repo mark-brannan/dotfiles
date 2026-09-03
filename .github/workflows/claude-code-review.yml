@@ -4,6 +4,19 @@ name: Claude Code Review
 # dedicated security-review workflow — this pass is general correctness and
 # dotfiles-specific footguns (secrets handling, sops, hooks that auto-run).
 #
+# A run costs real tokens, so it only happens when the PR's content has
+# changed. `synchronize` also fires on every rebase -- and Mergify now keeps
+# open pull requests up to date with main, so that is no longer rare. The gate
+# below hashes the raw tree diff (paths, modes, blob ids) between the merge
+# base and HEAD -- not `git patch-id`, which ignores whitespace inside changed
+# lines -- and remembers each fingerprint in the Actions cache; a matching
+# fingerprint skips the review. It is recorded only once a comment from the
+# bot is actually on the PR, because the action exits green even when it
+# posted nothing. An evicted entry costs one extra review, never a missed one.
+# Ported from mark-brannan/symphony 66bdddc.
+#
+# Advisory only: no ruleset requires this check.
+#
 # Auth: needs the CLAUDE_CODE_OAUTH_TOKEN secret (mint one with
 # `claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`).
 
@@ -17,9 +30,13 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Queue rather than cancel: a cancelled review has already spent its tokens
+# and never records its fingerprint, so the replacement run would spend them
+# again. The common trigger is a Mergify update, which queues behind the
+# running review and then skips on the fingerprint.
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -41,7 +58,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: anthropics/claude-code-action@v1
+      - name: Fingerprint the PR's content
+        id: fp
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch -q origin "$BASE"
+          raw=$(git diff-tree -r --no-commit-id "$(git merge-base "origin/$BASE" HEAD)" HEAD)
+          if [ -n "$raw" ]; then id=$(printf '%s\n' "$raw" | sha256sum | cut -d' ' -f1); else id=empty; fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this content was already reviewed
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: .claude-reviewed
+          key: claude-review-pr${{ github.event.pull_request.number }}-${{ steps.fp.outputs.id }}
+          lookup-only: true
+
+      - if: steps.seen.outputs.cache-hit != 'true'
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
@@ -75,3 +112,26 @@ jobs:
           # action passes that block through to the CLI verbatim.
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      - if: steps.seen.outputs.cache-hit != 'true'
+        name: Confirm a review comment actually landed
+        id: posted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SINCE: ${{ steps.fp.outputs.since }}
+        run: |
+          n=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+                --jq "[.[] | select(.user.login == \"claude[bot]\" and .created_at >= \"$SINCE\")] | length")
+          echo "posted=$([ "$n" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          [ "$n" -gt 0 ] || echo "::warning::no review comment posted; fingerprint not recorded"
+
+      - if: steps.seen.outputs.cache-hit != 'true' && steps.posted.outputs.posted == 'true'
+        name: Remember that this content was reviewed
+        run: echo "${{ steps.fp.outputs.id }}" > .claude-reviewed
+
+      - if: steps.seen.outputs.cache-hit != 'true' && steps.posted.outputs.posted == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .claude-reviewed
+          key: claude-review-pr${{ github.event.pull_request.number }}-${{ steps.fp.outputs.id }}
