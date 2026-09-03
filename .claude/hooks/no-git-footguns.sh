@@ -18,86 +18,73 @@
 #
 # `yadm` is treated as `git`, since on dotfiles that is what it is.
 #
-# Parsing, in order: heredoc bodies are dropped (a doc that *mentions*
-# `git add -A` is not a git command); quotes around a single word are
-# stripped so `git add '.'` is seen; remaining quoted strings are blanked so
-# a commit message that mentions a flag doesn't trip it; then the command
-# is split on shell separators, including parens and braces, and each
-# segment whose command word is git (directly or behind sudo/env/VAR=x)
-# is checked with git's global options skipped.
+# Scanning is shared with no-rm-tree.sh: lib-shell-words.awk (read its
+# header). Heredoc bodies are dropped (a doc that *mentions* `git add -A` is
+# not a git command); quotes are removed and escapes applied, so `\git` and
+# 'git' are git; redirections vanish; the text is split on shell separators,
+# and git/yadm counts as the command wherever it stands in a segment (after
+# sudo, env, VAR=x, timeout, xargs, `do`, `then` ...) with git's global
+# options skipped. The body of a quoted string with whitespace (`sh -c
+# '...'`, `eval "..."`) is scanned as well, there by command position only,
+# so a commit message that mentions a flag mid-sentence does not trip it.
 #
-# This is a GATE, so it fails closed: no jq, no awk, unreadable payload ->
-# block. `git reset --hard` has its own hook (no-git-reset-hard.sh).
-set -u
+# This is a GATE, so it fails closed: no jq, no awk, no library, unreadable
+# payload -> block. `git reset --hard` has its own hook
+# (no-git-reset-hard.sh, a plain regex); it is checked structurally here too
+# so an escaped or wrapped spelling that slips the regex still stops.
+set -uf
+
+HERE=$(dirname "$0")
+LIB="$HERE/lib-shell-words.awk"
 
 deny() {
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' \
-    "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/')"
+  if command -v jq >/dev/null 2>&1; then
+    jq -cn --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  else
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-git-footguns: jq missing, cannot inspect the command"}}\n'
+  fi
   exit 0
 }
 
 command -v jq  >/dev/null 2>&1 || deny 'no-git-footguns: jq missing, cannot inspect the command'
 command -v awk >/dev/null 2>&1 || deny 'no-git-footguns: awk missing, cannot inspect the command'
+[ -r "$LIB" ] || deny "no-git-footguns: $LIB missing, cannot inspect the command"
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null) || deny 'no-git-footguns: unreadable hook payload'
 [ -n "$cmd" ] || exit 0
 
-reason=$(printf '%s\n' "$cmd" | awk '
+reason=$(printf '%s\n' "$cmd" | awk "$(cat "$LIB")"'
 function has(t, ch) { return t ~ ("^-[A-Za-z0-9]*" ch "[A-Za-z0-9]*$") }
 function dst(t,  i) { sub(/^\+/, "", t); i = index(t, ":"); if (i) t = substr(t, i + 1); return t }
 function ismain(t) { return t ~ /^(refs\/heads\/)?(main|master)$/ }
 function whole(t) { return t ~ /^(\.|\.\/|\.\/\*|:\/|:\/\.|\*)$/ }
 function fail(r) { print r; exit }
-# Drop every heredoc body: from the end of the line carrying <<WORD to the
-# line that is exactly WORD. The marker itself becomes a plain word.
-function strip_heredocs(b,  d, eol, endm, tail, start) {
-  while (match(b, /<<-?[ \t]*["'\'']?[A-Za-z_][A-Za-z0-9_]*["'\'']?/)) {
-    start = RSTART  # match() below clobbers RSTART; keep the opener'\''s position
-    d = substr(b, start, RLENGTH); sub(/^<<-?[ \t]*/, "", d); gsub(/["'\'']/, "", d)
-    eol = index(substr(b, start), "\n")
-    if (!eol) return substr(b, 1, start - 1) " HEREDOC "
-    tail = substr(b, start + eol)
-    endm = match(tail, "(^|\n)[ \t]*" d "[ \t]*(\n|$)")
-    if (!endm) return substr(b, 1, start - 1) " HEREDOC "
-    b = substr(b, 1, start - 1) " HEREDOC " substr(tail, endm + RLENGTH - 1)
-  }
-  return b
-}
 { buf = buf $0 "\n" }
 END {
   buf = strip_heredocs(buf)
-  # Quotes around one bare word are just quotes: git add '"'"'.'"'"' is git add .
-  while (match(buf, /'\''[^'\'' \t\n&|;()`{}]*'\''/) || match(buf, /"[^" \t\n&|;()`{}]*"/))
-    buf = substr(buf, 1, RSTART - 1) substr(buf, RSTART + 1, RLENGTH - 2) substr(buf, RSTART + RLENGTH)
-  # Anything still quoted is prose: a flag inside a commit message is not a flag.
-  gsub(/'\''[^'\'']*'\''/, " Q ", buf)
-  gsub(/"[^"]*"/, " Q ", buf)
-  gsub(/&&|\|\||;|\||\n|[()`{}]/, "\n", buf)
-  nseg = split(buf, seg, "\n")
-  for (s = 1; s <= nseg; s++) {
-    nt = split(seg[s], t, /[ \t]+/)
-    # git must be the command word: first token, or first after a wrapper
-    # (sudo, env, VAR=x, timeout 30 ...). `echo git add -A` is prose.
-    g = 0
-    for (i = 1; i <= nt; i++) {
-      if (t[i] == "") continue
-      if (t[i] ~ /(^|\/)(git|yadm)$/) { g = i; break }
-      if (t[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
-      if (t[i] ~ /^(sudo|env|command|exec|time|nice|nohup|timeout|doas)$/) { wrap = 1; continue }
-      if (wrap && (t[i] ~ /^-/ || t[i] ~ /^[0-9]+[smhd]?$/)) continue
-      break
+  ntexts = texts_of(buf, texts, nested)
+  for (x = 1; x <= ntexts; x++) {
+    n = scan(texts[x], w, k, q)
+    a0 = 1
+    for (i = 1; i <= n + 1; i++) {
+      if (i <= n && k[i] != ";") continue
+      if (a0 < i) segment(a0, i - 1, nested[x])
+      a0 = i + 1
     }
-    wrap = 0
-    if (!g) continue
+  }
+}
+function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, force, lease, tomain, del, staged, wt, wh, dry) {
+    g = cmd_index(w, k, lo, hi, "(^|/)(git|yadm)$", nested, "")
+    if (!g) return
     # Skip global options; -C/-c/--git-dir/--work-tree take a value.
     i = g + 1
-    while (i <= nt && t[i] ~ /^-/) {
-      if (t[i] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) i++
+    while (i <= hi && w[i] ~ /^-/) {
+      if (w[i] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) i++
       i++
     }
-    if (i > nt) continue
-    sub_ = t[i]; a0 = i + 1
-    delete a; na = 0
-    for (i = a0; i <= nt; i++) if (t[i] != "") a[++na] = t[i]
+    if (i > hi) return
+    sub_ = w[i]
+    na = 0
+    for (i++; i <= hi; i++) a[++na] = w[i]
 
     if (sub_ == "add") {
       paths = 0; upd = 0
@@ -134,13 +121,13 @@ END {
       if (tomain && (lease || del)) fail("force-pushing or deleting main is blocked. Main takes rebased branches through a PR.")
     }
     else if (sub_ == "checkout" || sub_ == "restore") {
-      staged = 0; wt = 0; w = ""
+      staged = 0; wt = 0; wh = ""
       for (i = 1; i <= na; i++) {
         if (a[i] ~ /^(-S|--staged)$/ || has(a[i], "S")) staged = 1
         if (a[i] ~ /^(-W|--worktree)$/ || has(a[i], "W")) wt = 1
-        if (whole(a[i])) w = a[i]
+        if (whole(a[i])) wh = a[i]
       }
-      if (w != "" && !(sub_ == "restore" && staged && !wt)) fail("`git " sub_ " " w "` is blocked: it discards every uncommitted change, same as reset --hard. Restore one path at a time, or ask Mark.")
+      if (wh != "" && !(sub_ == "restore" && staged && !wt)) fail("`git " sub_ " " wh "` is blocked: it discards every uncommitted change, same as reset --hard. Restore one path at a time, or ask Mark.")
     }
     else if (sub_ == "clean") {
       force = 0; dry = 0
@@ -159,7 +146,10 @@ END {
       }
       if (del && force) fail("`git branch --delete --force` is blocked: same as -D.")
     }
-  }
+    else if (sub_ == "reset") {
+      for (i = 1; i <= na; i++)
+        if (a[i] == "--hard") fail("`git reset --hard` is blocked at user scope. It discards uncommitted work, and on a shared checkout that work may not be yours. Ask Mark to run it himself, or reach for a reversible move: `git revert`, a new branch off the good commit, `git stash`, `git reset --soft`/`--mixed`.")
+    }
 }') || deny 'no-git-footguns: awk failed, cannot inspect the command'
 
 [ -n "$reason" ] && deny "$reason"

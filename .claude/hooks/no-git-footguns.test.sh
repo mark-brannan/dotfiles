@@ -4,6 +4,7 @@
 set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/no-git-footguns.sh"
+[ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 pass=0; fail=0
 
 check() {
@@ -126,5 +127,40 @@ check deny  'footgun before long heredoc' $'git checkout .\ngit commit -F- <<\'E
 check allow 'clean cmd before heredoc'  $'git add foo.sh\ngit commit -F- <<\'EOF\'\nnever git add -A\nEOF'
 check allow 'printf prose'              'printf "%s\n" git checkout .'
 
-printf '%d passed, %d failed\n' "$pass" "$fail"
+# --- git reached through another command, escapes, nested shells ---
+check deny  'for ... do git add -A'     'for d in a b; do git add -A; done'
+check deny  'if ...; then git add -A'   'if true; then git commit -am x; fi'
+check deny  'xargs git add -A'          'ls | xargs git add -A'
+check deny  'unknown wrapper'           'chronic git push --force origin foo'
+check deny  'escaped command word'      '\git add -A'
+check deny  'quoted command word'       "'git' add -A"
+check deny  'sh -c with footgun'        "sh -c 'git add -A && git commit -m x'"
+check deny  'eval with footgun'         'eval "git stash pop"'
+check deny  'after a redirection'       'git add -A 2>/dev/null'
+check deny  'after &'                   'sleep 1 & git add -A'
+check deny  'in a brace group'          '{ git add -A; }'
+check deny  'reset --hard structural'   'git reset --hard HEAD~1'
+check deny  'reset --hard escaped'      'git re\set --hard'
+check deny  'reset --hard wrapped'      'cd x && git -C y reset --hard origin/main'
+check allow 'reset --soft'              'git reset --soft HEAD~1'
+check allow 'prose mid-sentence'        'git commit -m "hooks: block git add -A everywhere"'
+check allow 'prose in echo'             'echo "never run git add -A"'
+check allow 'comment'                   $'# git add -A is banned\ngit status'
+check allow 'apostrophes in prose'      'git commit -m "it'"'"'s done" && echo "don'"'"'t"'
+check allow 'add -A in a heredoc'       $'git commit -F- <<EOF\nblock git add -A\nEOF'
+check allow 'apt install git'           'sudo apt-get install -y git'
+check allow 'git-lfs is not git'        'git-lfs install'
+
+# --- fail closed ---
+BARE=$(mktemp -d /tmp/no-git-footguns-bare.XXXXXX)
+for tool in sh cat printf dirname; do p=$(command -v $tool) && ln -s "$p" "$BARE/$tool"; done
+out=$(jq -n '{tool_name:"Bash",tool_input:{command:"git add -A"}}' | PATH=$BARE sh "$HOOK" 2>&1)
+rm -rf "$BARE"
+if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: no jq/awk on PATH should deny\n  hook output: %s\n' "$out"; fi
+out=$(jq -n '{tool_name:"Bash",tool_input:{command:"git add -A"}}' | sh "$HOOK" 2>&1)
+if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: deny output is not valid JSON\n  hook output: %s\n' "$out"; fi
+
+printf '%d passed, %d failed (awk: %s)\n' "$pass" "$fail" "$(command -v awk)"
 [ "$fail" -eq 0 ]

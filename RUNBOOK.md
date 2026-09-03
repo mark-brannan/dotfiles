@@ -268,11 +268,15 @@ directories go in `OWNED_DIRS` — the script links them into `$HOME` as a
 single symlink to the staged release rather than mirroring them file by file;
 `OWNED_NEVER` lists the shared ones that must never be linked that way.
 
-**Every hook `.claude/settings.json` references must be in `INSTALL`.** A hook
-wired in settings but missing from the seed is a silent no-op in every cloud
-session — the settings entries are `[ -f ]`-guarded and end in `|| true`, so it
-looks identical to a hook that ran and found nothing to do. After editing
-either file, diff the two lists:
+**Every hook `.claude/settings.json` references must be in `INSTALL`, and so
+must every library a hook loads (`lib-*.awk`).** A convenience hook wired in
+settings but missing from the seed is a silent no-op in every cloud session —
+its settings entry is `[ -f ]`-guarded and ends in `|| true`, so it looks
+identical to a hook that ran and found nothing to do. A gate hook
+(`no-git-reset-hard`, `no-git-footguns`, `no-rm-tree`, `no-unsigned-push`) is
+the opposite: its entry denies when the file is missing or crashes, so a
+seed gap there blocks every Bash call with a message naming the hook. After
+editing either file, diff the two lists (CI runs the same check):
 
 ```bash
 grep -o '\.claude/hooks/[a-z-]*\.sh' .claude/settings.json | sort -u
@@ -627,9 +631,10 @@ grep -n 'the-hook-name' ~/.claude/settings.json  # is it wired?
 - Wired in settings but absent from `~/.claude/hooks/` → it is not in
   `INSTALL`. See [adding a file to the seed](#add-a-file-to-the-cloud-seed).
   This is the common one, and it is silent by design.
-- Present and wired → run it by hand (`bash ~/.claude/hooks/<name>.sh`). Every
-  settings entry ends in `|| true` and most redirect stderr, so a hook that
-  errors every time looks identical to one that is not wired.
+- Present and wired → run it by hand (`bash ~/.claude/hooks/<name>.sh`). A
+  convenience hook's settings entry ends in `|| true` and most redirect
+  stderr, so one that errors every time looks identical to one that is not
+  wired. A gate hook that errors denies every Bash call instead and says so.
 
 The seed is not the only path that works: a repo carrying its own
 `.claude/settings.json` gets its project settings loaded in a cloud session even

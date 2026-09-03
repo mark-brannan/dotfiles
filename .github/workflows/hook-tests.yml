@@ -1,0 +1,43 @@
+name: Hook tests
+
+# The PreToolUse gates (.claude/hooks/no-*.sh) each ship a *.test.sh next to
+# them. Until this job existed nothing ran them but the author, on the
+# author's awk. They run here under Ubuntu's default awk (mawk) and again
+# under gawk, because the hooks are POSIX awk by contract and macOS ships a
+# third implementation: a gawk-ism that passes locally is a hook that fails
+# closed on every Bash call on the Mac, or -- worse -- parses differently.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  hook-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install awk implementations
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q mawk gawk original-awk jq
+      - name: Run every hook test under each awk
+        run: |
+          set -euo pipefail
+          status=0
+          for impl in mawk gawk original-awk; do
+            d=$(mktemp -d)
+            ln -s "$(command -v $impl)" "$d/awk"
+            for t in .claude/hooks/*.test.sh; do
+              echo "::group::$t under $impl"
+              if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
+              echo "::endgroup::"
+            done
+          done
+          exit $status
