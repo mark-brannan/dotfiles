@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Tests for no-git-footguns.sh. Run: bash .claude/hooks/no-git-footguns.test.sh
+# shellcheck disable=SC2016  # the commands under test contain $(...) on purpose
 set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/no-git-footguns.sh"
@@ -93,6 +94,34 @@ check deny  'stash pop in braces'        '{ git stash pop; }'
 check deny  'force push in backticks'    'x=`git push -f origin foo`'
 check allow 'empty'                     ''
 check allow 'echo prose'                'echo "run git push --force later"'
+
+# --- bypasses found on second look ---
+check deny  'add ./'                    'git add ./'
+check deny  'add quoted .'              "git add -- '.'"
+check deny  'add dquoted .'             'git add "."'
+check deny  'add quoted star'           "git add '*'"
+check deny  'checkout quoted ./'        "git checkout -- './'"
+check deny  'stash drop bare'           'git stash drop'
+check deny  'stash clear'               'git stash clear'
+check deny  'push --delete main'        'git push --delete origin main'
+check deny  'push -d main'              'git push -d origin main'
+check deny  'push :main'                'git push origin :main'
+check deny  'sudo git add -A'           'sudo git add -A'
+check deny  'env var prefix'            'GIT_DIR=x git add -A'
+check deny  'timeout wrapper'           'timeout 30 git push -f origin foo'
+check deny  'full path git'             '/usr/bin/git add -A'
+check deny  'after heredoc command'     $'cat <<EOF > x\nhi\nEOF\ngit add -A'
+check allow 'push --delete branch'      'git push --delete origin claude/foo'
+check allow 'push :branch'              'git push origin :claude/foo'
+check allow 'stash drop by ref'         'git stash drop stash@{3}'
+check allow 'stash drop by sha'         'git stash drop abc123'
+
+# --- prose that names a footgun is not a footgun ---
+check allow 'echo prose unquoted'       'echo git add -A'
+check allow 'heredoc body'              $'cat > doc.md <<\'EOF\'\nnever run git add -A\nEOF'
+check allow 'heredoc body unquoted tag' $'cat > doc.md <<EOF\n- `git push --force` is bad\nEOF'
+check allow 'heredoc with dash'         $'cat <<-EOF\n\tgit stash pop\n\tEOF'
+check allow 'printf prose'              'printf "%s\n" git checkout .'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
