@@ -1,10 +1,14 @@
-# Enables the Mergify merge queue. Queue a PR with `@mergifyio queue`
-# instead of clicking "Update branch" and waiting for it to go green;
-# Mergify rebases/updates it, runs CI, and merges once checks pass.
-#
-# main has no branch protection, so queue_conditions is explicit here --
-# without it Mergify falls back to branch-protection required checks,
-# which is none, and would merge without waiting on CI at all.
+# The Mergify automation is shared: mark-brannan/.github/.mergify.yml keeps
+# open pull requests up to date with main, merges dependabot once the gate is
+# green, and offers the queue on request. Mergify only follows one level of
+# `extends`, so that repository's own configuration cannot extend anything.
+extends: .github
+
+# This repository has no ci-gate. Its checks live in separate workflows --
+# secret-scan, shellcheck, hook-seed-check -- with nothing a single `needs`
+# could fan them into, so the shared queue rule is restated here under the
+# same name, which is how `extends` lets a rule be overridden, with the five
+# checks the branch ruleset requires instead of `ci-gate / gate`.
 queue_rules:
   - name: default
     merge_method: squash
@@ -14,27 +18,3 @@ queue_rules:
       - check-success=secrets-encrypted
       - check-success=shellcheck
       - check-success=seeded
-
-# Keeps open pull requests up to date with main. Nothing here auto-merges:
-# main has no ruleset and no required approvals, and this repo's worktree is
-# $HOME on every machine -- a merge lands in a live home directory at the next
-# dotsync, so it stays a deliberate act.
-pull_request_rules:
-  - name: Update pull requests that have fallen behind main
-    conditions:
-      - base=main
-      - -draft
-      - -conflict
-      - -closed
-      - '#commits-behind>0'
-      # Automatic rules are not covered by commands_restrictions, and anyone
-      # with read access can open a pull request off an existing branch of a
-      # public repo. Without this, that stranger's pull request would have
-      # Mergify write a merge commit into a branch they cannot push to.
-      - or:
-          - author=mark-brannan
-          - author=dependabot[bot]
-          # A fork's head branch is outside this repository.
-          - from-fork
-    actions:
-      update: {}
