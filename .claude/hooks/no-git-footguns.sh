@@ -49,15 +49,16 @@ function whole(t) { return t ~ /^(\.|\.\/|\.\/\*|:\/|:\/\.|\*)$/ }
 function fail(r) { print r; exit }
 # Drop every heredoc body: from the end of the line carrying <<WORD to the
 # line that is exactly WORD. The marker itself becomes a plain word.
-function strip_heredocs(b,  d, eol, endm, tail) {
+function strip_heredocs(b,  d, eol, endm, tail, start) {
   while (match(b, /<<-?[ \t]*["'\'']?[A-Za-z_][A-Za-z0-9_]*["'\'']?/)) {
-    d = substr(b, RSTART, RLENGTH); sub(/^<<-?[ \t]*/, "", d); gsub(/["'\'']/, "", d)
-    eol = index(substr(b, RSTART), "\n")
-    if (!eol) return substr(b, 1, RSTART - 1) " HEREDOC "
-    tail = substr(b, RSTART + eol)
+    start = RSTART  # match() below clobbers RSTART; keep the opener'\''s position
+    d = substr(b, start, RLENGTH); sub(/^<<-?[ \t]*/, "", d); gsub(/["'\'']/, "", d)
+    eol = index(substr(b, start), "\n")
+    if (!eol) return substr(b, 1, start - 1) " HEREDOC "
+    tail = substr(b, start + eol)
     endm = match(tail, "(^|\n)[ \t]*" d "[ \t]*(\n|$)")
-    if (!endm) return substr(b, 1, RSTART - 1) " HEREDOC "
-    b = substr(b, 1, RSTART - 1) " HEREDOC " substr(tail, endm + RLENGTH - 1)
+    if (!endm) return substr(b, 1, start - 1) " HEREDOC "
+    b = substr(b, 1, start - 1) " HEREDOC " substr(tail, endm + RLENGTH - 1)
   }
   return b
 }

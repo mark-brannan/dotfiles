@@ -121,6 +121,9 @@ check allow 'echo prose unquoted'       'echo git add -A'
 check allow 'heredoc body'              $'cat > doc.md <<\'EOF\'\nnever run git add -A\nEOF'
 check allow 'heredoc body unquoted tag' $'cat > doc.md <<EOF\n- `git push --force` is bad\nEOF'
 check allow 'heredoc with dash'         $'cat <<-EOF\n\tgit stash pop\n\tEOF'
+check deny  'footgun before heredoc'    $'git add -A\ncat <<EOF\nx\nEOF'
+check deny  'footgun before long heredoc' $'git checkout .\ngit commit -F- <<\'EOF\'\nfix a bug in the thing\nsecond line\nEOF'
+check allow 'clean cmd before heredoc'  $'git add foo.sh\ngit commit -F- <<\'EOF\'\nnever git add -A\nEOF'
 check allow 'printf prose'              'printf "%s\n" git checkout .'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
