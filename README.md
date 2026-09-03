@@ -27,10 +27,25 @@ day-to-day routine:
 yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
 
+Between those, a cron line that `bootstrap` installs runs
+`.local/bin/dotfiles-sync.sh` every five minutes. It only ever fast-forwards;
+see "Why the cron sync is ff-only" below.
+
 **Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — Claude Code cloud
 environment setup, secrets, and troubleshooting.
 
 ## Conventions that keep it quiet
+
+* **Why the cron sync is ff-only.** `dotsync` rebases with `--autostash`,
+  which is right with a person watching and wrong unattended: Claude Code
+  rewrites `.claude/settings.json` in its own key order, so a three-way merge
+  sees a whole-file conflict, the autostash re-apply fails, `yadm pull` still
+  exits 0, and `$HOME` is left with invalid JSON and a stash nobody sees. That
+  happened on the boat. `dotfiles-sync.sh` therefore never rebases, stashes or
+  merges: git refuses a fast-forward that would overwrite a dirty tracked file,
+  atomically, so the only outcomes are "fast-forwarded", "level", or "skipped"
+  with the blocking files named in the log. A skip is the machine asking for a
+  `dotsync` by hand.
 
 * **Machine-specific values are guarded or substituted, never hardcoded.** Use
   `$HOME`, `command -v foo`, `[ -d ... ]`, or `[[ "$OSTYPE" == darwin* ]]`. A file

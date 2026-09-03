@@ -54,4 +54,7 @@ else
   fi
 fi
 
+# Unattended ff-only sync, every five minutes. Idempotent; see README.
+[ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
+
 echo "==> bootstrap done"
