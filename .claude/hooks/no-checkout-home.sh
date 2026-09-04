@@ -133,6 +133,9 @@ while IFS= read -r seg; do
     git_targets_home "$cwd" && hit=1
     if [ "$hit" = 0 ]; then
       for cpath in $(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' | sed -E 's/^[[:space:]]*-C[[:space:]]+//; s/^["'\'']//; s/["'\'']$//'); do
+        # These are case patterns matching a literal leading "~", not quoted
+        # strings -- nothing here expands it.
+        # shellcheck disable=SC2088
         case "$cpath" in
           '$HOME'|'${HOME}'|'~') resolved="$home" ;;
           '$HOME'/*) resolved="$home/${cpath#\$HOME/}" ;;
