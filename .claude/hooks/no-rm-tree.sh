@@ -16,8 +16,9 @@
 #      Claude's areas, nothing of Mark's lives there;
 #   2. a directory named in GENERATED_NAMES below (its final path component,
 #      or an ancestor component -- so `dist` and `dist/sub` both pass), and
-#      not a direct child of $HOME: ~/proj/dist is build output, ~/dist is a
-#      folder of Mark's that happens to share the name.
+#      not a direct child of $HOME or of the filesystem root: ~/proj/dist and
+#      /opt/proj/dist are build output, ~/dist and /dist are directories that
+#      happen to share the name.
 # Everything else is denied: any other directory under $HOME (a misc
 # directory in the home tree is Mark's by default, whatever it holds), any
 # repo's tracked or working directories, `public/` included -- the plugin's
@@ -242,10 +243,14 @@ is_under() {
 }
 
 # is_generated PATH: some component is a GENERATED_NAMES entry, and that
-# component is not a direct child of $HOME.
+# component is not a direct child of $HOME or of the filesystem root --
+# ~/proj/dist and /opt/proj/dist are build output, ~/dist and /dist are a
+# directory someone made that happens to share the name. Depth is counted
+# from $HOME when the path is under it, from / otherwise -- either way, a
+# depth-1 match is a bare top-level directory, never a build tool's output.
 is_generated() {
   rest=$1; depth=0
-  case $rest in "$HOME"/*) rest=${rest#"$HOME"/}; inhome=1 ;; *) inhome=0 ;; esac
+  case $rest in "$HOME"/*) rest=${rest#"$HOME"/} ;; esac
   while [ -n "$rest" ]; do
     seg=${rest%%/*}
     if [ "$rest" = "$seg" ]; then rest=; else rest=${rest#*/}; fi
@@ -253,7 +258,7 @@ is_generated() {
     depth=$((depth + 1))
     for g in $GENERATED_NAMES; do
       [ "$seg" = "$g" ] || continue
-      [ "$inhome" = 1 ] && [ "$depth" = 1 ] && return 1
+      [ "$depth" = 1 ] && return 1
       return 0
     done
   done

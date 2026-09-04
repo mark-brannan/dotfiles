@@ -85,6 +85,8 @@ check deny  'cd then relative rm, cwd /tmp'   'cd ~/project && rm -rf examples' 
 check deny  'cd then relative rm, cwd scratch' 'cd ~/project; rm -rf examples'            "$HOME/.local/state/claude-tmpdir/x"
 check deny  'generated name directly under ~' 'rm -rf ~/dist'
 check deny  'generated name under ~, cwd ~'   'rm -rf coverage'                            "$HOME"
+check deny  'generated name at /, absolute'   'rm -rf /dist'
+check deny  'generated name at /, cwd /'      'rm -rf coverage'                            /
 
 # --- allow: generated dirs, Claude's own areas, non-recursive, non-rm ---
 check allow 'rm -rf node_modules'             'rm -rf node_modules'
@@ -92,6 +94,7 @@ check allow 'rm -rf dist'                     'rm -rf dist'
 check allow 'rm -rf ./demo-dist app-dist'     'rm -rf ./demo-dist app-dist'
 check allow 'rm -rf dist/sub'                 'rm -rf dist/assets'
 check allow 'rm -rf -- dist'                  'rm -rf -- dist'
+check allow 'generated name nested under /'   'rm -rf dist'                                /opt/proj
 check allow 'scratchpad'                      "rm -rf $HOME/.local/state/claude-tmpdir/anything"
 check allow '/tmp'                            'rm -rf /tmp/whatever'
 check allow 'agent worktree'                  'rm -rf ~/.claude/worktrees/foo'
