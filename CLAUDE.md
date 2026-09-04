@@ -82,7 +82,7 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   `command -v`, `[ -d ... ]`, `[[ "$OSTYPE" == darwin* ]]`. Reach for a yadm
   alternate only when a whole file genuinely differs per OS, and then use
   `##default`, never `##os.Linux` — yadm reports `WSL` under WSL2.
-- Branch work: `yadm worktree add -b <branch> ~/.claude/worktrees/<name> main`, never `yadm checkout <branch>` in `$HOME`.
+- Branch work: `yadm worktree add -b <branch> ~/.claude/worktrees/<name> main`. Never `yadm checkout <branch>` in `$HOME`, never `git checkout <branch>` in `~/dotfiles`.
 
 ## Shell scripts here
 
