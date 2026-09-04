@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Tests for no-checkout-home.sh. Run: bash .claude/hooks/no-checkout-home.test.sh
+# Set AWK_PATH to a directory whose `awk` is another implementation (mawk,
+# nawk, busybox) to check portability; CI runs it under Ubuntu's mawk.
 set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/no-checkout-home.sh"
+[ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 # A cwd used in a check must exist on disk -- the hook's `cd` resolution
 # fails open (allow) on a path it can't enter, same as it would for any
 # other unreadable cwd, so a fabricated path silently passes "allow" tests
@@ -117,6 +120,10 @@ check allow 'GIT_DIR env to a worktree, not $HOME' "/tmp" "GIT_DIR=$WORKTREE_CWD
 
 # --- must allow: unrelated commands -----------------------------------------
 check allow 'not a checkout at all' "$HOME" 'yadm status'
+check allow 'checkout mentioned inside echo, not run' "$HOME" "echo 'yadm checkout some-branch'"
+check deny 'checkout nested in sh -c' "/tmp" "sh -c 'yadm checkout some-branch'"
+check deny 'unusual whitespace before checkout' "$HOME" 'yadm     checkout    some-branch'
+check deny 'unrecognized global flag does not push checkout out of reach' "/tmp" "git --namespace=foo --work-tree=$HOME checkout some-branch"
 
 if [ "$fail" -eq 0 ]; then
   printf 'no-checkout-home: %d/%d passed\n' "$pass" "$pass"
