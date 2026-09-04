@@ -131,6 +131,25 @@ Run `yadm alt` by hand after editing any `##`-suffixed file: yadm only relinks
 alternates when it feels like it, and a stale symlink looks exactly like a
 working one.
 
+Unattended, every five minutes, cron runs a fast-forward-only sync. `yadm
+bootstrap` installs the line; on a machine that predates it:
+
+```bash
+~/.local/bin/dotfiles-sync.sh --install
+```
+
+*Verify:* wait for the next five-minute mark, or run it once by hand, then:
+
+```bash
+~/.local/bin/dotfiles-sync.sh --status   # one line, timestamped within 5 min
+```
+
+`level with origin/main` or `fast-forwarded N commit(s)` means it works. Any
+line starting `skipped:` names what a person has to do — dirty files blocking
+a fast-forward, or a checkout mid-merge. A timestamp older than five minutes
+means cron is not running the line: `crontab -l | grep dotfiles-sync`, and on
+WSL `systemctl is-active cron`.
+
 ## Create a cloud environment
 
 A Claude Code cloud environment configures exactly four things: **name, network
