@@ -22,11 +22,16 @@ jobs:
       - name: Every settings.json hook is in the INSTALL list
         run: |
           set -euo pipefail
-          grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' .claude/settings.json \
-            | sort -u > /tmp/referenced
+          # Hooks named in settings.json, plus every library a hook loads
+          # from its own directory (lib-*.awk, *.jq): a hook that runs but
+          # cannot find its library fails closed on every call.
+          { grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' .claude/settings.json
+            grep -ho 'lib-[A-Za-z0-9._-]*\.\(awk\|sh\|jq\)' .claude/hooks/*.sh \
+              | sed 's|^|.claude/hooks/|'
+          } | sort -u > /tmp/referenced
           # The INSTALL heredoc-style list ends at the closing quote.
           sed -n '/^INSTALL="/,/^"/p' .local/bin/cloud-session-setup.sh \
-            | grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' \
+            | grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.\(sh\|awk\|jq\)' \
             | sort -u > /tmp/installed
           missing=$(comm -23 /tmp/referenced /tmp/installed)
           if [ -n "$missing" ]; then
