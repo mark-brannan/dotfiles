@@ -279,7 +279,8 @@ seed gap there blocks every Bash call with a message naming the hook. After
 editing either file, diff the two lists (CI runs the same check):
 
 ```bash
-grep -o '\.claude/hooks/[a-z-]*\.sh' .claude/settings.json | sort -u
+{ grep -o '\.claude/hooks/[a-z-]*\.sh' .claude/settings.json
+  grep -ho 'lib-[a-z-]*\.awk' .claude/hooks/*.sh | sed 's|^|.claude/hooks/|'; } | sort -u
 sed -n '/^INSTALL=/,/^"$/p' .local/bin/cloud-session-setup.sh | grep hooks/
 ```
 

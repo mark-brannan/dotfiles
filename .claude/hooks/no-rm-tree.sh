@@ -168,7 +168,8 @@ function segment(a, b, nested,   g, i, x, recursive, dashdash, ntgt, tgt, starts
   for (i = g + 1; i <= b; i++) {
     x = w[i]
     if (!dashdash && x == "--") { dashdash = 1; continue }
-    if (!dashdash && k[i] == "w" && x ~ /^--/) { if (x == "--recursive") recursive = 1; continue }
+    # GNU getopt_long takes any unambiguous prefix: --rec, --r are --recursive.
+    if (!dashdash && k[i] == "w" && x ~ /^--/) { if (length(x) >= 3 && index("--recursive", x) == 1) recursive = 1; continue }
     if (!dashdash && k[i] == "w" && x ~ /^-./) { if (has(x, "r") || has(x, "R")) recursive = 1; continue }
     tgt[++ntgt] = i
   }

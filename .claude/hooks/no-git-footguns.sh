@@ -54,6 +54,8 @@ cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null) || deny 'no-git-footguns
 
 reason=$(printf '%s\n' "$cmd" | awk "$(cat "$LIB")"'
 function has(t, ch) { return t ~ ("^-[A-Za-z0-9]*" ch "[A-Za-z0-9]*$") }
+# git takes any unambiguous prefix of a long option: --har is --hard, --al is --all.
+function pfx(t, full) { return length(t) >= 3 && index(full, t) == 1 }
 function dst(t,  i) { sub(/^\+/, "", t); i = index(t, ":"); if (i) t = substr(t, i + 1); return t }
 function ismain(t) { return t ~ /^(refs\/heads\/)?(main|master)$/ }
 function whole(t) { return t ~ /^(\.|\.\/|\.\/\*|:\/|:\/\.|\*)$/ }
@@ -89,16 +91,16 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     if (sub_ == "add") {
       paths = 0; upd = 0
       for (i = 1; i <= na; i++) {
-        if (a[i] ~ /^(-A|--all|--no-ignore-removal)$/ || has(a[i], "A")) fail("`git add -A` is blocked: stage by path. On dotfiles the worktree is $HOME; elsewhere it sweeps in files a parallel session is working on.")
+        if (a[i] == "-A" || pfx(a[i],"--all") || pfx(a[i],"--no-ignore-removal") || has(a[i], "A")) fail("`git add -A` is blocked: stage by path. On dotfiles the worktree is $HOME; elsewhere it sweeps in files a parallel session is working on.")
         if (whole(a[i])) fail("`git add " a[i] "` is blocked: stage by path, not the whole tree.")
-        if (a[i] ~ /^(-u|--update)$/ || has(a[i], "u")) upd = 1
+        if (a[i] == "-u" || pfx(a[i],"--update") || has(a[i], "u")) upd = 1
         else if (a[i] !~ /^-/) paths++
       }
       if (upd && !paths) fail("`git add -u` with no path is blocked: stage by path.")
     }
     else if (sub_ == "commit") {
       for (i = 1; i <= na; i++)
-        if (a[i] == "--all" || has(a[i], "a")) fail("`git commit -a` is blocked: it is `git add -u` in disguise. Stage by path, then commit.")
+        if (pfx(a[i],"--all") || has(a[i], "a")) fail("`git commit -a` is blocked: it is `git add -u` in disguise. Stage by path, then commit.")
     }
     else if (sub_ == "stash") {
       op = ""; refs = 0
@@ -110,9 +112,9 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     else if (sub_ == "push") {
       force = 0; lease = 0; tomain = 0; del = 0
       for (i = 1; i <= na; i++) {
-        if (a[i] ~ /^--force-with-lease(=|$)/ || a[i] ~ /^--force-if-includes$/) { lease = 1; continue }
-        if (a[i] == "--force" || has(a[i], "f")) force = 1
-        else if (a[i] == "--delete" || has(a[i], "d")) del = 1
+        if (a[i] ~ /^--force-with-lease=/ || (a[i] ~ /^--force-/ && (pfx(a[i],"--force-with-lease") || pfx(a[i],"--force-if-includes")))) { lease = 1; continue }
+        if (pfx(a[i],"--force") || has(a[i], "f")) force = 1
+        else if (pfx(a[i],"--delete") || has(a[i], "d")) del = 1
         else if (a[i] ~ /^\+/) force = 1
         else if (a[i] ~ /^:/ && ismain(dst(a[i]))) { del = 1; tomain = 1 }
         else if (a[i] !~ /^-/ && ismain(dst(a[i]))) tomain = 1
@@ -123,8 +125,8 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     else if (sub_ == "checkout" || sub_ == "restore") {
       staged = 0; wt = 0; wh = ""
       for (i = 1; i <= na; i++) {
-        if (a[i] ~ /^(-S|--staged)$/ || has(a[i], "S")) staged = 1
-        if (a[i] ~ /^(-W|--worktree)$/ || has(a[i], "W")) wt = 1
+        if (a[i] == "-S" || pfx(a[i],"--staged") || has(a[i], "S")) staged = 1
+        if (a[i] == "-W" || pfx(a[i],"--worktree") || has(a[i], "W")) wt = 1
         if (whole(a[i])) wh = a[i]
       }
       if (wh != "" && !(sub_ == "restore" && staged && !wt)) fail("`git " sub_ " " wh "` is blocked: it discards every uncommitted change, same as reset --hard. Restore one path at a time, or ask Mark.")
@@ -132,8 +134,8 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     else if (sub_ == "clean") {
       force = 0; dry = 0
       for (i = 1; i <= na; i++) {
-        if (a[i] == "--force" || has(a[i], "f")) force = 1
-        if (a[i] == "--dry-run" || has(a[i], "n")) dry = 1
+        if (pfx(a[i],"--force") || has(a[i], "f")) force = 1
+        if (pfx(a[i],"--dry-run") || has(a[i], "n")) dry = 1
       }
       if (force && !dry) fail("`git clean -f` is blocked: it deletes untracked files, unrecoverably. `git clean -n` to list them, then remove by path.")
     }
@@ -141,14 +143,14 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
       del = 0; force = 0
       for (i = 1; i <= na; i++) {
         if (a[i] == "-D" || has(a[i], "D")) fail("`git branch -D` is blocked: it deletes unmerged work. `git branch -d` refuses when there is something to lose; if it refuses, that is the answer.")
-        if (a[i] ~ /^(-d|--delete)$/ || has(a[i], "d")) del = 1
-        if (a[i] ~ /^(-f|--force)$/ || has(a[i], "f")) force = 1
+        if (a[i] == "-d" || pfx(a[i],"--delete") || has(a[i], "d")) del = 1
+        if (a[i] == "-f" || pfx(a[i],"--force") || has(a[i], "f")) force = 1
       }
       if (del && force) fail("`git branch --delete --force` is blocked: same as -D.")
     }
     else if (sub_ == "reset") {
       for (i = 1; i <= na; i++)
-        if (a[i] == "--hard") fail("`git reset --hard` is blocked at user scope. It discards uncommitted work, and on a shared checkout that work may not be yours. Ask Mark to run it himself, or reach for a reversible move: `git revert`, a new branch off the good commit, `git stash`, `git reset --soft`/`--mixed`.")
+        if (pfx(a[i],"--hard")) fail("`git reset --hard` is blocked at user scope. It discards uncommitted work, and on a shared checkout that work may not be yours. Ask Mark to run it himself, or reach for a reversible move: `git revert`, a new branch off the good commit, `git stash`, `git reset --soft`/`--mixed`.")
     }
 }') || deny 'no-git-footguns: awk failed, cannot inspect the command'
 
