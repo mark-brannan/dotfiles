@@ -114,7 +114,11 @@ out=$(printf '%s\n' "$cmd" | awk -v cwd="$cwd" -v home="$HOME" "$(cat "$LIB")"'
 function has(t, ch) { return t ~ ("^-[A-Za-z0-9]*" ch "[A-Za-z0-9]*$") }
 function fail(r) { print "DENY\t" r; exit }
 function blocked(raw, why) {
-  fail("`rm -r" (raw == "" ? "" : " " raw) "` is blocked: " why ". Resolve the target yourself and spell it out: `rm -rf` on the absolute path of a generated directory (node_modules, dist, coverage, .pio ...), the scratchpad, /tmp or an agent worktree. Anything else in a repo or under $HOME is Mark'\''s -- `git status --short` / `git clean -n` show what is there; `git rm` tracked files by path and hand the rest to him.")
+  fail("`rm -r" (raw == "" ? "" : " " raw) "` is blocked: " why \
+       ". Resolve the target yourself and spell it out: `rm -rf` on the absolute path of a " \
+       "generated directory (node_modules, dist, coverage, .pio ...), the scratchpad, /tmp or an " \
+       "agent worktree. Anything else in a repo or under $HOME is Mark'\''s -- `git status --short` " \
+       "/ `git clean -n` show what is there; `git rm` tracked files by path and hand the rest to him.")
 }
 
 # Collapse "." segments and duplicate slashes. `..` never reaches here.
@@ -174,7 +178,9 @@ function segment(a, b, nested,   g, i, x, recursive, dashdash, ntgt, tgt, starts
     tgt[++ntgt] = i
   }
   if (!recursive) return
-  if (!ntgt) blocked("", "no target is visible to this hook -- find -exec, xargs, brace expansion and quoted lists all look like this. Run rm on the resolved paths directly")
+  if (!ntgt)
+    blocked("", "no target is visible to this hook -- find -exec, xargs, brace expansion and " \
+                "quoted lists all look like this. Run rm on the resolved paths directly")
   for (i = 1; i <= ntgt; i++) target(tgt[i])
 }
 
@@ -264,9 +270,16 @@ allowed() {
 
 while IFS=$tab read -r tag abs raw; do
   [ "$tag" = T ] || continue
-  allowed "$abs" || deny "\`rm -r $raw\` is blocked: only the scratchpad, /tmp, agent worktrees and the generated directories named in no-rm-tree.sh (node_modules, dist, coverage, .pio ...) may be removed recursively, and $abs is none of those. \`git status --short $raw\` and \`git clean -n $raw\` show what is there; \`git rm\` tracked files by path, and hand anything untracked to Mark -- a directory he owns can hold downloads and logs no session knows about."
-  phys=$(physical "$abs") || deny "no-rm-tree: cannot resolve $abs through the filesystem (no readlink -f or realpath here), so \`rm -r $raw\` is blocked. Install coreutils or ask Mark."
-  [ "$phys" = "$abs" ] || allowed "$phys" || deny "\`rm -r $raw\` is blocked: $abs resolves through a symlink to $phys, which is not a generated directory, the scratchpad, /tmp or an agent worktree. rm follows a trailing slash into the link's target."
+  allowed "$abs" || deny "\`rm -r $raw\` is blocked: only the scratchpad, /tmp, agent worktrees and \
+the generated directories named in no-rm-tree.sh (node_modules, dist, coverage, .pio ...) may be \
+removed recursively, and $abs is none of those. \`git status --short $raw\` and \`git clean -n $raw\` \
+show what is there; \`git rm\` tracked files by path, and hand anything untracked to Mark -- a \
+directory he owns can hold downloads and logs no session knows about."
+  phys=$(physical "$abs") || deny "no-rm-tree: cannot resolve $abs through the filesystem (no \
+readlink -f or realpath here), so \`rm -r $raw\` is blocked. Install coreutils or ask Mark."
+  [ "$phys" = "$abs" ] || allowed "$phys" || deny "\`rm -r $raw\` is blocked: $abs resolves through \
+a symlink to $phys, which is not a generated directory, the scratchpad, /tmp or an agent worktree. \
+rm follows a trailing slash into the link's target."
 done <<EOF
 $out
 EOF

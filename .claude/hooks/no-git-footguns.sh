@@ -91,7 +91,9 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     if (sub_ == "add") {
       paths = 0; upd = 0
       for (i = 1; i <= na; i++) {
-        if (a[i] == "-A" || pfx(a[i],"--all") || pfx(a[i],"--no-ignore-removal") || has(a[i], "A")) fail("`git add -A` is blocked: stage by path. On dotfiles the worktree is $HOME; elsewhere it sweeps in files a parallel session is working on.")
+        if (a[i] == "-A" || pfx(a[i],"--all") || pfx(a[i],"--no-ignore-removal") || has(a[i], "A"))
+          fail("`git add -A` is blocked: stage by path. On dotfiles the worktree is $HOME; " \
+               "elsewhere it sweeps in files a parallel session is working on.")
         if (whole(a[i])) fail("`git add " a[i] "` is blocked: stage by path, not the whole tree.")
         if (a[i] == "-u" || pfx(a[i],"--update") || has(a[i], "u")) upd = 1
         else if (a[i] !~ /^-/) paths++
@@ -105,9 +107,13 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     else if (sub_ == "stash") {
       op = ""; refs = 0
       for (i = 1; i <= na; i++) if (a[i] !~ /^-/) { if (op == "") op = a[i]; else refs++ }
-      if (op == "pop") fail("`git stash pop` is blocked: the stash stack is shared across worktrees and pop can take another session'\''s entry. Use `git stash apply <sha>` and drop the entry afterwards.")
+      if (op == "pop")
+        fail("`git stash pop` is blocked: the stash stack is shared across worktrees and pop can " \
+             "take another session'\''s entry. Use `git stash apply <sha>` and drop the entry afterwards.")
       if (op == "clear") fail("`git stash clear` is blocked: the stash stack is shared across worktrees; it is not all yours to clear.")
-      if (op == "drop" && !refs) fail("bare `git stash drop` drops stash@{0}, which may be another session'\''s. Name the entry: `git stash drop stash@{n}` after finding it by tag.")
+      if (op == "drop" && !refs)
+        fail("bare `git stash drop` drops stash@{0}, which may be another session'\''s. " \
+             "Name the entry: `git stash drop stash@{n}` after finding it by tag.")
     }
     else if (sub_ == "push") {
       force = 0; lease = 0; tomain = 0; del = 0
@@ -119,7 +125,9 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
         else if (a[i] ~ /^:/ && ismain(dst(a[i]))) { del = 1; tomain = 1 }
         else if (a[i] !~ /^-/ && ismain(dst(a[i]))) tomain = 1
       }
-      if (force) fail("bare `git push --force` is blocked. Rebasing a session branch is the one legitimate force: use `--force-with-lease origin <branch>`, never to main.")
+      if (force)
+        fail("bare `git push --force` is blocked. Rebasing a session branch is the one legitimate " \
+             "force: use `--force-with-lease origin <branch>`, never to main.")
       if (tomain && (lease || del)) fail("force-pushing or deleting main is blocked. Main takes rebased branches through a PR.")
     }
     else if (sub_ == "checkout" || sub_ == "restore") {
@@ -129,7 +137,9 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
         if (a[i] == "-W" || pfx(a[i],"--worktree") || has(a[i], "W")) wt = 1
         if (whole(a[i])) wh = a[i]
       }
-      if (wh != "" && !(sub_ == "restore" && staged && !wt)) fail("`git " sub_ " " wh "` is blocked: it discards every uncommitted change, same as reset --hard. Restore one path at a time, or ask Mark.")
+      if (wh != "" && !(sub_ == "restore" && staged && !wt))
+        fail("`git " sub_ " " wh "` is blocked: it discards every uncommitted change, same as " \
+             "reset --hard. Restore one path at a time, or ask Mark.")
     }
     else if (sub_ == "clean") {
       force = 0; dry = 0
@@ -137,12 +147,16 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
         if (pfx(a[i],"--force") || has(a[i], "f")) force = 1
         if (pfx(a[i],"--dry-run") || has(a[i], "n")) dry = 1
       }
-      if (force && !dry) fail("`git clean -f` is blocked: it deletes untracked files, unrecoverably. `git clean -n` to list them, then remove by path.")
+      if (force && !dry)
+        fail("`git clean -f` is blocked: it deletes untracked files, unrecoverably. " \
+             "`git clean -n` to list them, then remove by path.")
     }
     else if (sub_ == "branch") {
       del = 0; force = 0
       for (i = 1; i <= na; i++) {
-        if (a[i] == "-D" || has(a[i], "D")) fail("`git branch -D` is blocked: it deletes unmerged work. `git branch -d` refuses when there is something to lose; if it refuses, that is the answer.")
+        if (a[i] == "-D" || has(a[i], "D"))
+          fail("`git branch -D` is blocked: it deletes unmerged work. `git branch -d` refuses " \
+               "when there is something to lose; if it refuses, that is the answer.")
         if (a[i] == "-d" || pfx(a[i],"--delete") || has(a[i], "d")) del = 1
         if (a[i] == "-f" || pfx(a[i],"--force") || has(a[i], "f")) force = 1
       }
@@ -150,7 +164,11 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     }
     else if (sub_ == "reset") {
       for (i = 1; i <= na; i++)
-        if (pfx(a[i],"--hard")) fail("`git reset --hard` is blocked at user scope. It discards uncommitted work, and on a shared checkout that work may not be yours. Ask Mark to run it himself, or reach for a reversible move: `git revert`, a new branch off the good commit, `git stash`, `git reset --soft`/`--mixed`.")
+        if (pfx(a[i],"--hard"))
+          fail("`git reset --hard` is blocked at user scope. It discards uncommitted work, and on " \
+               "a shared checkout that work may not be yours. Ask Mark to run it himself, or reach " \
+               "for a reversible move: `git revert`, a new branch off the good commit, `git stash`, " \
+               "`git reset --soft`/`--mixed`.")
     }
 }') || deny 'no-git-footguns: awk failed, cannot inspect the command'
 
