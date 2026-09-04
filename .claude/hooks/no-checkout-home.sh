@@ -1,8 +1,6 @@
 #!/bin/sh
-# Refuses `yadm checkout <branch>` (or `git checkout <branch>` run against
-# the yadm repo) whenever it would switch the branch checked out in $HOME —
-# either because the command's cwd is $HOME, or because it points there
-# itself with `-C`.
+# Refuses a `yadm`/`git` `checkout`/`switch` that would switch the branch
+# checked out in $HOME.
 #
 # $HOME is the yadm worktree every shell on this machine sits in. A session
 # that checks its branch out directly there, instead of in a worktree,
@@ -15,42 +13,52 @@
 # then cd into it and work there. `yadm worktree remove
 # ~/.claude/worktrees/<name>` cleans up when done. This has no bearing on
 # editing dotfiles directly in $HOME on main -- the hook only ever fires on
-# a `checkout` invocation, never on an edit.
+# a `checkout`/`switch` invocation, never on an edit.
 #
-# File-restore forms are not a branch switch and stay allowed: anything with
-# a `--` pathspec separator (`checkout -- <file>`, `checkout <ref> -- <file>`).
-# `-b`/`-B` (create-and-switch) count as a branch switch same as a
-# plain `checkout <branch>`, since the effect on $HOME is identical — a new
-# branch left checked out there is exactly the failure mode this blocks.
-# `checkout .` (discarding edits) is also caught by no-git-footguns.sh; this
-# hook denies it too since it isn't a pathspec-restore it can single out —
-# redundant, not wrong. `checkout HEAD --` with no pathspec after `--` is a
-# whole-tree discard neither hook catches — a pre-existing gap in
-# no-git-footguns.sh, out of scope here.
+# `yadm` and `git` are NOT symmetric here, unlike the rest of this repo's
+# "yadm is git" shorthand: yadm hardcodes `--work-tree=$HOME` into every
+# invocation regardless of cwd (verified: `cd /tmp && yadm rev-parse
+# --show-toplevel` prints $HOME) -- it is yadm's whole reason to exist, and
+# it means `yadm checkout <branch>` is dangerous from ANY directory,
+# including a `~/.claude/worktrees/<name>` worktree, which is exactly the
+# place a session runs it from most often. So any `yadm checkout`/`yadm
+# switch` that isn't a file-restore is an automatic hit, cwd ignored
+# entirely. Plain `git`, in contrast, only ever touches $HOME's worktree if
+# the repo it discovers from cwd (or a `-C` target) actually resolves to
+# $HOME -- checked by asking git directly (`rev-parse --show-toplevel`),
+# not by testing whether the path is textually under $HOME: a nested repo
+# (a `~/.claude/worktrees/<name>` worktree, `~/dotfiles`, any other clone
+# under $HOME) sits under $HOME by path but git's own upward search stops
+# at its own `.git` long before reaching $HOME's, so it never resolves
+# there. A textual prefix check would wrongly deny every one of those.
+#
+# `switch` is covered alongside `checkout`: `git switch <branch>` is the
+# same branch-switch-in-$HOME footgun and has no file-restore form to
+# exempt, so a `switch` hit denies unconditionally -- no `--` check.
+# `checkout`'s file-restore forms (`checkout -- <file>`, `checkout <ref> --
+# <file>`) stay allowed, and `-b`/`-B` (create-and-switch) counts as a
+# branch switch same as plain `checkout <branch>`. `checkout .` (discarding
+# edits) is also caught by no-git-footguns.sh; this hook denies it too
+# since it isn't a pathspec-restore it can single out -- redundant, not
+# wrong. `checkout HEAD --` with no pathspec after `--` is a whole-tree
+# discard neither hook catches -- a pre-existing gap in no-git-footguns.sh,
+# out of scope here.
 #
 # The command is split into segments on shell separators (&&, ||, ;, |) and
 # each segment is truncated at its first `#`, then every check below runs
-# per segment. Two things this closes:
-#   - a `--` in one clause could otherwise exempt a checkout in another,
-#     e.g. `yadm checkout some-branch && ls --` or the sneakier
-#     `yadm checkout some-branch # --`, where the `#` is a real shell
-#     comment: the command Bash actually runs is just the checkout, but a
-#     whole-string `--` search would still see the trailing `--` and wave
-#     it through as a file restore.
-#   - a `-C <path>` naming $HOME (literally `$HOME`/`${HOME}`/`~`, or a
-#     path that resolves to it) is treated the same as cwd being $HOME,
-#     so `git -C "$HOME" checkout <branch>` run from inside a worktree is
-#     still caught. Quoting inside the `-C` value (`-C '$HOME'`, where the
-#     shell would NOT expand it) isn't distinguished from the unquoted form
-#     that would — a known imprecision, not a silent hole: it only makes
-#     the hook deny a couple of cases that were actually safe, never the
-#     reverse. `--git-dir`/`--work-tree` are not checked; on a repo whose
-#     `-C` target isn't recognized this hook still fails safe as long as
-#     cwd is what's read, since only $HOME's cwd matters here, not $HOME's
-#     git-dir.
+# per segment -- so a `--` in one clause, or hidden behind a real shell
+# comment (`yadm checkout foo # --`, where Bash only ever runs the part
+# before the `#`), can never launder an earlier real checkout.
 #
-# `yadm` is treated as `git`, since on dotfiles that is what it is. This is
-# still a command-word regex, not a full parser (no-git-footguns.sh strips
+# For `git`, a `-C <path>` naming $HOME or a subdirectory of it (literally
+# `$HOME`/`${HOME}`/`~`[/...], or a path that resolves to one) is treated
+# the same as cwd being there. Quoting inside the `-C` value (`-C '$HOME'`,
+# which the shell would NOT expand) isn't distinguished from the unquoted
+# form that would -- a known imprecision that only makes the hook deny a
+# couple of cases that were actually safe, never the reverse.
+# `--git-dir`/`--work-tree` are not checked.
+#
+# Still a command-word regex, not a full parser (no-git-footguns.sh strips
 # quotes and heredocs first; this doesn't): a command that merely mentions
 # "yadm checkout" in a quoted string, or buries the real call behind
 # unusual quoting, isn't handled. Accepted imprecision, not a bypass anyone
@@ -73,7 +81,23 @@ payload_cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 home=$(cd "$HOME" 2>/dev/null && pwd -P) || exit 0
 cwd=$(cd "$payload_cwd" 2>/dev/null && pwd -P) || exit 0
 
-checkout_re='(^|[^A-Za-z0-9_./-])(yadm|git)([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[^[:space:]]+))*[[:space:]]+checkout([[:space:]]|$)'
+# True if plain `git` run from directory $1 would actually operate on
+# $HOME's worktree -- not "is $1 textually under $HOME", which a nested
+# repo (a `~/.claude/worktrees/<name>` worktree, `~/dotfiles`, any other
+# clone under $HOME) would wrongly trip: git stops walking up at the
+# nearest .git, so it never reaches $HOME's from inside one of those. Ask
+# git directly what it would resolve to.
+git_targets_home() {
+  [ "$1" = "$home" ] && return 0
+  t=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)
+  [ -n "$t" ] && [ "$t" = "$home" ]
+}
+
+flags='([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[^[:space:]]+))*[[:space:]]+'
+yadm_checkout_re="(^|[^A-Za-z0-9_./-])yadm${flags}checkout([[:space:]]|\$)"
+git_checkout_re="(^|[^A-Za-z0-9_./-])git${flags}checkout([[:space:]]|\$)"
+yadm_switch_re="(^|[^A-Za-z0-9_./-])yadm${flags}switch([[:space:]]|\$)"
+git_switch_re="(^|[^A-Za-z0-9_./-])git${flags}switch([[:space:]]|\$)"
 
 segments=$(printf '%s\n' "$cmd" | awk '
 { buf = buf $0 "\n" }
@@ -90,26 +114,44 @@ END {
 # A heredoc, not a pipe: a pipeline forks the loop into a subshell, and
 # deny()'s `exit` would then only end that subshell, not the hook.
 while IFS= read -r seg; do
-  printf '%s' "$seg" | grep -Eq "$checkout_re" || continue
+  is_checkout=0; is_switch=0; is_yadm=0
+  if printf '%s' "$seg" | grep -Eq "$yadm_checkout_re"; then is_checkout=1; is_yadm=1
+  elif printf '%s' "$seg" | grep -Eq "$git_checkout_re"; then is_checkout=1
+  fi
+  if printf '%s' "$seg" | grep -Eq "$yadm_switch_re"; then is_switch=1; is_yadm=1
+  elif printf '%s' "$seg" | grep -Eq "$git_switch_re"; then is_switch=1
+  fi
+  [ "$is_checkout" = 1 ] || [ "$is_switch" = 1 ] || continue
 
-  hit=0
-  [ "$cwd" = "$home" ] && hit=1
-  if [ "$hit" = 0 ]; then
-    for cpath in $(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' | sed -E 's/^[[:space:]]*-C[[:space:]]+//; s/^["'\'']//; s/["'\'']$//'); do
-      case "$cpath" in
-        '$HOME'|'${HOME}'|'~') hit=1 ;;
-        /*) r=$(cd "$cpath" 2>/dev/null && pwd -P); [ "$r" = "$home" ] && hit=1 ;;
-        *) r=$(cd "$payload_cwd/$cpath" 2>/dev/null && pwd -P); [ "$r" = "$home" ] && hit=1 ;;
-      esac
-      [ "$hit" = 1 ] && break
-    done
+  if [ "$is_yadm" = 1 ]; then
+    hit=1   # yadm ignores cwd entirely -- always targets $HOME's worktree.
+  else
+    hit=0
+    git_targets_home "$cwd" && hit=1
+    if [ "$hit" = 0 ]; then
+      for cpath in $(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' | sed -E 's/^[[:space:]]*-C[[:space:]]+//; s/^["'\'']//; s/["'\'']$//'); do
+        case "$cpath" in
+          '$HOME'|'${HOME}'|'~') resolved="$home" ;;
+          '$HOME'/*) resolved="$home/${cpath#\$HOME/}" ;;
+          '${HOME}'/*) resolved="$home/${cpath#\$\{HOME\}/}" ;;
+          '~/'*) resolved="$home/${cpath#\~/}" ;;
+          /*) resolved="$cpath" ;;
+          *) resolved="$payload_cwd/$cpath" ;;
+        esac
+        r=$(cd "$resolved" 2>/dev/null && pwd -P)
+        if [ -n "$r" ] && git_targets_home "$r"; then hit=1; fi
+        [ "$hit" = 1 ] && break
+      done
+    fi
   fi
   [ "$hit" = 1 ] || continue
 
-  # A `--` pathspec separator within this segment means a file restore.
-  printf '%s' "$seg" | grep -Eq '(^|[[:space:]])--([[:space:]]|$)' && continue
+  if [ "$is_checkout" = 1 ]; then
+    # A `--` pathspec separator within this segment means a file restore.
+    printf '%s' "$seg" | grep -Eq '(^|[[:space:]])--([[:space:]]|$)' && continue
+  fi
 
-  deny "no-checkout-home: \`checkout\` in \$HOME switches the branch every shell and session on this machine sees until someone checks main back out. Use a worktree instead:
+  deny "no-checkout-home: \`checkout\`/\`switch\` in \$HOME switches the branch every shell and session on this machine sees until someone checks main back out. Use a worktree instead:
   yadm worktree add -b <branch> ~/.claude/worktrees/<name> main
 then cd into it and work there."
 done <<EOF
