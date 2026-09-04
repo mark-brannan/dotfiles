@@ -94,10 +94,13 @@ git_targets_home() {
 }
 
 flags='([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[^[:space:]]+))*[[:space:]]+'
-yadm_checkout_re="(^|[^A-Za-z0-9_./-])yadm${flags}checkout([[:space:]]|\$)"
-git_checkout_re="(^|[^A-Za-z0-9_./-])git${flags}checkout([[:space:]]|\$)"
-yadm_switch_re="(^|[^A-Za-z0-9_./-])yadm${flags}switch([[:space:]]|\$)"
-git_switch_re="(^|[^A-Za-z0-9_./-])git${flags}switch([[:space:]]|\$)"
+# The command word itself may be prefixed by a path (`/usr/bin/yadm`,
+# `./yadm`): only exclude what could extend the word (alnum/_/-), not `/`,
+# so a leading path segment doesn't suppress the match.
+yadm_checkout_re="(^|[^A-Za-z0-9_-])yadm${flags}checkout([[:space:]]|\$)"
+git_checkout_re="(^|[^A-Za-z0-9_-])git${flags}checkout([[:space:]]|\$)"
+yadm_switch_re="(^|[^A-Za-z0-9_-])yadm${flags}switch([[:space:]]|\$)"
+git_switch_re="(^|[^A-Za-z0-9_-])git${flags}switch([[:space:]]|\$)"
 
 segments=$(printf '%s\n' "$cmd" | awk '
 { buf = buf $0 "\n" }

@@ -90,6 +90,9 @@ check deny '-C "$HOME" from a worktree'  "$WORKTREE_CWD" 'git -C "$HOME" checkou
 check deny '-C $HOME (unquoted) from a worktree' "$WORKTREE_CWD" 'git -C $HOME checkout some-branch'
 check deny '-C ~ from a worktree' "$WORKTREE_CWD" 'git -C ~ checkout some-branch'
 check deny '-C <absolute $HOME path> from a worktree' "$WORKTREE_CWD" "git -C $HOME checkout some-branch"
+check deny 'absolute-path yadm invocation in $HOME' "$HOME" '/usr/bin/yadm checkout some-branch'
+check deny 'relative-path yadm invocation in $HOME' "$HOME" './yadm checkout some-branch'
+check deny 'absolute-path git invocation in $HOME'  "$HOME" '/usr/bin/git checkout some-branch'
 
 # --- must allow: file-restore forms, even in $HOME --------------------------
 check allow 'checkout -- <file> in $HOME'       "$HOME" 'yadm checkout -- .npmrc'
