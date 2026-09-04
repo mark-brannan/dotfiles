@@ -114,6 +114,11 @@
             "type": "command",
             "command": "h=\"$HOME/.claude/hooks/no-git-footguns.sh\"; [ -f \"$h\" ] && sh \"$h\" || true",
             "statusMessage": "Checking for git footguns"
+          },
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/no-checkout-home.sh\"; [ -f \"$h\" ] && sh \"$h\" || true",
+            "statusMessage": "Checking for a branch checkout in $HOME"
           }
         ]
       },
