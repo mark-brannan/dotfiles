@@ -52,11 +52,15 @@
 #
 # For `git`, a `-C <path>` naming $HOME or a subdirectory of it (literally
 # `$HOME`/`${HOME}`/`~`[/...], or a path that resolves to one) is treated
-# the same as cwd being there. Quoting inside the `-C` value (`-C '$HOME'`,
-# which the shell would NOT expand) isn't distinguished from the unquoted
-# form that would -- a known imprecision that only makes the hook deny a
-# couple of cases that were actually safe, never the reverse.
-# `--git-dir`/`--work-tree` are not checked.
+# the same as cwd being there. `--git-dir`/`--work-tree` are checked the
+# same way: a `--work-tree` resolving to $HOME, or a `--git-dir` resolving
+# to $HOME/.git, is a hit regardless of cwd -- these override cwd-based repo
+# discovery entirely, so `git --git-dir="$HOME/.git" --work-tree="$HOME"
+# checkout <branch>` run from anywhere is exactly as dangerous as running it
+# from $HOME. Quoting inside any of these values (`-C '$HOME'`, which the
+# shell would NOT expand) isn't distinguished from the unquoted form that
+# would -- a known imprecision that only makes the hook deny a couple of
+# cases that were actually safe, never the reverse.
 #
 # Still a command-word regex, not a full parser (no-git-footguns.sh strips
 # quotes and heredocs first; this doesn't): a command that merely mentions
@@ -93,7 +97,36 @@ git_targets_home() {
   [ -n "$t" ] && [ "$t" = "$home" ]
 }
 
-flags='([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[^[:space:]]+))*[[:space:]]+'
+# Resolves a raw -C/--git-dir/--work-tree value (as it appeared, unquoted by
+# this hook) against $home/$payload_cwd, the same way the shell would if the
+# literal text were left unquoted. Echoes the resolved absolute path, or
+# nothing if it doesn't exist.
+resolve_path_arg() {
+  cpath=$1
+  # These are case patterns matching a literal leading "~"/"$HOME", not
+  # quoted strings -- nothing here expands it.
+  # shellcheck disable=SC2088
+  case "$cpath" in
+    '$HOME'|'${HOME}'|'~') resolved="$home" ;;
+    '$HOME'/*) resolved="$home/${cpath#\$HOME/}" ;;
+    '${HOME}'/*) resolved="$home/${cpath#\$\{HOME\}/}" ;;
+    '~/'*) resolved="$home/${cpath#\~/}" ;;
+    /*) resolved="$cpath" ;;
+    *) resolved="$payload_cwd/$cpath" ;;
+  esac
+  (cd "$resolved" 2>/dev/null && pwd -P)
+}
+
+# Extracts the values of a `--flag value` / `--flag=value` git option from a
+# command segment, stripping surrounding quotes.
+extract_flag_values() {
+  flag=$1
+  printf '%s' "$seg" \
+    | grep -oE "(^|[[:space:]])${flag}(=|[[:space:]]+)[^[:space:]]+" \
+    | sed -E "s/^[[:space:]]*${flag}(=|[[:space:]]+)//; s/^[\"']//; s/[\"']\$//"
+}
+
+flags='([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--(git-dir|work-tree)[[:space:]]+[^[:space:]]+|--[^[:space:]]+))*[[:space:]]+'
 # The command word itself may be prefixed by a path (`/usr/bin/yadm`,
 # `./yadm`): only exclude what could extend the word (alnum/_/-), not `/`,
 # so a leading path segment doesn't suppress the match.
@@ -130,21 +163,23 @@ while IFS= read -r seg; do
     hit=1   # yadm ignores cwd entirely -- always targets $HOME's worktree.
   else
     hit=0
-    git_targets_home "$cwd" && hit=1
+    # --work-tree/--git-dir override repo discovery entirely, so check them
+    # ahead of cwd/-C: a `--work-tree=$HOME` or `--git-dir=$HOME/.git` makes
+    # the invocation target $HOME regardless of cwd.
+    for cpath in $(extract_flag_values --work-tree); do
+      r=$(resolve_path_arg "$cpath")
+      [ -n "$r" ] && [ "$r" = "$home" ] && hit=1 && break
+    done
     if [ "$hit" = 0 ]; then
-      for cpath in $(printf '%s' "$seg" | grep -oE '(^|[[:space:]])-C[[:space:]]+[^[:space:]]+' | sed -E 's/^[[:space:]]*-C[[:space:]]+//; s/^["'\'']//; s/["'\'']$//'); do
-        # These are case patterns matching a literal leading "~", not quoted
-        # strings -- nothing here expands it.
-        # shellcheck disable=SC2088
-        case "$cpath" in
-          '$HOME'|'${HOME}'|'~') resolved="$home" ;;
-          '$HOME'/*) resolved="$home/${cpath#\$HOME/}" ;;
-          '${HOME}'/*) resolved="$home/${cpath#\$\{HOME\}/}" ;;
-          '~/'*) resolved="$home/${cpath#\~/}" ;;
-          /*) resolved="$cpath" ;;
-          *) resolved="$payload_cwd/$cpath" ;;
-        esac
-        r=$(cd "$resolved" 2>/dev/null && pwd -P)
+      for cpath in $(extract_flag_values --git-dir); do
+        r=$(resolve_path_arg "$cpath")
+        [ -n "$r" ] && [ "$r" = "$home/.git" ] && hit=1 && break
+      done
+    fi
+    [ "$hit" = 0 ] && git_targets_home "$cwd" && hit=1
+    if [ "$hit" = 0 ]; then
+      for cpath in $(extract_flag_values -C); do
+        r=$(resolve_path_arg "$cpath")
         if [ -n "$r" ] && git_targets_home "$r"; then hit=1; fi
         [ "$hit" = 1 ] && break
       done
