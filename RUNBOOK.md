@@ -47,6 +47,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 **Troubleshooting**
 - [`yadm status` shows a permanent typechange](#yadm-status-shows-a-permanent-typechange)
 - [A pull refuses: local changes would be overwritten](#a-pull-refuses-local-changes-would-be-overwritten)
+- [`dotsync` refuses: untracked working tree files would be overwritten](#dotsync-refuses-untracked-working-tree-files-would-be-overwritten)
 - [Session state went to `~/.claude/state/global`](#session-state-went-to-claudestateglobal)
 - [A hook didn't fire in a cloud session](#a-hook-didnt-fire-in-a-cloud-session)
 - [A deleted hook keeps running](#a-deleted-hook-keeps-running)
@@ -596,6 +597,25 @@ cp /tmp/<file>.bak ~/<file>
 
 If it is not a de-tracked file, `yadm status --short` and `yadm diff <file>`
 first — do not blanket-checkout a file you have not read.
+
+## `dotsync` refuses: untracked working tree files would be overwritten
+
+A stale local copy of a file that a new commit is about to add as tracked —
+not a de-tracked file, the opposite. `yadm status --short <path>` on the
+named files shows nothing (git does not track them at all); `yadm pull`
+still lists them because they occupy the path the incoming tree wants.
+
+Pull the exact list of colliding paths out of git's own error and remove
+only those, then retry:
+
+```bash
+yadm fetch
+yadm merge --ff-only 2>&1 | awk '/^\t/{print $1}' | xargs -r rm -f --
+dotsync
+```
+
+Verify: `yadm status --short` is empty and the second `dotsync` prints
+`Already up to date.`
 
 ## Session state went to `~/.claude/state/global`
 

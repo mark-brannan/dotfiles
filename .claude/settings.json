@@ -171,6 +171,16 @@
             "command": "h=\"$HOME/.claude/hooks/no-late-pr-subscribe.sh\"; [ -f \"$h\" ] && bash \"$h\" || true"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/no-outside-worktree-write.sh\"; [ -f \"$h\" ] && sh \"$h\" || true",
+            "statusMessage": "Checking the edit stays inside the worktree"
+          }
+        ]
       }
     ],
     "Stop": [
