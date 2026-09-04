@@ -97,6 +97,8 @@ check deny '--work-tree=$HOME from an unrelated cwd' "/tmp" "git --work-tree=$HO
 check deny '--git-dir and --work-tree both set to $HOME' "/tmp" "git --git-dir=$HOME/.git --work-tree=$HOME checkout some-branch"
 check deny '--work-tree $HOME (space form)' "/tmp" "git --work-tree $HOME checkout some-branch"
 check deny '--git-dir and --work-tree, space form' "/tmp" "git --git-dir $HOME/.git --work-tree $HOME checkout some-branch"
+check deny 'GIT_DIR/GIT_WORK_TREE inline env, unrelated cwd' "/tmp" "GIT_DIR=$HOME/.git GIT_WORK_TREE=$HOME git checkout some-branch"
+check deny 'GIT_WORK_TREE alone, unrelated cwd' "/tmp" "GIT_WORK_TREE=$HOME git checkout some-branch"
 
 # --- must allow: file-restore forms, even in $HOME --------------------------
 check allow 'checkout -- <file> in $HOME'       "$HOME" 'yadm checkout -- .npmrc'
@@ -111,6 +113,7 @@ check allow 'git checkout <branch> in a worktree' "$WORKTREE_CWD" 'git checkout 
 check allow 'git switch <branch> in a worktree'   "$WORKTREE_CWD" 'git switch some-branch'
 check allow '-C to a worktree, not $HOME' "$WORKTREE_CWD" "git -C $WORKTREE_CWD checkout some-branch"
 check allow '--git-dir to a worktree, not $HOME' "/tmp" "git --git-dir=$WORKTREE_CWD/.git checkout some-branch"
+check allow 'GIT_DIR env to a worktree, not $HOME' "/tmp" "GIT_DIR=$WORKTREE_CWD/.git git checkout some-branch"
 
 # --- must allow: unrelated commands -----------------------------------------
 check allow 'not a checkout at all' "$HOME" 'yadm status'
