@@ -11,9 +11,9 @@ their screen outranks anything you believe about it.
 
 ## Pick the card
 
-Find the board the way `/card-write` says to — this project's own
-`kanban.md` if it has one, else the global board. Read the whole file, then
-default to walking one card from `## Solace's` (older boards: `## Yours`):
+Find the board the way `/card-write` says to; its routing rules are the
+contract, don't paraphrase them here. Read the whole file, then default to
+walking one card from `## Solace's` (older boards: `## Yours`):
 that's the work only the user can close, which is what this skill is for.
 If the argument names a different card or section, walk that one instead.
 Never start a second card without being asked.
