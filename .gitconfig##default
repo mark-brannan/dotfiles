@@ -6,7 +6,7 @@
 	helper = !/usr/bin/gh auth git-credential
 [user]
 	email = markbrannan@gmail.com
-	name = Mark Brannan
+	name = Solace (Mark) Brannan
 	signingkey = ~/.ssh/id_ed25519.pub
 [gpg]
 	format = ssh
