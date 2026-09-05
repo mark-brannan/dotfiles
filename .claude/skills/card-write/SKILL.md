@@ -1,6 +1,6 @@
 ---
 name: card-write
-description: Write or edit an open-loop card on a kanban.md board in the house format — one line, imperative, link mandatory, right section, right board. Use whenever a loop is found that must be captured ("card that", "add a card", "put it on the board", a unilateral call, a finding that doesn't belong in this session). Not for walking a card with the user — that is /card.
+description: Write or edit an open-loop card on a kanban.md board in the house format — one line, imperative, link mandatory, right section, right board. Use whenever a loop is found that must be captured ("card that", "add a card", "put it on the board", a unilateral call, a finding that doesn't belong in this session). Not for walking a card with the user — that is /card-helper.
 ---
 
 # Writing a card
@@ -45,6 +45,8 @@ and don't rename it as a side effect of adding a card.
   session to find the card.
 - Add `blocked:` and the dependency only when the card is actually blocked.
 - Sections and checkboxes, not a table.
+- **Order is priority.** The top card in a section is the next one to pull.
+  Place a new card where it belongs, not at the bottom by default.
 
 ## Lifecycle
 
