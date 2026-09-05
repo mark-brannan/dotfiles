@@ -109,6 +109,15 @@ project-specific facts belong in that project's own CLAUDE.md.
   and merge conflicts are mine, round after round, until every check is
   green and every automated thread is answered or resolved. A red check is
   never handed over as a status report.
+- **"Resolve conversation" is mine to do, not Mark's.** The REST API and
+  `gh` CLI have no resolve-thread call, which reads like a dead end —
+  it isn't; GitHub only exposes it over GraphQL:
+  `gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<threadId>`
+  (thread ids from `reviewThreads(first:N){nodes{id isResolved}}` on the PR,
+  not the REST comment id). Telling Mark to click "Resolve" himself because
+  the obvious tool doesn't have it is asserting a limitation without
+  checking whether a less-obvious one does — verify before you claim
+  something can't be done from here.
 - **CodeRabbit findings get closed the loop, not skimmed.** Read every
   actionable comment on the PR, not just the top-level summary line — it
   edits comments in place to mark them "✅ Addressed in commit X" once a fix
@@ -258,6 +267,12 @@ public" section.
   unless skipping the edit would leave them factually wrong. A defensive
   guard, a rename, a bug fix: code and tests only. Scar: repeated doc/comment
   churn on past PRs that cost review attention without changing a decision.
+- **A runbook is the operator's, not the agent's.** An entry earns its place
+  only if Mark would run it in an emergency or on the day-to-day critical
+  path: the commands, in order, and the one check that says it worked. No
+  background, no session findings, no agent-only debugging. Every change
+  that touches a runbook or the system it covers is a chance to cut from
+  it; the no-churn rule above never protects a runbook from a deletion.
 - Tests may carry more description than production code — lean on names,
   `it.each` labels, and assertion text to self-document rather than adding
   narration comments above them.
