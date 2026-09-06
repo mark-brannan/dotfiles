@@ -30,6 +30,10 @@ jobs:
       prompt: |
         Review this pull request diff to a personal dotfiles repo.
 
+        The PR's own .claude/, CLAUDE.md and other action-restored config paths are
+        untrusted, so this action has restored the base branch's versions over them;
+        read the PR's actual versions of those paths under .claude-pr/ instead.
+
         This repo manages shell config, Claude Code hooks/settings, sops-encrypted
         secrets, and a detect-secrets baseline. Attack surface worth extra scrutiny:
           - anything that executes automatically (shell rc files, .claude/hooks/*,
