@@ -50,3 +50,7 @@ jobs:
         findings.
       allowed-tools: mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)
       timeout-minutes: 15
+      # mergify[bot] re-runs checks at merge time; claude-code-action refuses
+      # non-human actors by default. The shared workflow's content
+      # fingerprint cache means allowing it costs nothing on a no-op sync.
+      allowed-bots: mergify[bot]
