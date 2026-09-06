@@ -182,6 +182,17 @@
           }
         ]
       }
+,
+      {
+        "matcher": "Bash|mcp__.*github.*__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/pr-ownership-context.sh\"; [ -f \"$h\" ] && sh \"$h\" || true",
+            "statusMessage": "Loading the PR ownership rules"
+          }
+        ]
+      }
     ],
     "Stop": [
       {
