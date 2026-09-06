@@ -23,7 +23,10 @@
 # must not stop a `gh` command.
 set -u
 
-json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | awk 'BEGIN{ORS="\\n"} {print}' | sed 's/\\n$//; s/^/"/; s/$/"/'; }
+# jq does the JSON encoding: the section is arbitrary markdown and a hand-rolled
+# sed escape misses control characters (a stray \r from a CRLF paste would make
+# the output invalid JSON and the injection would vanish without a trace).
+json_str() { printf '%s' "$1" | jq -Rs .; }
 note() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":%s}}\n' "$(json_str "$1")"; exit 0; }
 
 command -v jq >/dev/null 2>&1 || exit 0

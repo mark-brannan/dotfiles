@@ -29,6 +29,9 @@ cat > "$HOME/.claude/rules/code.md" <<'MD'
 ### A board-only PR merges itself
 
 Sub-heading stays inside the section.
+MD
+printf 'CRLF\r\n\fformfeed\n' >> "$HOME/.claude/rules/code.md"   # real control bytes, before the next ## heading is appended below
+cat >> "$HOME/.claude/rules/code.md" <<'MD'
 
 ## Provisional until decided
 
@@ -72,6 +75,8 @@ context 'section heading present'        '^## PR ownership'
 # shellcheck disable=SC2016  # the backtick is data, not a command
 context 'quotes/backticks/tab survive'   'Quoted "text", a `backtick`, a	tab and a \\backslash'
 context 'sub-heading kept in section'    '^### A board-only PR'
+context 'CR line survives as JSON'         '^CRLF.$'
+context 'form-feed line survives as JSON'  'formfeed'
 no_context 'next ## section excluded'    'must not be injected'
 no_context 'earlier section excluded'    'git stuff'
 context 'says where it came from'        'injected once per session by pr-ownership-context.sh'
