@@ -37,6 +37,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Check a repo's prose budgets](#check-a-repos-prose-budgets)
 
 **GitHub repository**
+- [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
 - [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
 - [Re-sign a branch whose commits are unsigned](#re-sign-a-branch-whose-commits-are-unsigned)
 
@@ -406,6 +407,53 @@ prints the hash to grandfather).
 ```bash
 prose-budget --tree; echo "exit $?"     # 0, and one "OK" line
 ```
+
+## Cut and promote a prose-budget engine version
+
+Two tags carry the engine into CI and nothing else does. This repository holds
+an immutable `prose-budget/vX.Y.Z` on the commit whose `.local/bin/prose-budget`
+you want; `mark-brannan/.github` holds a moving `v1` that consumer repositories
+pin. **No consumer names an engine version** — a pin in three repositories is
+what left every colregs, colregs-engine and symphony PR red once already.
+
+No checkout is involved, so none of this touches `$HOME`.
+
+```bash
+# 1. the engine change is on main and hook-tests.yml is green
+gh run list --repo mark-brannan/dotfiles --workflow hook-tests.yml --limit 1
+
+# 2. cut the engine tag; the name must equal what --version prints
+#    (VERSION at .local/bin/prose-budget:25)
+gh api -X POST repos/mark-brannan/dotfiles/git/refs \
+  -f ref=refs/tags/prose-budget/v1.1.0 \
+  -f sha="$(gh api repos/mark-brannan/dotfiles/commits/main --jq .sha)"
+```
+
+3. PR on `mark-brannan/.github` changing the `dotfiles-ref` default in
+   `.github/workflows/prose-budget.yml` to the new tag. Merge it.
+
+```bash
+# 4. promote: move v1 onto the merged commit. This is the moment all
+#    consumers change; until now nothing has.
+gh api -X PATCH repos/mark-brannan/.github/git/refs/tags/v1 \
+  -f sha="$(gh api repos/mark-brannan/.github/commits/main --jq .sha)" -F force=true
+```
+
+Verify that `v1` really carries the new engine, and that a consumer run picks it
+up — the second is the one that distinguishes a promotion from a tag that moved
+onto the wrong commit:
+
+```bash
+gh api repos/mark-brannan/.github/contents/.github/workflows/prose-budget.yml \
+  --ref v1 --jq .content | base64 -d | grep -A6 'dotfiles-ref:' | grep default
+gh run list --repo mark-brannan/colregs --workflow ci.yml --limit 1
+```
+
+The `prose-budget` step logs `prose-budget X.Y.Z` before it runs, so the run
+log names the engine that produced the findings.
+
+To roll back, move `v1` to the previous commit with the same `PATCH` — one
+command, all consumers, no PR.
 
 ## Set the auth token for the PR review workflows
 
