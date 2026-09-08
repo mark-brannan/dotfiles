@@ -19,6 +19,8 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 - `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
 - `.local/bin/cloud-session-setup.sh` — seeds a subset of this repo into `$HOME`
   on an ephemeral cloud VM.
+- `.local/bin/prose-budget` — the documentation-bloat guard every repo with a
+  `docs/budgets.json` runs; `prose-budget.test.py` beside it is its suite.
 - `.claude/cloud-setup.sh` — writes `deniedMcpServers` at user scope.
 - `.claude/hooks/` — session-continuity and metrics hooks.
 
