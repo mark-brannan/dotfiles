@@ -410,63 +410,34 @@ prose-budget --tree; echo "exit $?"     # 0, and one "OK" line
 
 ## Cut and promote a prose-budget engine version
 
-Two tags carry the engine into CI. This repository holds an immutable
-`prose-budget/vX.Y.Z`; `mark-brannan/.github` holds a moving `v1` whose
-workflow names that tag as its `dotfiles-ref` default, and consumers pin `v1`.
-**Don't add a `dotfiles-ref` to a consumer** — a pin in three repositories is
-what went stale in three places at once. Nothing here checks anything out, so
-none of it touches `$HOME`.
+An immutable `prose-budget/vX.Y.Z` tag here names the engine; a moving `v1`
+on `mark-brannan/.github` names the workflow that fetches it. Consumers pin
+`v1` and nothing else — never add a `dotfiles-ref` to a consumer. No checkout
+below, so nothing touches `$HOME`.
 
 ```bash
-# 1. take the SHA from the latest green hook-tests run on main -- not
-#    "main" itself, which may have moved since that run
+# 1. tag the SHA of the latest green hook-tests run on main, named from its VERSION line
 read -r SHA OK < <(gh run list --repo mark-brannan/dotfiles --workflow hook-tests.yml \
   --branch main --limit 1 --json headSha,conclusion --jq '.[0] | "\(.headSha) \(.conclusion)"')
-echo "$SHA $OK"                                   # ... success
-
-# 2. cut the engine tag on that SHA, named from the VERSION the engine
-#    declares at that commit (what `prose-budget --version` prints)
 TAG="prose-budget/v$(gh api "repos/mark-brannan/dotfiles/contents/.local/bin/prose-budget?ref=$SHA" \
   --jq .content | base64 -d | awk -F'"' '/^VERSION = / {print $2; exit}')"
-echo "$TAG"                                       # prose-budget/vX.Y.Z
+echo "$OK $TAG"                                   # success prose-budget/vX.Y.Z
 gh api -X POST repos/mark-brannan/dotfiles/git/refs -f ref="refs/tags/$TAG" -f sha="$SHA"
-```
 
-**3 — PR on `mark-brannan/.github`** changing the `dotfiles-ref` default in
-`.github/workflows/prose-budget.yml` to `$TAG`. Merge it.
-
-```bash
-# 4. record where v1 points now (the rollback target), then promote.
-#    Until the PATCH no consumer has changed.
-PREV=$(gh api repos/mark-brannan/.github/git/ref/tags/v1 --jq .object.sha); echo "$PREV"
+# 2. PR on mark-brannan/.github: set the dotfiles-ref default in
+#    .github/workflows/prose-budget.yml to $TAG. Merge it. Then promote:
+PREV=$(gh api repos/mark-brannan/.github/git/ref/tags/v1 --jq .object.sha)
 gh api -X PATCH repos/mark-brannan/.github/git/refs/tags/v1 \
   -f sha="$(gh api repos/mark-brannan/.github/commits/main --jq .sha)" -F force=true
 
-# 5. verify: the workflow at v1 must name exactly the new tag
+# 3. verify: the workflow at v1 names $TAG ...
 gh api 'repos/mark-brannan/.github/contents/.github/workflows/prose-budget.yml?ref=v1' \
-  --jq .content | base64 -d | grep -A4 'dotfiles-ref:' | grep -q "default: $TAG" \
-  && echo "v1 -> $TAG" || echo "v1 does NOT name $TAG"
+  --jq .content | base64 -d | grep -c "default: $TAG"            # 1
+# ... and the next consumer PR's prose-budget job fetched it (its log echoes the input)
+gh api repos/mark-brannan/colregs/actions/jobs/<job-id>/logs | grep -c "dotfiles-ref: $TAG"   # 1
 ```
 
-Then verify on the first consumer run that starts **after** the move. No
-consumer has a `workflow_dispatch` trigger, so wait for the next push or PR in
-one of them; a run from before the move proves nothing.
-
-```bash
-gh run list --repo mark-brannan/colregs --workflow ci.yml --limit 1 \
-  --json databaseId,createdAt                    # createdAt after the move
-JOB=$(gh run view <databaseId> --repo mark-brannan/colregs --json jobs \
-  --jq '.jobs[] | select(.name | test("prose-budget")) | .databaseId')
-gh api "repos/mark-brannan/colregs/actions/jobs/$JOB/logs" | grep -m1 'dotfiles-ref:' \
-  | grep -q "dotfiles-ref: $TAG" && echo "ran $TAG" || echo "ran something else"
-```
-
-That line is the ref the run actually fetched the engine from. If it is not
-the new tag, `v1` did not move, or moved onto a commit whose workflow still
-names the old one.
-
-To roll back, run the `PATCH` from step 4 with `-f sha="$PREV"`. One
-command, all consumers, no PR.
+Roll back with the same `PATCH` and `-f sha="$PREV"`.
 
 ## Set the auth token for the PR review workflows
 
