@@ -156,6 +156,10 @@ class CliTest(RepoCase):
         self.assertEqual(self.cli("--tree")[0], 2)
         self.config({"nonsense": 1})
         self.assertEqual(self.cli("--tree")[0], 2)
+        self.config({"narration": {"patterns": {"bad": "(unclosed"}}})
+        self.assertEqual(self.cli("--tree")[0], 2)
+        self.config({"unique_ids": [{"file": "README.md", "pattern": "(unclosed"}]})
+        self.assertEqual(self.cli("--tree")[0], 2)
 
     def test_version(self):
         self.assertEqual(self.cli("--version")[1].strip(), f"prose-budget {pb.VERSION}")
@@ -449,6 +453,25 @@ class VoiceTest(RepoCase):
         self.config({"$comment": "a robust comment", "voice": {"targets": ["**/*.json"]}}, path="docs/budgets.json")
         self.git("add", "docs/budgets.json")
         self.assertEqual(self.findings("--staged"), [])
+
+    def test_file_scope_is_scanned_even_under_default_diff_scope(self):
+        # The edit hook runs `--tree --file <path>`; with the default voice.scope
+        # ("diff") this used to hit the diff-only branch, see self.only is not
+        # None, and bail without scanning the file at all.
+        self.config({})
+        self.write("README.md", "a robust design\n")
+        f = self.findings("--tree", "--file", "README.md")
+        self.assertEqual([x["rule"] for x in f], ["voice"])
+
+    def test_malformed_json_reported_once_under_the_enabled_rule(self):
+        self.config({"json_prose": {"targets": ["*.json"]}, "voice": {"targets": ["*.json"]}})
+        self.write("a.json", "{oops")
+        f = self.findings("--tree")
+        self.assertEqual([(x["rule"], x["file"]) for x in f], [("json_prose", "a.json")])
+        self.config({"voice": {"scope": "tree", "targets": ["*.json"]}})
+        self.write("b.json", "{oops")
+        f = [x for x in self.findings("--tree") if x["file"] == "b.json"]
+        self.assertEqual([(x["rule"], x["file"]) for x in f], [("voice", "b.json")])
 
     def test_diff_scope_judges_only_added_lines(self):
         self.config({})

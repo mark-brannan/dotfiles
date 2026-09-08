@@ -364,6 +364,14 @@ def load_config(path):
                                                  "grandfathered": []}, False)
     r["narration"] = _rule(cfg, "narration", {"targets": MD_TARGETS, "patterns": {}, "disable": [],
                                                "scope": {}, "grandfathered": []}, True)
+    if r["narration"]:
+        for name, pattern in r["narration"]["patterns"].items():
+            if not isinstance(pattern, str):
+                raise ConfigError(f"narration.patterns.{name}: expected a string")
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise ConfigError(f"narration.patterns.{name}: invalid pattern: {e}") from e
     r["voice"] = _rule(cfg, "voice", {"scope": "diff", "targets": MD_TARGETS, "words": [], "allow": [],
                                        "count": ["rather than"]}, True)
     if r["voice"] and r["voice"]["scope"] not in ("diff", "tree"):
@@ -373,6 +381,11 @@ def load_config(path):
     if ids is not None and ids is not False and not (isinstance(ids, list) and all(
             isinstance(e, dict) and "file" in e and "pattern" in e for e in ids)):
         raise ConfigError("unique_ids: expected [{file, pattern}]")
+    for entry in ids or []:
+        try:
+            re.compile(entry["pattern"])
+        except re.error as e:
+            raise ConfigError(f"unique_ids[{entry['file']}].pattern: invalid pattern: {e}") from e
     r["unique_ids"] = ids or None
     r["land_alone"] = _rule(cfg, "land_alone", {"targets": RUNBOOK_TARGETS, "with": LAND_WITH}, True)
     return r
@@ -445,6 +458,7 @@ class Checker:
         self.only = only
         self.findings = []
         self.info = []
+        self._bad_json = set()
         self.full = mode in ("tree", "base") and only is None
         if only is not None:
             self.files = [f for f in only if os.path.isfile(os.path.join(repo.root, f))]
@@ -523,14 +537,16 @@ class Checker:
             files.append(self.config_rel)
         return files
 
-    def _prose_fields(self, f, keys):
+    def _prose_fields(self, f, keys, rule="json_prose"):
         text = self.read(f)
         if text is None:
             return []
         try:
             data = json.loads(text)
         except ValueError as e:
-            self.add("json_prose", f, f"invalid JSON: {e}")
+            if f not in self._bad_json:
+                self._bad_json.add(f)
+                self.add(rule, f, f"invalid JSON: {e}")
             return []
         if f == self.config_rel:
             keys = list(keys) + ["$comment"]
@@ -603,14 +619,14 @@ class Checker:
             return []
         if f.endswith(".json"):
             keys = self.rules["json_prose"]["keys"] if self.rules["json_prose"] else PROSE_KEYS
-            return [(None, ptr, s) for ptr, s in self._prose_fields(f, keys)]
+            return [(None, ptr, s) for ptr, s in self._prose_fields(f, keys, rule="voice")]
         return [(i, None, l) for i, l in enumerate(text.split("\n"), 1)]
 
     def check_voice(self, cfg):
         regexes = voice_regexes(VOICE_WORDS + list(cfg["words"]), VOICE_PHRASES)
         counts = {p: {} for p in cfg["count"]}
         count_rx = {p: re.compile(r"\b" + re.escape(p) + r"\b", re.I) for p in cfg["count"]}
-        if cfg["scope"] == "tree":
+        if cfg["scope"] == "tree" or self.only is not None:
             units = [(f, u) for f in self.targets(cfg["targets"]) if f != self.config_rel
                      for u in self._voice_units(f)]
         elif self.mode in ("staged", "base") and self.only is None:
