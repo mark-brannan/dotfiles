@@ -104,6 +104,10 @@ check silent 'empty payload'         ''
 check silent 'mergify config command' "$(bash_input s7 'mergify config validate')"
 check silent 'mergify events command' "$(bash_input s7 'mergify events list')"
 check silent 'word containing mergify' "$(bash_input s7 'echo unmergifyable')"
+check silent 'mergify named, not run (echo)'    "$(bash_input s7 'echo mergify merge')"
+check silent 'mergify named, not run (comment)' "$(bash_input s7 'true # mergify merge')"
+check inject 'mergify after &&'   "$(bash_input s7b 'git push && mergify stack push')"
+check inject 'mergify after pipe' "$(bash_input s7c 'echo x | mergify queue add')"
 
 # --- mergify records cwd, not repo/number (it never names them) -----------
 bash_input_cwd() { jq -n --arg s "$1" --arg c "$2" --arg w "$3" '{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$w}'; }

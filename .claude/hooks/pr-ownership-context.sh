@@ -45,8 +45,12 @@ tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || exit
 case "$tool" in
   Bash)
     cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+    # The mergify half is restricted to a real command position (start of
+    # string, or after a separator: ; & | ( or a backtick) so "echo mergify
+    # merge" or "true # mergify merge" -- mergify named but not run -- don't
+    # falsely record a cwd and trip the Stop gate on an unrelated PR.
     printf '%s' "$cmd" | grep -Eq \
-      '(^|[^A-Za-z0-9_./-])gh[[:space:]]+(pr([[:space:]]|$)|api[[:space:]].*(pulls|graphql|reviewThreads))|(^|[^A-Za-z0-9_./-])mergify[[:space:]]+(stack[[:space:]]+(push|checkout|sync)([[:space:]]|$)|(queue|merge)([[:space:]]|$))' \
+      '(^|[^A-Za-z0-9_./-])gh[[:space:]]+(pr([[:space:]]|$)|api[[:space:]].*(pulls|graphql|reviewThreads))|(^|[;&|(`])[[:space:]]*mergify[[:space:]]+(stack[[:space:]]+(push|checkout|sync)([[:space:]]|$)|(queue|merge)([[:space:]]|$))' \
       || exit 0
     ;;
   mcp__*github*__*)
@@ -67,10 +71,12 @@ if [ -n "$sid" ]; then
   case "$tool" in
     Bash)
       cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
-      if printf '%s' "$cmd" | grep -Eq '(^|[^A-Za-z0-9_./-])mergify[[:space:]]'; then
+      if printf '%s' "$cmd" | grep -Eq '(^|[;&|(`])[[:space:]]*mergify[[:space:]]'; then
         # mergify never names owner/repo/number on the command line -- it
         # infers the PR from the current branch, so cwd is the only handle.
-        [ -n "$cwd" ] && printf 'cwd\t%s\n' "$cwd" >> "$record" 2>/dev/null
+        # Best-effort like the record writes below: a full disk or a race on
+        # the tmp file must not fail the mergify command that triggered this.
+        [ -n "$cwd" ] && { printf 'cwd\t%s\n' "$cwd" >> "$record" 2>/dev/null || :; }
       else
         repo=$(printf '%s' "$cmd" | grep -Eo -- '(^|[[:space:]])(-R|--repo)[[:space:]=]+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+' | head -1 | sed 's/.*[[:space:]=]//')
         num=$(printf '%s' "$cmd" | grep -Eo 'gh[[:space:]]+pr[[:space:]]+[a-z-]+[[:space:]]+[0-9]+' | head -1 | grep -Eo '[0-9]+$')

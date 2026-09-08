@@ -52,7 +52,12 @@ find it.
 `gh pr view <PR> --json state,mergedAt,mergeCommit` (or the equivalent for
 the board's existing PR cards, not just ones from this session). If it's
 already merged or closed, don't hand it to him as a decision: mark it done
-and note how, or drop it if it was already reflected on the board. This
+and note how, or drop it if it was already reflected on the board. If the
+check itself fails — `gh` errors, isn't authenticated, or the reply carries
+no `state` — that's not the same as "still open": leave the card pending
+and say its live state couldn't be verified, the same failure-closed stance
+`pr-threads-gate.sh` already takes. Only mark done or drop after a state
+check actually succeeds. This
 applies to every open PR card being carried forward, not only ones this
 session touched — a PR can merge after the session that filed the card
 ended. A card that asks him to decide something already decided outside
