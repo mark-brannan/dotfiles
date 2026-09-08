@@ -424,23 +424,28 @@ read -r SHA OK < <(gh run list --repo mark-brannan/dotfiles --workflow hook-test
   --branch main --limit 1 --json headSha,conclusion --jq '.[0] | "\(.headSha) \(.conclusion)"')
 echo "$SHA $OK"                                   # ... success
 
-# 2. cut the engine tag on that SHA. X.Y.Z is what `prose-budget --version`
-#    prints at that commit; the tag adds the `prose-budget/v` prefix
-gh api -X POST repos/mark-brannan/dotfiles/git/refs \
-  -f ref=refs/tags/prose-budget/vX.Y.Z -f sha="$SHA"
+# 2. cut the engine tag on that SHA, named from the VERSION the engine
+#    declares at that commit (what `prose-budget --version` prints)
+TAG="prose-budget/v$(gh api "repos/mark-brannan/dotfiles/contents/.local/bin/prose-budget?ref=$SHA" \
+  --jq .content | base64 -d | awk -F'"' '/^VERSION = / {print $2; exit}')"
+echo "$TAG"                                       # prose-budget/vX.Y.Z
+gh api -X POST repos/mark-brannan/dotfiles/git/refs -f ref="refs/tags/$TAG" -f sha="$SHA"
 ```
 
-3. Open a PR on `mark-brannan/.github` changing the `dotfiles-ref` default in
-   `.github/workflows/prose-budget.yml` to `prose-budget/vX.Y.Z`. Merge it.
+**3 — PR on `mark-brannan/.github`** changing the `dotfiles-ref` default in
+`.github/workflows/prose-budget.yml` to `$TAG`. Merge it.
 
 ```bash
-# 4. promote. Until this moment no consumer has changed.
+# 4. record where v1 points now (the rollback target), then promote.
+#    Until the PATCH no consumer has changed.
+PREV=$(gh api repos/mark-brannan/.github/git/ref/tags/v1 --jq .object.sha); echo "$PREV"
 gh api -X PATCH repos/mark-brannan/.github/git/refs/tags/v1 \
   -f sha="$(gh api repos/mark-brannan/.github/commits/main --jq .sha)" -F force=true
 
-# 5. verify: the workflow at v1 must name the new engine tag
+# 5. verify: the workflow at v1 must name exactly the new tag
 gh api 'repos/mark-brannan/.github/contents/.github/workflows/prose-budget.yml?ref=v1' \
-  --jq .content | base64 -d | grep -A4 'dotfiles-ref:' | grep default:
+  --jq .content | base64 -d | grep -A4 'dotfiles-ref:' | grep -q "default: $TAG" \
+  && echo "v1 -> $TAG" || echo "v1 does NOT name $TAG"
 ```
 
 Then verify on the first consumer run that starts **after** the move. No
@@ -452,14 +457,15 @@ gh run list --repo mark-brannan/colregs --workflow ci.yml --limit 1 \
   --json databaseId,createdAt                    # createdAt after the move
 JOB=$(gh run view <databaseId> --repo mark-brannan/colregs --json jobs \
   --jq '.jobs[] | select(.name | test("prose-budget")) | .databaseId')
-gh api "repos/mark-brannan/colregs/actions/jobs/$JOB/logs" | grep -m1 'dotfiles-ref:'
+gh api "repos/mark-brannan/colregs/actions/jobs/$JOB/logs" | grep -m1 'dotfiles-ref:' \
+  | grep -q "dotfiles-ref: $TAG" && echo "ran $TAG" || echo "ran something else"
 ```
 
-That line is the ref the run actually fetched the engine from. If it still
-shows the old tag, `v1` did not move, or moved onto a commit whose workflow
-still names it.
+That line is the ref the run actually fetched the engine from. If it is not
+the new tag, `v1` did not move, or moved onto a commit whose workflow still
+names the old one.
 
-To roll back, run step 4 with the previous `.github` commit's SHA. One
+To roll back, run the `PATCH` from step 4 with `-f sha="$PREV"`. One
 command, all consumers, no PR.
 
 ## Set the auth token for the PR review workflows
