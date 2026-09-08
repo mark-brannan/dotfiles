@@ -1,0 +1,14 @@
+ampacity
+portolani
+coastlines
+coast-wright
+wire-wright
+nav-wright
+colregs
+colregs-engine
+colregs-mcp
+searoom
+space-weather
+signalk-noaa-space-weather
+symphony
+signalk-lint
