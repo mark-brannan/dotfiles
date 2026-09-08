@@ -7,20 +7,20 @@
 # Written 2026-09-03 after session 97b9f69d ran `rm -rf examples` in
 # signalk-noaa-space-weather while repointing a plugin at the core, and
 # destroyed ~20 untracked aurora captures, examples/captures/, and a watch
-# log Mark was using as an ongoing download area. `git rm --cached` had
+# log the user was using as an ongoing download area. `git rm --cached` had
 # already handled the tracked files; the `rm -rf` existed only to sweep the
 # rest, and the rest was his.
 #
 # Allowlist, not a denylist. A target is allowed only when it is:
 #   1. under the session scratchpad, an agent worktree, or /tmp -- these are
-#      Claude's areas, nothing of Mark's lives there;
+#      Claude's areas, nothing of the user's lives there;
 #   2. a directory named in GENERATED_NAMES below (its final path component,
 #      or an ancestor component -- so `dist` and `dist/sub` both pass), and
 #      not a direct child of $HOME or of the filesystem root: ~/proj/dist and
 #      /opt/proj/dist are build output, ~/dist and /dist are directories that
 #      happen to share the name.
 # Everything else is denied: any other directory under $HOME (a misc
-# directory in the home tree is Mark's by default, whatever it holds), any
+# directory in the home tree is the user's by default, whatever it holds), any
 # repo's tracked or working directories, `public/` included -- the plugin's
 # generated `public/` is cleared by scripts/sync-webapp.mjs itself, in Node,
 # which this hook does not see, and the core's `public/` is tracked, so the
@@ -118,8 +118,8 @@ function blocked(raw, why) {
   fail("`rm -r" (raw == "" ? "" : " " raw) "` is blocked: " why \
        ". Resolve the target yourself and spell it out: `rm -rf` on the absolute path of a " \
        "generated directory (node_modules, dist, coverage, .pio ...), the scratchpad, /tmp or an " \
-       "agent worktree. Anything else in a repo or under $HOME is Mark'\''s -- `git status --short` " \
-       "/ `git clean -n` show what is there; `git rm` tracked files by path and hand the rest to him.")
+       "agent worktree. Anything else in a repo or under $HOME is the user'\''s -- `git status --short` " \
+       "/ `git clean -n` show what is there; `git rm` tracked files by path and hand the rest to her.")
 }
 
 # Collapse "." segments and duplicate slashes. `..` never reaches here.
@@ -278,10 +278,10 @@ while IFS=$tab read -r tag abs raw; do
   allowed "$abs" || deny "\`rm -r $raw\` is blocked: only the scratchpad, /tmp, agent worktrees and \
 the generated directories named in no-rm-tree.sh (node_modules, dist, coverage, .pio ...) may be \
 removed recursively, and $abs is none of those. \`git status --short $raw\` and \`git clean -n $raw\` \
-show what is there; \`git rm\` tracked files by path, and hand anything untracked to Mark -- a \
+show what is there; \`git rm\` tracked files by path, and hand anything untracked to the user -- a \
 directory he owns can hold downloads and logs no session knows about."
   phys=$(physical "$abs") || deny "no-rm-tree: cannot resolve $abs through the filesystem (no \
-readlink -f or realpath here), so \`rm -r $raw\` is blocked. Install coreutils or ask Mark."
+readlink -f or realpath here), so \`rm -r $raw\` is blocked. Install coreutils or ask the user."
   [ "$phys" = "$abs" ] || allowed "$phys" || deny "\`rm -r $raw\` is blocked: $abs resolves through \
 a symlink to $phys, which is not a generated directory, the scratchpad, /tmp or an agent worktree. \
 rm follows a trailing slash into the link's target."
