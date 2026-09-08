@@ -84,6 +84,8 @@ class HelpersTest(unittest.TestCase):
     def test_test_titles_indented_and_skip_forms(self):
         src = "    test('deep title', () => {})\ntest.skip(\"skipped\", x)\nit(`tmpl`)\nfoo.test('method call')\n"
         self.assertEqual([t for _, t in pb.test_titles(src, "a.test.mjs")], ["deep title", "skipped", "tmpl"])
+        self.assertEqual([t for _, t in pb.test_titles("it('esc\\'d quote', x)", "a.ts")], ["esc\\'d quote"])
+        self.assertEqual(pb.test_titles('it("' + "\\a" * 40 + "x", "a.ts"), [], "no backtracking blowup")
         self.assertEqual([t for _, t in pb.test_titles("class T:\n    def test_x(self): pass\n", "t.py")], ["test_x"])
 
     def test_header_comment_forms(self):
@@ -439,6 +441,14 @@ class VoiceTest(RepoCase):
     def test_json_prose_strings_are_checked_in_tree_scope(self):
         self.assertEqual(self.tree('{"note": "a seamless flow", "id": "seamless-id"}', {"targets": ["*.json"]}, "a.json"),
                          ["seamless"])
+
+    def test_diff_scope_never_judges_the_config_file(self):
+        self.config({"voice": {"targets": ["**/*.json"]}}, path="docs/budgets.json")
+        self.git("add", "docs/budgets.json")
+        self.assertEqual(self.findings("--staged"), [])
+        self.config({"$comment": "a robust comment", "voice": {"targets": ["**/*.json"]}}, path="docs/budgets.json")
+        self.git("add", "docs/budgets.json")
+        self.assertEqual(self.findings("--staged"), [])
 
     def test_diff_scope_judges_only_added_lines(self):
         self.config({})
