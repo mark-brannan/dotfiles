@@ -236,7 +236,7 @@ public" section.
   diagnose myself, no reminders to look at something still in progress —
   that traffic costs a read and returns nothing actionable. One message,
   when the PR is green and the automated reviews have been dealt with. The
-  two exceptions both end in a decision only she can make: a blocker I
+  two exceptions both end in a decision only he can make: a blocker I
   can't resolve, or a design question where guessing wrong means redoing
   the work — lay out the options and ask, don't narrate.
 - **Long agentic loops, not long conversations, are the real expense.**

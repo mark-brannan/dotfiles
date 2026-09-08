@@ -107,8 +107,8 @@ refuses, recording the refusal in the checkpoint rather than skipping quietly.
 
 `session-metrics.jq` types each question put to the user by what it cost her:
 `scoping` (before any file was written — cheap), `inline` (a bounded choice
-that blocks the current task), `gate` (open-ended, mid-flight, needs them to
-reload context the session accumulated and they didn't).
+that blocks the current task), `gate` (open-ended, mid-flight, needs her to
+reload context the session accumulated and she didn't).
 
 ## Ephemeral cloud sessions
 
