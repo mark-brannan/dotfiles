@@ -302,7 +302,7 @@ public" section.
   **Before I ask, the work is already proven**: the release tag's CI is
   green, `npm run build` succeeds, the tests pass, and `npm publish
   --dry-run` has produced the tarball and I have checked its file list.
-  `--dry-run` needs no auth, so there is no excuse for handing Mark a
+  `--dry-run` needs no auth, so there is no excuse for handing me a
   publish that then fails. If any of that is red, fix it first — do not ask.
 
   Then the prompt is always these four steps, in this order, named in full
