@@ -291,6 +291,36 @@ public" section.
 - **npm publish: no OTP.** My npm account uses browser 2FA with a passkey.
   Run plain `npm publish` and let it open (or print) the auth URL; I approve
   in my browser. Don't ask me for authenticator codes or pass `--otp`.
+- **A package's first publish is mine, from the CLI, and you ask me inline.**
+  CI cannot create a package that does not exist yet: with no trusted
+  publisher registered, npm answers `PUT /<name>` with `404 Not Found`, not
+  `403` — it hides whether the name is taken. So a release workflow's first
+  run on a brand-new name always fails this way, and no amount of workflow
+  fixing changes it. When a new package is ready to go out, stop and ask me
+  in chat. Not a card — a card defers it, and this is thirty seconds.
+
+  **Before I ask, the work is already proven**: the release tag's CI is
+  green, `npm run build` succeeds, the tests pass, and `npm publish
+  --dry-run` has produced the tarball and I have checked its file list.
+  `--dry-run` needs no auth, so there is no excuse for handing Mark a
+  publish that then fails. If any of that is red, fix it first — do not ask.
+
+  Then the prompt is always these four steps, in this order, named in full
+  every time:
+
+      cd ~/<repo>
+      git pull --rebase
+      npm login              # browser auth, passkey; not optional, not --otp
+      npm publish
+
+  `npm login` gets named every time — leaving it implicit is what has made
+  past asks not make sense. After the first publish succeeds, register the
+  trusted publisher on npmjs.com and CI owns every release after that.
+- **Diagnose an `npm publish` E404 before touching the workflow.** On a
+  `PUT`, E404 means authorization, not a missing package or a bad build —
+  check whether the name exists on the registry first. Seen on `colregs`
+  (v0.1.2, v0.1.3) and `colregs-engine` (v0.1.2); both cost a round of
+  workflow edits that fixed nothing.
 
 ## Design
 
