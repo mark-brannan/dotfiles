@@ -1,5 +1,5 @@
 #!/bin/sh
-# Blocks the git moves that have bitten Mark, or sit in the same class as
+# Blocks the git moves that have bitten the user, or sit in the same class as
 # ones that have, and that a session never has a good reason to make:
 #
 #   blanket staging   git add -A / --all / . / ./ / -u with no path,
@@ -139,7 +139,7 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
       }
       if (wh != "" && !(sub_ == "restore" && staged && !wt))
         fail("`git " sub_ " " wh "` is blocked: it discards every uncommitted change, same as " \
-             "reset --hard. Restore one path at a time, or ask Mark.")
+             "reset --hard. Restore one path at a time, or ask the user.")
     }
     else if (sub_ == "clean") {
       force = 0; dry = 0
@@ -166,7 +166,7 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
       for (i = 1; i <= na; i++)
         if (pfx(a[i],"--hard"))
           fail("`git reset --hard` is blocked at user scope. It discards uncommitted work, and on " \
-               "a shared checkout that work may not be yours. Ask Mark to run it himself, or reach " \
+               "a shared checkout that work may not be yours. Ask the user to run it himself, or reach " \
                "for a reversible move: `git revert`, a new branch off the good commit, `git stash`, " \
                "`git reset --soft`/`--mixed`.")
     }

@@ -1,6 +1,6 @@
 # Working conventions — dotfiles
 
-This repo is **public**, and its worktree is `$HOME` on every machine Mark
+This repo is **public**, and its worktree is `$HOME` on every machine the user
 uses. Both facts constrain almost everything below.
 
 Global standing orders live in `.claude/CLAUDE.md` and load in every session
@@ -78,8 +78,8 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 - **Stage by path, always.** `git add -A` here means "add my entire home
   directory." The `pre_commit` hook is the last line of defense, not the first.
 - Changes land in `$HOME` on every machine at the next `dotsync`. A broken
-  `.zshrc` doesn't fail a test suite; it breaks the next shell Mark opens on a
-  box he isn't sitting at.
+  `.zshrc` doesn't fail a test suite; it breaks the next shell the user
+  opens on a box she isn't sitting at.
 - Guard machine-specific values rather than branching the file: `$HOME`,
   `command -v`, `[ -d ... ]`, `[[ "$OSTYPE" == darwin* ]]`. Reach for a yadm
   alternate only when a whole file genuinely differs per OS, and then use
@@ -100,7 +100,7 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   `PRUNE_NEVER` and the yadm-managed-`$HOME` check all refuse loudly rather
   than warn. Keep that.
 - Test with `--dry-run` where the script has one. `cloud-session-setup.sh
-  --dry-run` is safe on any machine, including Mark's own.
+  --dry-run` is safe on any machine, including the user's own.
 
 ## Claude Code config in this repo
 
