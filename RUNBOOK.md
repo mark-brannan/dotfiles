@@ -422,8 +422,9 @@ No checkout is involved, so none of this touches `$HOME`.
 # 1. the engine change is on main and hook-tests.yml is green
 gh run list --repo mark-brannan/dotfiles --workflow hook-tests.yml --limit 1
 
-# 2. cut the engine tag; the name must equal what --version prints
-#    (VERSION at .local/bin/prose-budget:25)
+# 2. cut the engine tag. Its X.Y.Z must equal VERSION at
+#    .local/bin/prose-budget:25 -- the tag adds the `prose-budget/v` prefix,
+#    `prose-budget --version` prints the bare number: `prose-budget 1.1.0`
 gh api -X POST repos/mark-brannan/dotfiles/git/refs \
   -f ref=refs/tags/prose-budget/v1.1.0 \
   -f sha="$(gh api repos/mark-brannan/dotfiles/commits/main --jq .sha)"
@@ -439,18 +440,33 @@ gh api -X PATCH repos/mark-brannan/.github/git/refs/tags/v1 \
   -f sha="$(gh api repos/mark-brannan/.github/commits/main --jq .sha)" -F force=true
 ```
 
-Verify that `v1` really carries the new engine, and that a consumer run picks it
-up — the second is the one that distinguishes a promotion from a tag that moved
-onto the wrong commit:
+Verify statically first. These three catch a tag moved onto the wrong commit:
+the workflow at `v1` must name the new engine tag, and the engine blob at that
+tag must be byte-identical to the one on `main` that passed `hook-tests.yml`.
 
 ```bash
 gh api repos/mark-brannan/.github/contents/.github/workflows/prose-budget.yml \
-  --ref v1 --jq .content | base64 -d | grep -A6 'dotfiles-ref:' | grep default
-gh run list --repo mark-brannan/colregs --workflow ci.yml --limit 1
+  --ref v1 --jq .content | base64 -d | grep -A5 'dotfiles-ref:' | grep default:
+gh api repos/mark-brannan/dotfiles/contents/.local/bin/prose-budget \
+  --ref prose-budget/v1.1.0 --jq .sha
+gh api repos/mark-brannan/dotfiles/contents/.local/bin/prose-budget \
+  --ref main --jq .sha   # the two blob SHAs must match
 ```
 
-The `prose-budget` step logs `prose-budget X.Y.Z` before it runs, so the run
-log names the engine that produced the findings.
+Then verify end to end, on the first consumer run started **after** the tag
+move — no consumer workflow has a `workflow_dispatch` trigger, so this is the
+next push or pull request in one of them, not something you can force. A run
+from before the move proves nothing, so check its timestamp, not just its log:
+
+```bash
+gh run list --repo mark-brannan/colregs --workflow ci.yml --limit 1 \
+  --json databaseId,createdAt,conclusion   # createdAt must postdate the move
+gh run view <databaseId> --repo mark-brannan/colregs --log \
+  | grep -m1 'engine: prose-budget'        # names the engine that actually ran
+```
+
+If that line reports the old version, `v1` did not move or moved onto a commit
+whose workflow still names the old tag.
 
 To roll back, move `v1` to the previous commit with the same `PATCH` — one
 command, all consumers, no PR.
