@@ -410,65 +410,56 @@ prose-budget --tree; echo "exit $?"     # 0, and one "OK" line
 
 ## Cut and promote a prose-budget engine version
 
-Two tags carry the engine into CI and nothing else does. This repository holds
-an immutable `prose-budget/vX.Y.Z` on the commit whose `.local/bin/prose-budget`
-you want; `mark-brannan/.github` holds a moving `v1` that consumer repositories
-pin. **No consumer names an engine version** — a pin in three repositories is
-what left every colregs, colregs-engine and symphony PR red once already.
-
-No checkout is involved, so none of this touches `$HOME`.
+Two tags carry the engine into CI. This repository holds an immutable
+`prose-budget/vX.Y.Z`; `mark-brannan/.github` holds a moving `v1` whose
+workflow names that tag as its `dotfiles-ref` default, and consumers pin `v1`.
+**Don't add a `dotfiles-ref` to a consumer** — a pin in three repositories is
+what went stale in three places at once. Nothing here checks anything out, so
+none of it touches `$HOME`.
 
 ```bash
-# 1. the engine change is on main and hook-tests.yml is green
-gh run list --repo mark-brannan/dotfiles --workflow hook-tests.yml --limit 1
+# 1. take the SHA from the latest green hook-tests run on main -- not
+#    "main" itself, which may have moved since that run
+read -r SHA OK < <(gh run list --repo mark-brannan/dotfiles --workflow hook-tests.yml \
+  --branch main --limit 1 --json headSha,conclusion --jq '.[0] | "\(.headSha) \(.conclusion)"')
+echo "$SHA $OK"                                   # ... success
 
-# 2. cut the engine tag. Its X.Y.Z must equal VERSION at
-#    .local/bin/prose-budget:25 -- the tag adds the `prose-budget/v` prefix,
-#    `prose-budget --version` prints the bare number: `prose-budget 1.1.0`
+# 2. cut the engine tag on that SHA. X.Y.Z is what `prose-budget --version`
+#    prints at that commit; the tag adds the `prose-budget/v` prefix
 gh api -X POST repos/mark-brannan/dotfiles/git/refs \
-  -f ref=refs/tags/prose-budget/v1.1.0 \
-  -f sha="$(gh api repos/mark-brannan/dotfiles/commits/main --jq .sha)"
+  -f ref=refs/tags/prose-budget/vX.Y.Z -f sha="$SHA"
 ```
 
-3. PR on `mark-brannan/.github` changing the `dotfiles-ref` default in
-   `.github/workflows/prose-budget.yml` to the new tag. Merge it.
+3. Open a PR on `mark-brannan/.github` changing the `dotfiles-ref` default in
+   `.github/workflows/prose-budget.yml` to `prose-budget/vX.Y.Z`. Merge it.
 
 ```bash
-# 4. promote: move v1 onto the merged commit. This is the moment all
-#    consumers change; until now nothing has.
+# 4. promote. Until this moment no consumer has changed.
 gh api -X PATCH repos/mark-brannan/.github/git/refs/tags/v1 \
   -f sha="$(gh api repos/mark-brannan/.github/commits/main --jq .sha)" -F force=true
+
+# 5. verify: the workflow at v1 must name the new engine tag
+gh api 'repos/mark-brannan/.github/contents/.github/workflows/prose-budget.yml?ref=v1' \
+  --jq .content | base64 -d | grep -A4 'dotfiles-ref:' | grep default:
 ```
 
-Verify statically first. These three catch a tag moved onto the wrong commit:
-the workflow at `v1` must name the new engine tag, and the engine blob at that
-tag must be byte-identical to the one on `main` that passed `hook-tests.yml`.
-
-```bash
-gh api repos/mark-brannan/.github/contents/.github/workflows/prose-budget.yml \
-  --ref v1 --jq .content | base64 -d | grep -A5 'dotfiles-ref:' | grep default:
-gh api repos/mark-brannan/dotfiles/contents/.local/bin/prose-budget \
-  --ref prose-budget/v1.1.0 --jq .sha
-gh api repos/mark-brannan/dotfiles/contents/.local/bin/prose-budget \
-  --ref main --jq .sha   # the two blob SHAs must match
-```
-
-Then verify end to end, on the first consumer run started **after** the tag
-move — no consumer workflow has a `workflow_dispatch` trigger, so this is the
-next push or pull request in one of them, not something you can force. A run
-from before the move proves nothing, so check its timestamp, not just its log:
+Then verify on the first consumer run that starts **after** the move. No
+consumer has a `workflow_dispatch` trigger, so wait for the next push or PR in
+one of them; a run from before the move proves nothing.
 
 ```bash
 gh run list --repo mark-brannan/colregs --workflow ci.yml --limit 1 \
-  --json databaseId,createdAt,conclusion   # createdAt must postdate the move
-gh run view <databaseId> --repo mark-brannan/colregs --log \
-  | grep -m1 'engine: prose-budget'        # names the engine that actually ran
+  --json databaseId,createdAt                    # createdAt after the move
+JOB=$(gh run view <databaseId> --repo mark-brannan/colregs --json jobs \
+  --jq '.jobs[] | select(.name | test("prose-budget")) | .databaseId')
+gh api "repos/mark-brannan/colregs/actions/jobs/$JOB/logs" | grep -m1 'dotfiles-ref:'
 ```
 
-If that line reports the old version, `v1` did not move or moved onto a commit
-whose workflow still names the old tag.
+That line is the ref the run actually fetched the engine from. If it still
+shows the old tag, `v1` did not move, or moved onto a commit whose workflow
+still names it.
 
-To roll back, move `v1` to the previous commit with the same `PATCH` — one
+To roll back, run step 4 with the previous `.github` commit's SHA. One
 command, all consumers, no PR.
 
 ## Set the auth token for the PR review workflows
