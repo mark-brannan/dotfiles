@@ -107,5 +107,12 @@ out=$(stop_input s8 | PATH="$SCRATCH/nogh" GH_MODE=open /bin/sh "$HOOK" 2>&1); L
 if [ "$(printf '%s' "$out" | jq -r .decision 2>/dev/null)" = block ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: gh absent should block: $out"; fi
 reason 'names gh as missing'           'gh is not installed'
 
+# --- more PRs than the cap are unverified, not clean ---------------------------
+for i in 1 2 3 4 5 6 7; do record s9 "$(printf 'repo\to/r\t%s' "$i")"; done
+: > "$GH_LOG"
+check block 'over the cap -> block'     resolved "$(stop_input s9)"
+reason 'names the unchecked PR'         'o/r#7: not checked, more than 5'
+t 'only 5 queried' 5 "$(grep -c 'api graphql' "$GH_LOG")"
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

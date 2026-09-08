@@ -60,9 +60,14 @@ open=""
 failed=""
 n=0
 while IFS="$(printf '\t')" read -r repo num; do
-  [ -n "$repo" ] && [ -n "$num" ] || continue
-  n=$((n + 1)); [ "$n" -gt 5 ] && break
+  if [ -z "$repo" ] || [ -z "$num" ]; then continue; fi
+  # Cap the network calls, but never silently: a PR past the cap is reported
+  # as unverified so the turn still blocks instead of reading as clean.
+  n=$((n + 1))
+  [ "$n" -gt 5 ] && { failed="$failed
+- $repo#$num: not checked, more than 5 PRs recorded this session"; continue; }
   owner=${repo%%/*}; name=${repo#*/}
+  # shellcheck disable=SC2016  # GraphQL variables, not shell ones
   out=$(gh api graphql -f owner="$owner" -f name="$name" -F number="$num" -f query='
     query($owner:String!,$name:String!,$number:Int!){
       repository(owner:$owner,name:$name){ pullRequest(number:$number){
