@@ -32,11 +32,14 @@ Ask Solace in chat, with exactly these four commands, named in full:
     cd ~/<repo>
     git pull --rebase
     npm login
-    npm publish
+    npm publish            # scoped name: add --access public
 
 `npm login` is named explicitly rather than left implicit — a past ask that
 omitted it left her unsure what it would do.  It opens (or prints) a
 browser auth URL; she approves with her passkey. Never pass `--otp`.
+A scoped package (`@scope/name`) publishes as private unless
+`--access public` or `publishConfig.access: public` says otherwise, and a
+free account fails on private. Provenance stays opt-in; leave it to CI.
 
 ## After success
 
@@ -47,5 +50,8 @@ then CI's job, not hers.
 ## Assumption
 
 Releases use npm trusted publishing (OIDC), not a stored automation token.
-Don't "fix" a first-publish failure by adding a token secret — that
-reintroduces the thing trusted publishing exists to avoid.
+Don't "fix" a first-publish failure by adding a token secret: granular
+write tokens expire within 90 days, and npm is removing publish from
+bypass-2FA tokens (scheduled January 2027). Trusted publishing can't
+create a name that doesn't exist yet ([npm/cli#8544](https://github.com/npm/cli/issues/8544)),
+so the hand-off is by design, not a gap to engineer around.
