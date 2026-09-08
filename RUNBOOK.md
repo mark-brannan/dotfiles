@@ -34,6 +34,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 **Claude Code — a real machine**
 - [Wire the hooks on a real machine](#wire-the-hooks-on-a-real-machine)
 - [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
+- [Check a repo's prose budgets](#check-a-repos-prose-budgets)
 
 **GitHub repository**
 - [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
@@ -380,6 +381,28 @@ Widths worth knowing: the block's header pads to 30 columns, and the desktop
 UI prefixes **each line** with `PostToolUse:<tool> says:` — 50 characters on
 its own for a long MCP tool name — then wraps around 75. `--fields` shows which
 field is eating the budget when a line wraps.
+
+## Check a repo's prose budgets
+
+`prose-budget` reads `docs/budgets.json` (or `.prose-budgets.json`), walking
+up from the current directory; a repo with neither is skipped. The commit
+hook runs `--staged` and denies the commit on findings; CI runs `--base`.
+
+```bash
+prose-budget --tree                     # every tree rule, whole repo
+prose-budget --staged                   # what the commit hook sees
+prose-budget --base origin/main         # what CI sees for this branch
+prose-budget --tree --file docs/x.md    # one file, as the edit hook does
+```
+
+Exit 0 is clean, 1 lists findings as `file:line: rule: message`, 2 is a bad
+config. Every finding ends with the config path; edit that file, never the
+engine, to raise a budget or grandfather a hit (the `narration` message
+prints the hash to grandfather).
+
+```bash
+prose-budget --tree; echo "exit $?"     # 0, and one "OK" line
+```
 
 ## Set the auth token for the PR review workflows
 
