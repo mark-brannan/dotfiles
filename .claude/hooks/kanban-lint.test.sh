@@ -95,7 +95,7 @@ cat > "$R/kanban.md" <<'EOF'
 # Open loops
 
 ## Solace's
-- [ ] **Run the review session** — the memos ([log](log/memos.md))
+- [ ] **Run the review session** — the memos ([log](log/memos.md)) why you: learn
 
 ## Deferred — pre-1.0
 - [ ] Later thing ([log](log/later.md))
@@ -112,11 +112,11 @@ cat >> "$R/kanban.md" <<'EOF'
 EOF
 run 1 'a heading not in HEAD fails --file' --file "$R/kanban.md"
 has 'L3 names the heading' '^12: L3 new heading "## Yours"'
-lacks 'the legacy heading still passes' 'Solace'
+lacks 'the legacy heading still passes' '^3: '
 cp "$R/kanban.md" "$SCRATCH/norepo-kanban.md"
 run 0 'outside a repo, --file skips L3' --file "$SCRATCH/norepo-kanban.md"
-: > "$R/untracked.md"; printf '## Solace'"'"'s\n- [ ] x ([log](log/x.md))\n' > "$R/untracked.md"
-run 1 'a file not in HEAD: every non-Claude heading is new' --file "$R/untracked.md"
+: > "$R/untracked.md"; printf '## Deferred\n- [ ] x ([log](log/x.md))\n' > "$R/untracked.md"
+run 1 'a file not in HEAD: every unknown heading is new' --file "$R/untracked.md"
 has 'L3 on the untracked file' '^1: L3 '
 
 # --- ## Needs ruling: the second allowed section ------------------------------
@@ -132,10 +132,25 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90))
+- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert, one session until: the next migration risk: another 60 issues
 EOF
 run 0 'an added ## Needs ruling heading passes L3' --diff "$NR" kanban.md
-run 0 'a grouped decide + PR link card under ## Needs ruling passes L4 and L7' --file "$NR/kanban.md"
+run 0 'a grouped decide + PR link card under ## Needs ruling passes L4, L7 and L8' --file "$NR/kanban.md"
+gitq "$NR" checkout -- kanban.md
+
+# L8: a ruling card carries the agent's evaluation, every field.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Bare question** — decide the pin ([o/r#91](https://github.com/o/r/pull/91))
+- [ ] **Half evaluated** — decide the pin ([o/r#92](https://github.com/o/r/pull/92)) default: pin it
+      undo: unpin, one line RISK: none
+EOF
+run 1 'a ruling card without its fields fails L8' --diff "$NR" kanban.md
+has 'L8 names every missing field' '^8: L8 ruling card missing default:, undo:, until:, risk:'
+has 'L8 names only the missing ones, across a continuation line, any case' '^9: L8 ruling card missing until: '
+lacks 'L8 does not name a present field' '^9: L8 ruling card missing [^\n]*(default|undo|risk)'
 gitq "$NR" checkout -- kanban.md
 
 # L7: a ruling card needs a "### <project>" group above it.
@@ -169,15 +184,35 @@ has 'L4 names the verb'            '^5: L4 "decide"'
 has 'L4 points at the ruling section' '## Needs ruling'
 gitq "$NR" checkout -- kanban.md
 
-# A third heading is still refused.
+# ## Solace's is the third section: click work, with its two proofs (L9).
 cat >> "$NR/kanban.md" <<'EOF'
 
 ## Solace's
+- [ ] **Install the App** — consent screen ([org](https://github.com/o)) why you: no API installs an App on an org why this: the workflow's 403 names the missing installation ([run](https://github.com/o/r/actions/runs/1))
+- [ ] **Rocq in the IDE** — set up the extension ([doc](https://example.invalid/rocq)) why you: learn
+- [ ] **Rotate the key** — on the boat ([log](log/key.md))
+- [ ] **Update the secret** — in GitHub ([log](log/secret.md)) why you: the value exists only in the user's password manager
+- [ ] **Half learn** — the setup ([log](log/l.md)) Why You: learner
+EOF
+run 1 'a ## Solace'"'"'s section: proofs pass, missing proofs fail L9' --diff "$NR" kanban.md
+lacks 'no L3 on the third section'          'L3'
+lacks 'both proofs present passes'          '^7: '
+lacks 'a learn card needs no why this'      '^8: '
+has 'L9 missing why you'                    '^9: L9 click-work card missing why you:'
+has 'L9 missing why this'                   '^10: L9 click-work card missing why this:'
+has 'L9: "learner" is not "learn"'          '^11: L9 click-work card missing why this:'
+eq 'exactly three L9 violations' 3 "$(printf '%s\n' "$LAST" | grep -c ' L9 ')"
+gitq "$NR" checkout -- kanban.md
+
+# A fourth heading is still refused.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Yours
 - [ ] Another section ([log](log/x.md))
 EOF
-run 1 'a ## Solace'"'"'s heading added still fails L3' --diff "$NR" kanban.md
-has 'L3 names the heading'      '^6: L3 new heading "## Solace'"'"'s"'
-has 'L3 names both sections'    '## Needs ruling'
+run 1 'a ## Yours heading added fails L3' --diff "$NR" kanban.md
+has 'L3 names the heading'      '^6: L3 new heading "## Yours"'
+has 'L3 names the sections'     '## Needs ruling, ## Solace'"'"'s and ## Claude'"'"'s'
 gitq "$NR" checkout -- kanban.md
 
 # --- --diff: only added lines are judged -------------------------------------
@@ -223,7 +258,7 @@ has 'L3 on the added heading' '^10: L3 new heading "## Deferred"'
 gitq "$D" checkout -- state/global/kanban.md
 
 # Moving an existing heading is not a new heading.
-printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Solace'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md))\n' > "$D/state/global/kanban.md"
+printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Solace'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn\n' > "$D/state/global/kanban.md"
 run 0 'reordering headings already in HEAD passes' --diff "$D" state/global/kanban.md
 gitq "$D" checkout -- state/global/kanban.md
 
