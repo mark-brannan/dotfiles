@@ -31,8 +31,12 @@ cd "$S/repo" || exit 1
 # --- the board -----------------------------------------------------------------
 {
   printf '# Board\n\n## Needs ruling\n'
+  printf -- '### demo\n'
   printf -- '- [ ] **Board sections** — decide whether a question is a card or an issue ([o/r#90](https://github.com/o/r/pull/90))\n'
+  printf -- '### global\n'
   printf -- '- [ ] **Engine pin** — decide whether to pin the engine by tag ([o/r#93](https://github.com/o/r/pull/93))\n'
+  printf -- '### colregs\n'
+  printf -- '- [ ] **Give-way rule** — decide whether rule 15 wins ([o/r#94](https://github.com/o/r/pull/94))\n'
   printf '\n## Solace'"'"'s\n- [ ] **Not an agent card** — [x](https://example.invalid)\n\n## Claude'"'"'s\n'
   for i in 1 2 3 4 5 6 7 8 9 10; do
     printf -- '- [ ] **Card %s** — a card body long enough to be cut at eighty characters when brief is asked for ([link](https://example.invalid/%s))\n' "$i" "$i"
@@ -140,9 +144,27 @@ lacks 'draft PR not Solace'"'"'s turn' 'beta#5'
 OUT=$(section "Queued (auto-merge)"); has 'queued PR listed separately' '^  alpha#11  Queued PR'
 OUT=$OUT_ALL
 has 'Needs ruling reads the board section' "^Needs ruling, showing 2 of 2$"
+first_section=$(printf '%s\n' "$OUT_ALL" | grep -E "^(Needs ruling|Solace's turn|Queued|Ready:|Board \()" | head -1)
+assert 'Needs ruling prints before every GitHub bucket' [ "$first_section" = "Needs ruling, showing 2 of 2" ]
+assert 'and after the counts header' \
+  [ "$(printf '%s\n' "$OUT_ALL" | grep -nE '^(counts:|Needs ruling)' | head -1 | cut -d: -f1)" -lt \
+    "$(printf '%s\n' "$OUT_ALL" | grep -n '^Needs ruling' | cut -d: -f1)" ]
 OUT=$(section "Needs ruling")
-has 'a ruling card renders' '^  \*\*Board sections\*\* — decide whether a question is a card or an issue'
+has 'a ruling card renders, unprefixed in its own project' '^  \*\*Board sections\*\* — decide whether a question is a card or an issue'
+has '### global is in scope everywhere' '^  \*\*Engine pin\*\*'
+lacks 'another project'"'"'s group is out of scope' 'Give-way rule'
+has 'the hidden groups are counted' '^  \+1 in other projects \(worklist --all-rulings\)$'
 lacks 'no issue reaches Needs ruling' 'alpha#'
+OUT=$OUT_ALL
+
+# --all-rulings: every group, each card named by its group.
+run --all-rulings
+has 'all rulings shows every group' '^Needs ruling, showing 3 of 3$'
+OUT=$(section "Needs ruling")
+has 'a card carries its group'      '^  demo: \*\*Board sections\*\*'
+has 'the other project is listed'   '^  colregs: \*\*Give-way rule\*\*'
+lacks 'nothing is hidden'           'in other projects'
+run
 OUT=$OUT_ALL
 lacks 'the Ruled, unlanded bucket is gone' 'Ruled, unlanded'
 OUT=$(section "Ready"); has 'ready label' '^  alpha#23  Ready issue'; lacks 'blocked beats ready' 'alpha#24'

@@ -127,7 +127,9 @@ Hooks handle the mechanics unprompted.
 ## Open loops
 
 - **Write the issue or card when the loop is found, never at wrap-up** — by
-  then the evidence is compacted away. Routing and format: `/card-write`.
+  then the evidence is compacted away — and only if you would pull it
+  yourself. "Verify X later" is not a loop: verify it now or drop it.
+  Routing and format: `/card-write`.
 - **One home per fact.** GitHub owns work state; the board holds only agent
   loops with no GitHub home; a sweep is `worklist`, never an edit.
 - **A unilateral call** — deleting someone's work, cutting scope, reversing

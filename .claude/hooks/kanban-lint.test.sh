@@ -131,10 +131,33 @@ commit_board "$NR" kanban.md
 cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
+### colregs
 - [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90))
 EOF
 run 0 'an added ## Needs ruling heading passes L3' --diff "$NR" kanban.md
-run 0 'a decide + PR link card under ## Needs ruling passes L4' --file "$NR/kanban.md"
+run 0 'a grouped decide + PR link card under ## Needs ruling passes L4 and L7' --file "$NR/kanban.md"
+gitq "$NR" checkout -- kanban.md
+
+# L7: a ruling card needs a "### <project>" group above it.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+- [ ] **Ungrouped** — decide the pin ([o/r#91](https://github.com/o/r/pull/91))
+EOF
+run 1 'an ungrouped ruling card fails L7' --diff "$NR" kanban.md
+has 'L7 names the line'        '^7: L7 ruling card with no'
+has 'L7 names the global group' '### global'
+lacks 'L7 alone, no L3 on the group-less section' 'L3'
+gitq "$NR" checkout -- kanban.md
+
+# "### " groups belong only under ## Needs ruling.
+cat >> "$NR/kanban.md" <<'EOF'
+### dotfiles
+- [ ] **Grouped under the wrong section** — chase the awk ([log](log/awk.md))
+EOF
+run 1 'a ### group under ## Claude'"'"'s fails L3' --diff "$NR" kanban.md
+has 'L3 names the group heading' '^5: L3 group heading "### dotfiles"'
+lacks 'no L7 outside the ruling section' 'L7'
 gitq "$NR" checkout -- kanban.md
 
 # The same card under ## Claude's is still the user's turn written down.

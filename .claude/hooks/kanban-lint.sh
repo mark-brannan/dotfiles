@@ -18,7 +18,8 @@
 #   L1  a "- [x]" line                  -- delete, never tick
 #   L2  a bullet above the first "## "  -- cards live under a heading
 #   L3  a heading other than ## Needs ruling or ## Claude's, when it is
-#       not already in HEAD
+#       not already in HEAD -- including a "### " group heading anywhere
+#       but inside ## Needs ruling, where the groups live
 #   L4  a card whose action verb is the user's (review, merge, land, bump,
 #       close, approve, ship, ratify, rule on, decide, confirm, answer,
 #       watch) AND that links a /pull/N or /issues/N -- the user's turn is
@@ -30,6 +31,9 @@
 #       and "red" are not matched ("Red Sea", "green light");
 #       history already on the board is not relitigated
 #   L6  a card with no link at all (http, or a relative log/ link)
+#   L7  a card under ## Needs ruling with no "### <project>" group heading
+#       above it -- rulings are grouped by the project that owns them, so
+#       a session in one repo can see its own without reading the rest
 #
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
@@ -72,7 +76,7 @@ run_lint() {
       for (i = 1; i <= n; i++) if (a[i] != "") heads[a[i]] = 1
       claudes = "## Claude\047s"
       ruling = "## Needs ruling"
-      cursec = ""
+      cursec = ""; curgroup = ""
       nv = split("review merge land bump close approve ship ratify rule_on decide confirm answer watch", verbs, " ")
       for (i = 1; i <= nv; i++) gsub(/_/, " ", verbs[i])
       ns = split("not merged|ci green|open as|merged|awaiting", states, "|")
@@ -132,10 +136,19 @@ run_lint() {
       if (mode == "epic") { instatus = (h == "## Status"); next }
       if (added(NR) && h != claudes && h != ruling && l3 == "enforce" && !(h in heads))
         report(NR, "L3", "new heading \"" h "\" -- the board has two sections, " ruling " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
-      cursec = h
+      cursec = h; curgroup = ""
       next
     }
-    /^#/ { flush(); cursec = ""; next }
+    /^### / {
+      flush(); h = trim($0)
+      if (mode == "epic") next
+      if (cursec == ruling) { curgroup = h; next }
+      if (added(NR) && l3 == "enforce" && !(h in heads))
+        report(NR, "L3", "group heading \"" h "\" outside " ruling " -- \"### \" headings group ruling cards by project and are allowed nowhere else; " claudes " is one flat list")
+      curgroup = ""
+      next
+    }
+    /^#/ { flush(); cursec = ""; curgroup = ""; next }
     mode == "epic" && !instatus { next }
     /^[ \t]*$/ { flush(); next }
     /^(- |[0-9]+\. )/ {
@@ -144,6 +157,7 @@ run_lint() {
         if (mode != "epic") {
           if ($0 ~ /^- \[[xX]\]/) report(NR, "L1", "ticked card -- delete the line; done work lives in git log and log/, never on the board")
           if (!seenhead) report(NR, "L2", "bullet above the first \"## \" heading -- move it under " claudes)
+          if (cursec == ruling && curgroup == "") report(NR, "L7", "ruling card with no \"### <project>\" group above it -- put it under the group named for the project-<name> topic that owns it, or \"### global\" when none does; create the group if it is missing")
         }
         if (mode != "file") l5(NR, $0)
       }
@@ -163,7 +177,7 @@ run_lint() {
 # Headings in the committed copy of <file>, one per line; empty when the
 # file is not in HEAD. Caller has checked we are inside a work tree.
 head_headings() {
-  git -C "$(dirname "$1")" show "HEAD:./$(basename "$1")" 2>/dev/null | grep '^## ' | sed 's/[[:space:]]*$//'
+  git -C "$(dirname "$1")" show "HEAD:./$(basename "$1")" 2>/dev/null | grep -E '^###? ' | sed 's/[[:space:]]*$//'
 }
 
 lint_file() {
@@ -235,7 +249,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling, and agent rabbit-trails under ## Claude's; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }

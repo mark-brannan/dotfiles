@@ -60,6 +60,10 @@ the next one. It must:
   the time it's read;
 - **never ask Solace to review or merge.** The PR is where that lives, and
   `worklist` shows him when it is his turn;
+- rate every item it puts in front of Solace **twice** — difficulty for
+  Solace, and difficulty for an agent with full permissions and high stakes —
+  and answer `could an agent do it: yes/no`. Low for an agent means do it, not
+  ask;
 - name a **recommended model and difficulty (effort) setting** — both,
   every time, e.g. `Model: opus · Effort: high`. A hand-off prompt missing
   either is not finished;

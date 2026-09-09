@@ -12,7 +12,7 @@
 # Anything that asks "what's stale / outstanding / next" runs this and
 # reports; nothing edits.
 #
-#   worklist [project|--here] [--brief] [--fresh] [--json]
+#   worklist [project|--here] [--brief] [--fresh] [--json] [--all-rulings]
 #
 # Repo set: the cwd repo's GitHub topic `project-<name>`, else the cwd repo
 # alone; a project name argument skips the topic lookup; --here forces the
@@ -30,15 +30,16 @@
 # CONVENIENCE: exit 0 always, except --json with nothing fetched.
 set -u
 
-usage() { printf 'usage: worklist [project|--here] [--brief] [--fresh] [--json]\n'; }
+usage() { printf 'usage: worklist [project|--here] [--brief] [--fresh] [--json] [--all-rulings]\n'; }
 
-brief=0; fresh=0; json=0; here=0; project=""; refresh=0; marker=""
+brief=0; fresh=0; json=0; here=0; project=""; refresh=0; marker=""; all_rulings=0
 while [ $# -gt 0 ]; do
   case $1 in
     --brief) brief=1 ;;
     --fresh) fresh=1 ;;
     --json) json=1 ;;
     --here) here=1 ;;
+    --all-rulings) all_rulings=1 ;;
     --_refresh) refresh=1 ;;
     --_marker) shift; marker=${1:-} ;;
     -h|--help) usage; exit 0 ;;
@@ -263,7 +264,7 @@ def ms_sfx: if .milestone then "  [\(.milestone.title)]" else "" end;
       then "counts: unavailable (\(.prs))"
       else "counts: \(.prs) open PRs, \(.issues) open issues across \($owner)" end) as $counts
 | [ $c.label + " " + ($c.repos | map(split("/")[1]) | join(", ")) ]
-  + $fails + $trunc + [ $counts, "",
+  + $fails + $trunc + [ $counts, "", "@@RULINGS@@",
   bucket("Solace'"'"'s turn"; $prs | map(select(awaiting_human) | .line)),
   bucket("Queued (auto-merge)"; $prs | map(select(.autoMergeRequest != null) | .line)),
   bucket("Ready"; $rd | map(.line)),
@@ -274,30 +275,66 @@ def ms_sfx: if .milestone then "  [\(.milestone.title)]" else "" end;
 | join("\n")
 '
 
-# board_sections -- the two sections of the board, read at print time. The
-# Needs-ruling cards are the questions only Solace can settle; a card is
-# written there only for a one-way door, so the bucket is normally empty.
-board_sections() {
+# board_path -- sets $kb to the kanban.md this view reads. Returns 1 with
+# $board_err set and $kb empty when there is none.
+board_err=""; kb=""
+board_path() {
+  board_err=""; kb=""
   lib=""
   for c in "$self_dir/../../.claude/hooks/lib-state.sh" "$HOME/.claude/hooks/lib-state.sh"; do
     [ -f "$c" ] && { lib=$c; break; }
   done
-  [ -n "$lib" ] || { echo "Board: unavailable (lib-state.sh not found)"; return 0; }
+  [ -n "$lib" ] || { board_err="Board: unavailable (lib-state.sh not found)"; return 1; }
   # shellcheck disable=SC1090
   . "$lib"
   kb="$(state_dir)/kanban.md"
-  [ -f "$kb" ] || { echo "Board: no kanban.md at $kb"; return 0; }
-  section_of "$kb" '^## Needs ruling[[:space:]]*$' "Needs ruling" ""
-  echo
-  section_of "$kb" '^## Claude' "Board (## Claude's" ")"
+  [ -f "$kb" ] || { board_err="Board: no kanban.md at $kb"; kb=""; return 1; }
+  return 0
 }
 
-# section_of <board> <heading regex> <label> <suffix>
+count_lines() { [ -n "$1" ] || { echo 0; return; }; printf '%s\n' "$1" | grep -c '^'; }
+
+# ruling_section <board> <project>
+# The ## Needs ruling cards, grouped by the "### <name>" heading above them --
+# one group per project, "### global" for what no project owns. Inside a
+# project's repo only that project's group and global are shown, with a count
+# of what was hidden; --all-rulings, or no project at all, shows every group
+# and prefixes each card with its group. Printed first because it is the one
+# thing here that is waiting on the user.
+ruling_section() {
+  rows=$(awk '
+    /^## / { f = ($0 ~ /^## Needs ruling[[:space:]]*$/); g = "global"; next }
+    !f { next }
+    /^### / { g = $0; sub(/^###[ \t]+/, "", g); sub(/[ \t]+$/, "", g); next }
+    /^- \[ \]/ { t = substr($0, 7); print g "\t" t }
+  ' "$1")
+  showall=$all_rulings
+  [ -n "$2" ] || showall=1
+  if [ "$showall" = 1 ]; then
+    inscope=$rows; other=0
+  else
+    inscope=$(printf '%s\n' "$rows" | awk -F'\t' -v p="$2" 'NF > 1 && ($1 == p || $1 == "global")')
+    other=$(count_lines "$(printf '%s\n' "$rows" | awk -F'\t' -v p="$2" 'NF > 1 && $1 != p && $1 != "global"')")
+  fi
+  total=$(count_lines "$inscope")
+  if [ "$total" -eq 0 ]; then printf 'Needs ruling: none\n'
+  else
+    printf 'Needs ruling, showing %s of %s\n' "$( [ "$total" -gt 8 ] && echo 8 || echo "$total" )" "$total"
+    # jq, not awk, for the cut: it counts codepoints, so an em-dash never splits
+    printf '%s\n' "$inscope" | head -8 | jq -Rr --arg brief "$brief" --arg all "$showall" '
+      split("\t") | (if $all == "1" then .[0] + ": " else "" end) + .[1]
+      | if $brief == "1" and length > 80 then .[:77] + "..." else . end | "  " + .'
+  fi
+  [ "$other" -gt 0 ] && printf '  +%s in other projects (worklist --all-rulings)\n' "$other"
+  return 0
+}
+
+# section_of <board> <heading regex> <label> <suffix>  -- the flat ## Claude's
 # Prints "<label>: none", or "<label>, showing N of T<suffix>" and up to 8
-# cards. Same cut rules for both sections.
+# cards. Same cut rules as the ruling groups.
 section_of() {
   cards=$(awk -v pat="$2" '/^## /{f=($0 ~ pat)} f && /^- \[ \]/' "$1")
-  total=$(printf '%s' "$cards" | grep -c '^- ')
+  total=$(count_lines "$cards")
   if [ "$total" -eq 0 ]; then printf '%s: none\n' "$3$4"; return 0; fi
   printf '%s, showing %s of %s%s\n' "$3" "$( [ "$total" -gt 8 ] && echo 8 || echo "$total" )" "$total" "$4"
   # jq, not awk, for the cut: it counts codepoints, so an em-dash never splits
@@ -307,20 +344,31 @@ section_of() {
 # render <cache file or ""> <cached 0|1> <extra line or "">
 render() {
   stamp="as of $(date -u +%H:%MZ)"
+  proj=""
   if [ -n "$1" ]; then
     stamp="as of $(jq -r .written_hm "$1")"
+    proj=$(jq -r '.project // ""' "$1")
     if [ "$2" = 1 ]; then
       age=$(( (now - $(jq -r .written_at "$1")) / 60 ))
       [ "$age" -lt 1 ] && age="<1"
       stamp="$stamp (cached $age min)"
     fi
   fi
+  board_path || :
+  rulings=""
+  [ -n "$kb" ] && rulings=$(ruling_section "$kb" "$proj")
   {
     echo "$stamp"
     [ -n "$3" ] && echo "$3"
-    if [ -n "$1" ]; then jq -r --arg brief "$brief" "$RENDER" "$1"; fi
+    if [ -n "$1" ]; then
+      jq -r --arg brief "$brief" "$RENDER" "$1" \
+        | awk -v r="$rulings" '$0 == "@@RULINGS@@" { if (r != "") { print r; print "" } ; next } { print }'
+    elif [ -n "$rulings" ]; then
+      printf '%s\n\n' "$rulings"
+    fi
     echo
-    board_sections
+    if [ -n "$kb" ]; then section_of "$kb" '^## Claude' "Board (## Claude's" ")"
+    else echo "$board_err"; fi
   } | if [ "$brief" = 1 ]; then
     awk -v max=2900 '{ n += length($0) + 1; if (n > max) { print "... (cut at 3 KB; run worklist)"; exit } print }'
   else cat; fi
