@@ -26,9 +26,13 @@ is yours to work, not to tidy.
    archived, the feature cut, the `until:` event passed with nothing built
    on it. State the reason in one clause.
 3. **Rank** the survivors: what the card blocks now, then the consequence of
-   leaving it, then its `until:`. A card that blocks nothing and has no
-   consequence is not shown; take its default, record it where the work
-   lands, and propose the card for deletion with that as the proof.
+   leaving it, then its `until:`. A card with no `until:` at all — a
+   `## Solace's` click-work card; `/card-write` and `kanban-lint.sh` allow
+   one without it — ranks above every card that has one: it never expires on
+   a date, so treat it as always blocking until Solace clears it by hand. A
+   card that blocks nothing and has no consequence is not shown; take its
+   default, record it where the work lands, and propose the card for
+   deletion with that as the proof.
 
 A sweep finds proof that a question was answered or dissolved. It never
 answers the question itself.
@@ -36,13 +40,23 @@ answers the question itself.
 ## The dialog
 
 Show the list: proposed deletions, each with its proof, then the reranked
-survivors. Then one multi-select (AskUserQuestion): tick a card to delete or
-move it. Solace has caught wrong deletions before; nothing leaves the board
-without that tick.
+survivors. Then one multi-select (AskUserQuestion): tick the cards to act on.
+Every ticked card gets exactly one explicit action, chosen at tick time —
+Solace has caught wrong deletions before; nothing leaves the board, or
+changes, on a bare tick with no action attached:
 
-When a survivor is being answered in the same sitting, the picks per card
-are fixed: **take the default**, **defer** (restates `until:`), **dig**
-(opens the conversation for that card only). Never a free-text question.
+- **Deleted** — the card is gone. A proposed deletion (rank step 3) defaults
+  to this.
+- **Answered** — the question is settled now; goes to `docs/decisions.md`
+  (see After the tick).
+- **Deferred** — not now. Push `until:` out to a date or event Solace names.
+  A card with no `until:` gets one for the first time here, rather than an
+  existing value being rewritten.
+- **Dig** — opens the conversation for that card only, right now, instead of
+  picking one of the above; whatever it resolves to is then one of the three
+  actions above, applied the same way.
+
+Never a free-text question outside Dig.
 
 A `learn` card under `## Solace's` is never proposed. It drops only when
 Solace says she has it.
@@ -57,7 +71,10 @@ Solace says she has it.
   Q-nn, the line points there rather than repeating it. On a public repo the
   line must pass the private-terms check; failing that, it goes to the state
   repo's log with the same date.
-- **Deferred:** rewrite `until:`; the card is not shown again before then.
+- **Deferred:** write or rewrite `until:` per the rule above; the card is not
+  shown again before then.
+- **Dig:** hold the conversation for that one card, then apply whichever of
+  Deleted / Answered / Deferred it settles on.
 - Commit the board in the state repo, with the proof.
 
 ## Output

@@ -91,6 +91,7 @@ run_lint() {
       ns = split("not merged|ci green|open as|merged|awaiting", states, "|")
       instatus = (mode != "epic")
       seenhead = 0; cstart = 0; ctext = ""; touched = 0
+      hdrtouched = 0; grptouched = 0
     }
     function added(n) { return allad || (n in ad) }
     function report(n, id, msg) { printf "%d: %s %s\n", n, id, msg }
@@ -167,30 +168,40 @@ run_lint() {
       if (added(NR) && h != claudes && h != ruling && h != solaces && l3 == "enforce" && !(h in heads))
         report(NR, "L3", "new heading \"" h "\" -- the board has three sections, " ruling ", " solaces " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
       cursec = h; curgroup = ""
+      # An added/changed "## " line re-parents every card below it -- until
+      # the next "## " -- so those cards must be (re)validated even though
+      # their own lines were not touched by this diff.
+      hdrtouched = added(NR); grptouched = 0
       next
     }
     /^### / {
       flush(); h = trim($0)
       if (mode == "epic") next
-      if (cursec == ruling) { curgroup = h; next }
+      if (cursec == ruling) { curgroup = h; grptouched = added(NR); next }
       if (added(NR) && l3 == "enforce" && !(h in heads))
         report(NR, "L3", "group heading \"" h "\" outside " ruling " -- \"### \" headings group ruling cards by project and are allowed nowhere else; " claudes " is one flat list")
-      curgroup = ""
+      curgroup = ""; grptouched = 0
       next
     }
-    /^#/ { flush(); cursec = ""; curgroup = ""; next }
+    /^#/ { flush(); cursec = ""; curgroup = ""; hdrtouched = 0; grptouched = 0; next }
     mode == "epic" && !instatus { next }
     /^[ \t]*$/ { flush(); next }
     /^(- |[0-9]+\. )/ {
-      flush(); cstart = NR; ctext = $0; touched = added(NR)
+      flush(); cstart = NR; ctext = $0
+      # touched: this card own line was added, OR the "## "/"### " scope it
+      # now sits under changed -- a heading edit that re-parents a card into
+      # Needs ruling or the Solaces section (or into/out of a project group)
+      # must still (re)validate it, not just lines the diff literally added.
+      touched = added(NR) || hdrtouched || grptouched
       if (added(NR)) {
         if (mode != "epic") {
           if ($0 ~ /^- \[[xX]\]/) report(NR, "L1", "ticked card -- delete the line; done work lives in git log and log/, never on the board")
           if (!seenhead) report(NR, "L2", "bullet above the first \"## \" heading -- move it under " claudes)
-          if (cursec == ruling && curgroup == "") report(NR, "L7", "ruling card with no \"### <project>\" group above it -- put it under the group named for the project-<name> topic that owns it, or \"### global\" when none does; create the group if it is missing")
         }
         if (mode != "file") l5(NR, $0)
       }
+      if (mode != "epic" && cursec == ruling && curgroup == "" && touched)
+        report(NR, "L7", "ruling card with no \"### <project>\" group above it -- put it under the group named for the project-<name> topic that owns it, or \"### global\" when none does; create the group if it is missing")
       next
     }
     {

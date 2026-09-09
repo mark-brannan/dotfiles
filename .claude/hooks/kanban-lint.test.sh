@@ -215,6 +215,37 @@ has 'L3 names the heading'      '^6: L3 new heading "## Yours"'
 has 'L3 names the sections'     '## Needs ruling, ## Solace'"'"'s and ## Claude'"'"'s'
 gitq "$NR" checkout -- kanban.md
 
+# --- heading-only diffs: a card is re-scoped without its own line changing ---
+# A "## " or "### " heading is what the diff added; the card underneath it is
+# unchanged in the diff. It still has to be (re)validated against whatever
+# section/group it now sits in -- that's the whole point of L7/L8/L9.
+printf '# Open loops\n\n## Needs ruling\n- [ ] **Fix the awk** — drops the first bullet ([o/r#90](https://github.com/o/r/pull/90))\n' > "$NR/kanban.md"
+run 1 'a heading-only diff into ## Needs ruling still validates the untouched card beneath it' --diff "$NR" kanban.md
+has 'L7 fires though only the heading line was added'    '^4: L7 '
+has 'L8 fires though only the heading line was added'    '^4: L8 '
+gitq "$NR" checkout -- kanban.md
+
+printf '# Open loops\n\n## Solace'"'"'s\n- [ ] **Fix the awk** — drops the first bullet ([o/r#90](https://github.com/o/r/pull/90))\n' > "$NR/kanban.md"
+run 1 'a heading-only diff into ## Solace'"'"'s still validates the untouched card beneath it' --diff "$NR" kanban.md
+has 'L9 fires though only the heading line was added'    '^4: L9 click-work card missing why you:'
+gitq "$NR" checkout -- kanban.md
+
+# A card two heads deep (## Needs ruling / ### <project>): a rename of the
+# ### group alone -- the "## " line untouched -- must re-validate it too.
+cat > "$NR/kanban.md" <<'EOF'
+# Open loops
+
+## Needs ruling
+### colregs
+- [ ] **Board sections** — decide the pin ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert until: the next migration
+EOF
+commit_board "$NR" kanban.md
+sed -i 's/### colregs/### colregs-v2/' "$NR/kanban.md"
+run 1 'a ### group rename alone still validates the untouched card beneath it' --diff "$NR" kanban.md
+lacks 'the group is present -- no L7' 'L7'
+has 'L8 fires for the field the card was already missing' '^5: L8 ruling card missing risk:'
+gitq "$NR" checkout -- kanban.md
+
 # --- --diff: only added lines are judged -------------------------------------
 D="$SCRATCH/diff"; mkrepo "$D"; mkdir -p "$D/state/global"
 cat > "$D/state/global/kanban.md" <<'EOF'
