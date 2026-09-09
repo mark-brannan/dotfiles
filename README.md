@@ -81,7 +81,7 @@ degrades to `~/.claude/state/global` if it isn't checked out.
 | hook | event | what it does |
 | --- | --- | --- |
 | `session-start-seed-refresh.sh` | SessionStart | re-runs the cloud seed so a reused container tracks this repo, not the commit it was provisioned from |
-| `session-start-continuity.sh` | SessionStart | injects the open board, where the last three sessions left off, and the week's decision load |
+| `session-start-continuity.sh` | SessionStart | injects the live `worklist --brief` (PRs ready, rulings pending, agent-ready issues, the agent's board), where the last three sessions left off, and the week's decision load |
 | `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, then commits and pushes the state repo |
 | `measure-git-events.sh` | PostToolUse | logs branches created, PRs opened, cherry-picks |
 | `no-persistent-polling.sh` | PreToolUse | denies wakeups bound to a live session, which re-send its whole context on every fire |
