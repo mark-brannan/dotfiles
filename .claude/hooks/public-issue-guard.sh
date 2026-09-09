@@ -207,6 +207,7 @@ done < "$META"
 denylist="$(state_dir)/private-terms.txt"
 [ -r "$denylist" ] || deny "the private-terms denylist is unreadable ($denylist), so text bound for a public repo cannot be checked. Is the state repo checked out? On a real machine: clone mark-brannan/claude_prompts_scratch to one of the paths lib-state.sh searches, or set CLAUDE_STATE_REPO. In a cloud session: mcp__Claude_Code_Remote__add_repo (owner mark-brannan, repo claude_prompts_scratch, access push), clone it to /workspace/claude_prompts_scratch, retry. To post without the check, target the private repo itself: --repo $PRIVATE_REPO."
 sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^#/d' -e '/^$/d' "$denylist" > "$WORK/terms"
+[ -s "$WORK/terms" ] || deny "the private-terms denylist ($denylist) is readable but has no terms in it -- only comments and blank lines, or nothing at all. An empty list matches nothing, so every post would pass unchecked, which is indistinguishable from a check that ran. Populate it (one term per line, # for comments) and retry. To post without the check, target the private repo itself: --repo $PRIVATE_REPO."
 
 # Bodies the hook cannot read are a hole, not a pass. awk emits OPAQUE only
 # when no heredoc feeds the value, so a heredoc elsewhere does not excuse it.

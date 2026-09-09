@@ -180,6 +180,16 @@ if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: 
 out=$(bash_in "$PUB" 'gh issue list' | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1)
 if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: a read needs no denylist: $out"; fi
 
+# denylist present but empty: a readable file with no terms matches nothing,
+# which would let every post through looking exactly like a check that ran.
+BLANK="$SCRATCH/blank"; mkdir -p "$BLANK/.git" "$BLANK/state/global"
+printf '# comments only\n\n   \n' > "$BLANK/state/global/private-terms.txt"
+out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO=$BLANK sh "$HOOK" 2>&1); LAST=$out
+if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: empty denylist should deny: $out"; fi
+reason 'says the denylist has no terms' 'no terms in it'
+out=$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -b Wanderlust" | CLAUDE_STATE_REPO=$BLANK sh "$HOOK" 2>&1)
+if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: private repo needs no denylist terms: $out"; fi
+
 # comment and blank lines in the denylist are not terms
 check allow 'comment line is not a term' "$(bash_in "$PUB" 'gh issue create -t x -b "private terms -- lines starting"')"
 

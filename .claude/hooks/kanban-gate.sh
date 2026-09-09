@@ -25,14 +25,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib-state.sh
 . "$HERE/lib-state.sh"
 
-json_str() {
-  if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$1" | jq -Rs .
-  else
-    printf '"%s"\n' "$(printf '%s' "$1" | tr '\t' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{ if (NR > 1) printf "\\n"; printf "%s", $0 }')"
-  fi
-}
-block() { printf '{"decision":"block","reason":%s}\n' "$(json_str "$1")"; exit 0; }
+# json_str() and block() come from lib-state.sh, sourced above.
 
 payload=$(cat) || exit 0
 if command -v jq >/dev/null 2>&1; then

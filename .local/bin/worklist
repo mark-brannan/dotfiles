@@ -133,7 +133,13 @@ do_fetch() {
   lock="$cache_root/$key.lock"
   if [ -f "$lock" ] && pid=$(cat "$lock" 2>/dev/null) && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     i=0; while [ -f "$lock" ] && kill -0 "$pid" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 1; i=$((i + 1)); done
-    [ -n "$marker" ] && printf 'key\t%s\n' "$key" > "$marker"
+    if [ -n "$marker" ]; then
+      if [ -f "$cache_root/$key.json" ]; then
+        printf 'key\t%s\n' "$key" > "$marker"
+      else
+        printf 'error\t%s\n' "another worklist fetch has held the lock for ${i} s and has not written a cache yet -- it is still running or it died; retry shortly" > "$marker"
+      fi
+    fi
     return 0
   fi
   printf '%s' $$ > "$lock"
