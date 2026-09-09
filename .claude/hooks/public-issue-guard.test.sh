@@ -157,6 +157,14 @@ EOF')"
 check deny 'body from $(...)'        "$(bash_in "$PUB" 'gh issue create -t x -b "$(cat notes.md)"')"
 reason 'says it is built at run time' 'run time'
 check deny 'body from $VAR, no heredoc' "$(bash_in "$PUB" 'gh pr comment 3 --body "$body"')"
+check allow 'inline $(cat <<EOF) clean' "$(bash_in "$PUB" 'gh pr create -t x --body "$(cat <<'"'"'EOF'"'"'
+nothing private
+EOF
+)"')"
+check deny 'inline $(cat <<EOF) with a term' "$(bash_in "$PUB" 'gh pr create -t x --body "$(cat <<'"'"'EOF'"'"'
+seen aboard Wanderlust
+EOF
+)"')"
 check allow '$VAR body fed by a clean heredoc' "$(bash_in "$PUB" 'b=$(cat <<EOF
 public text
 EOF

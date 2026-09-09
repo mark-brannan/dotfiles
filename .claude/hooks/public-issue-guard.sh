@@ -92,8 +92,10 @@ case "$tool" in
         name = v; sub(/^\$\{?/, "", name); sub(/[^A-Za-z0-9_].*$/, "", name)
         return name != "" && orig ~ ("(^|[;&|[:space:]])" name "=[\"\047]?\\$\\([^)]*<<")
       }
+      # strip_heredocs has already turned an inline `$(cat <<EOF ...)` into
+      # `$(cat  HEREDOC  )`; either spelling means a heredoc feeds the value.
       function val(v) {
-        if (v ~ /\$\(/ || v ~ /`/) { if (v !~ /<</) print "OPAQUE\t" flat(v) }
+        if (v ~ /\$\(/ || v ~ /`/) { if (v !~ /<</ && v !~ / HEREDOC /) print "OPAQUE\t" flat(v) }
         else if (v ~ /^\$[A-Za-z_{]/) { if (!fed(v)) print "OPAQUE\t" flat(v) }
       }
       function field(v) { sub(/^[^=]*=/, "", v); if (v ~ /^@/) file(substr(v, 2)); else val(v) }
