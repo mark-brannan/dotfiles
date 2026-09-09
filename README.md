@@ -118,6 +118,16 @@ delta per change, narration and voice patterns. Three repositories had grown
 three drifting versions of it; this is the one they collapsed into. Each
 repository keeps only its `docs/budgets.json`.
 
+That config is the whole design and also its weak point: an agent that trips a
+limit can raise the limit. It happened — three phrases appended to a
+`voice.allow` list inside an unrelated pull request, a JSON hunk small enough
+to scroll past. So the engine reads its own config against the base version and
+treats any weakening as a finding unless the weakening lands by itself. It
+cannot enforce that the reason is written down, only that the change is alone
+in the diff, where a reason is the obvious thing to ask for. Tightening stays
+free, because a guard nobody can strengthen quickly is a guard nobody
+strengthens.
+
 It lives here rather than in `mark-brannan/.github` beside the reusable
 workflow that runs it, because CI is the smaller half of its job: it is on
 `PATH` on every machine, two Claude Code hooks exec it (a `git commit` is

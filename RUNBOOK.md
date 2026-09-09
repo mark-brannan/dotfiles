@@ -400,9 +400,24 @@ prose-budget --tree --file docs/x.md    # one file, as the edit hook does
 ```
 
 Exit 0 is clean, 1 lists findings as `file:line: rule: message`, 2 is a bad
-config. Every finding ends with the config path; edit that file, never the
-engine, to raise a budget or grandfather a hit (the `narration` message
-prints the hash to grandfather).
+config. Cut the prose first; the config, never the engine, is where a limit
+that is genuinely wrong gets changed (the `narration` message prints the hash
+to grandfather).
+
+A config change that weakens the guard — a cap raised, an exemption added, a
+rule switched off — is itself a finding unless it is the only thing in the
+diff. Land it alone, with the reason in the commit or PR body:
+
+```bash
+git add docs/budgets.json && git commit          # nothing else staged
+prose-budget --staged                            # "config: weakened, landing alone -- ..."
+```
+
+Staging anything beside it fails, and names what rode along:
+
+```bash
+prose-budget --base origin/main | grep ': config:'   # empty unless a weakening rode along
+```
 
 ```bash
 prose-budget --tree; echo "exit $?"     # 0, and one "OK" line
