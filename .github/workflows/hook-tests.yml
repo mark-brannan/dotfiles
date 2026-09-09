@@ -36,7 +36,7 @@ jobs:
           for impl in mawk gawk original-awk; do
             d=$(mktemp -d)
             ln -s "$(command -v $impl)" "$d/awk"
-            for t in .claude/hooks/*.test.sh; do
+            for t in .claude/hooks/*.test.sh .local/bin/*.test.sh; do
               echo "::group::$t under $impl"
               if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
               echo "::endgroup::"

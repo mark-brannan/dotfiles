@@ -224,7 +224,7 @@ seed script reads are set inline by the paste blob (`CLOUD_SESSION=1`) or by the
 harness (`CLAUDE_CODE_REMOTE=true`), so the field stays empty.
 
 **Verify** on the next session: `session-start-continuity.sh` prints a
-`config: <channel>@<sha> (installed <timestamp>)` line, then the board. A
+`config: <channel>@<sha> (installed <timestamp>)` line, then the worklist brief. A
 `config: DEGRADED` line means the installer never ran or didn't finish —
 see [a deleted hook keeps running](#a-deleted-hook-keeps-running) for the
 same `~/.claude/.sync-status.json` check. If it instead prints a "state repo
@@ -327,8 +327,8 @@ ls ~/.claude/hooks/
 bash ~/.claude/hooks/statusline-metrics.sh   # prints the status line, or nothing
 ```
 
-Then start a session: `session-start-continuity.sh` injecting the board is the
-end-to-end proof.
+Then start a session: `session-start-continuity.sh` injecting the worklist brief
+is the end-to-end proof.
 
 ## Change what the metrics readouts show
 
