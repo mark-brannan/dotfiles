@@ -7,9 +7,10 @@
 # their opening turns "sweeping" the board -- editing prose to match GitHub
 # -- and the user still could not tell what was theirs to do. Every fact now has one
 # home (the PR or issue) and this is the one view over them: Solace's turn,
-# queued, needs a ruling, ruled but unlanded, ready, blocked, untriaged,
-# stranded branches, and the agent's private board. Anything that asks
-# "what's stale / outstanding / next" runs this and reports; nothing edits.
+# queued, ready, blocked, untriaged, stranded branches, and the two board
+# sections -- questions that need a ruling, and the agent's rabbit-trails.
+# Anything that asks "what's stale / outstanding / next" runs this and
+# reports; nothing edits.
 #
 #   worklist [project|--here] [--brief] [--fresh] [--json]
 #
@@ -85,8 +86,8 @@ QUERY='query($owner:String!,$name:String!){ repository(owner:$owner,name:$name){
     reviewThreads(first:100){nodes{isResolved}}
     commits(last:1){nodes{commit{statusCheckRollup{state contexts(first:50){nodes{
       ... on CheckRun{name conclusion} ... on StatusContext{context state}}}}}}}}}
-  issues(states:OPEN,first:100){pageInfo{hasNextPage} nodes{number title url labels(first:20){nodes{name}} assignees(first:10){nodes{login}}
-    milestone{title} comments(last:20){nodes{author{login} body}}}}
+  issues(states:OPEN,first:100){pageInfo{hasNextPage} nodes{number title url labels(first:20){nodes{name}}
+    milestone{title}}}
   refs(refPrefix:"refs/heads/",first:100){nodes{name associatedPullRequests(first:1){totalCount}}}
 }}'
 
@@ -234,21 +235,17 @@ def awaiting_human: (.isDraft|not) and .mergeable == "MERGEABLE" and (failing_na
   and (rollup|IN("SUCCESS","NONE")) and unresolved == 0 and .autoMergeRequest == null;
 def notes_sfx($owner): pr_notes($owner) | if length > 0 then "  -- " + join("; ") else "" end;
 def labels: [(.labels.nodes // [])[].name];
-def assigned($owner): any((.assignees.nodes // [])[]; .login == $owner);
-def ruled($owner): any((.comments.nodes // [])[]; (.author.login // "") == $owner and ((.body // "") | test("^\\s*Ruled"; "i")));
 def ms_sfx: if .milestone then "  [\(.milestone.title)]" else "" end;
 
 . as $c | $c.owner as $owner
 | [ $c.records[] | select(.data) | (.repo|split("/")[1]) as $s | (.data.pullRequests.nodes // [])[]
     | . + {line: ("\($s)#\(.number)  \(.title|cut)" + notes_sfx($owner) + url_sfx)} ] as $prs
 | [ $c.records[] | select(.data) | (.repo|split("/")[1]) as $s | (.data.issues.nodes // [])[]
-    | . + {lbl: labels, asg: assigned($owner), rld: ruled($owner),
+    | . + {lbl: labels,
            line: ("\($s)#\(.number)  \(.title|cut)" + ms_sfx + url_sfx)} ] as $is
-| ($is | map(select(.lbl|index("needs-ruling")))) as $nr
-| ($is | map(select((.lbl|index("needs-ruling")|not) and (.lbl|index("blocked"))))) as $bl
-| ($is | map(select((.lbl|index("needs-ruling")|not) and (.lbl|index("blocked")|not) and .asg))) as $asg
-| ($is | map(select((.lbl|index("needs-ruling")|not) and (.lbl|index("blocked")|not) and (.asg|not) and (.lbl|index("ready"))))) as $rd
-| ($is | map(select((.lbl|index("needs-ruling")|not) and (.lbl|index("blocked")|not) and (.asg|not) and (.lbl|index("ready")|not)))) as $rest
+| ($is | map(select(.lbl|index("blocked")))) as $bl
+| ($is | map(select((.lbl|index("blocked")|not) and (.lbl|index("ready"))))) as $rd
+| ($is | map(select((.lbl|index("blocked")|not) and (.lbl|index("ready")|not)))) as $rest
 | ($rest | map(select(.milestone)) | length) as $deferred
 | ($rest | map(select(.milestone|not)) | length) as $untriaged
 | [ $c.records[] | select(.data) | (.repo|split("/")[1]) as $s | (.data.defaultBranchRef.name // "main") as $def
@@ -267,10 +264,8 @@ def ms_sfx: if .milestone then "  [\(.milestone.title)]" else "" end;
       else "counts: \(.prs) open PRs, \(.issues) open issues across \($owner)" end) as $counts
 | [ $c.label + " " + ($c.repos | map(split("/")[1]) | join(", ")) ]
   + $fails + $trunc + [ $counts, "",
-  bucket("Solace'"'"'s turn"; ($prs | map(select(awaiting_human) | .line)) + ($asg | map(.line + "  (assigned)"))),
+  bucket("Solace'"'"'s turn"; $prs | map(select(awaiting_human) | .line)),
   bucket("Queued (auto-merge)"; $prs | map(select(.autoMergeRequest != null) | .line)),
-  bucket("Needs ruling"; $nr | map(select(.rld|not) | .line)),
-  bucket("Ruled, unlanded"; $nr | map(select(.rld) | .line)),
   bucket("Ready"; $rd | map(.line)),
   bucket("Blocked"; $bl | map(.line)),
   bucket("Not ready (agent'"'"'s turn)"; $prs | map(select(.autoMergeRequest == null and (awaiting_human|not)) | .line)),
@@ -279,7 +274,10 @@ def ms_sfx: if .milestone then "  [\(.milestone.title)]" else "" end;
 | join("\n")
 '
 
-board_section() {
+# board_sections -- the two sections of the board, read at print time. The
+# Needs-ruling cards are the questions only Solace can settle; a card is
+# written there only for a one-way door, so the bucket is normally empty.
+board_sections() {
   lib=""
   for c in "$self_dir/../../.claude/hooks/lib-state.sh" "$HOME/.claude/hooks/lib-state.sh"; do
     [ -f "$c" ] && { lib=$c; break; }
@@ -289,10 +287,19 @@ board_section() {
   . "$lib"
   kb="$(state_dir)/kanban.md"
   [ -f "$kb" ] || { echo "Board: no kanban.md at $kb"; return 0; }
-  cards=$(awk '/^## /{f=($0 ~ /^## Claude/)} f && /^- \[ \]/' "$kb")
+  section_of "$kb" '^## Needs ruling[[:space:]]*$' "Needs ruling" ""
+  echo
+  section_of "$kb" '^## Claude' "Board (## Claude's" ")"
+}
+
+# section_of <board> <heading regex> <label> <suffix>
+# Prints "<label>: none", or "<label>, showing N of T<suffix>" and up to 8
+# cards. Same cut rules for both sections.
+section_of() {
+  cards=$(awk -v pat="$2" '/^## /{f=($0 ~ pat)} f && /^- \[ \]/' "$1")
   total=$(printf '%s' "$cards" | grep -c '^- ')
-  if [ "$total" -eq 0 ]; then echo "Board (## Claude's): none"; return 0; fi
-  echo "Board (## Claude's, showing $( [ "$total" -gt 8 ] && echo 8 || echo "$total" ) of $total)"
+  if [ "$total" -eq 0 ]; then printf '%s: none\n' "$3$4"; return 0; fi
+  printf '%s, showing %s of %s%s\n' "$3" "$( [ "$total" -gt 8 ] && echo 8 || echo "$total" )" "$total" "$4"
   # jq, not awk, for the cut: it counts codepoints, so an em-dash never splits
   printf '%s\n' "$cards" | head -8 | jq -Rr --arg brief "$brief" '.[6:] | if $brief == "1" and length > 80 then .[:77] + "..." else . end | "  " + .'
 }
@@ -313,7 +320,7 @@ render() {
     [ -n "$3" ] && echo "$3"
     if [ -n "$1" ]; then jq -r --arg brief "$brief" "$RENDER" "$1"; fi
     echo
-    board_section
+    board_sections
   } | if [ "$brief" = 1 ]; then
     awk -v max=2900 '{ n += length($0) + 1; if (n > max) { print "... (cut at 3 KB; run worklist)"; exit } print }'
   else cat; fi

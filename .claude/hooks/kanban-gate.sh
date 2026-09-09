@@ -56,6 +56,6 @@ case $rc in
   1) block "kanban-gate: this turn cannot end yet. The uncommitted changes to $SR/$board break the board contract -- line number in the working copy, rule, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then end the turn again; this gate fires once per turn. The board holds only agent rabbit-trails under ## Claude's; /card-write has the routing table for everything else. stop-continuity.sh will not commit the board while this lint fails." ;;
+Fix or delete each line named, then end the turn again; this gate fires once per turn. The board holds a question only the user can settle under ## Needs ruling, and agent rabbit-trails under ## Claude's; /card-write has the routing table for everything else. stop-continuity.sh will not commit the board while this lint fails." ;;
   *) block "kanban-gate: $SR/$board has uncommitted changes that could not be linted ($out). This gate fails closed: make the board lintable, or revert it (git -C $SR checkout -- $board), then end the turn again." ;;
 esac

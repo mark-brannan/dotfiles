@@ -1,6 +1,6 @@
 ---
 name: card-write
-description: Route an open loop to its one home — a GitHub issue, or a card on a kanban.md board in the house format: one line, imperative, link mandatory. Use whenever a loop is found that must be captured ("card that", "add a card", "put it on the board", "file that", a unilateral call, a finding that doesn't belong in this session). Not for walking a card or issue with the user — that is /card-helper.
+description: Route an open loop to its one home — work it around, a GitHub issue, or a card on a kanban.md board in the house format: one line, imperative, link mandatory. Use whenever a loop is found that must be captured ("card that", "add a card", "put it on the board", "file that", a unilateral call, a finding that doesn't belong in this session). Not for walking a card or issue with the user — that is /card-helper.
 ---
 
 # Writing a card
@@ -11,19 +11,26 @@ exact wording still exist.
 
 ## Where the loop lives
 
-One home per fact. GitHub owns work state; the board holds only what has
-no GitHub home. Take the first line that fits:
+One home per fact. GitHub owns work state; the board holds what has no
+GitHub home. Take the first line that fits:
 
 - **Work state** — open, merged, closed, CI, threads — lives on the PR or
   issue and nowhere else. Never write it down; `worklist` reads it live.
-- **A question only Solace can answer** → an issue labelled `needs-ruling`,
-  in the repo where the ruling lands. Body: one line plus a link to where
-  the argument lives (a `requirements.md` Q-nn, an ADR draft, or "context:
-  private log <slug>"). Solace rules with a comment starting `Ruled`; the PR
-  that lands the ruling closes the issue. The ruling itself goes in the
-  repo, via that PR — the log records the link only.
-- **An action only Solace can do** — install, flash, email, click → an issue
-  assigned to him.
+- **A question only Solace can answer** → **work around it.** Decide it
+  yourself, record the assumption where the work lands — the PR body or the
+  commit message — and carry on. Most rulings get deferred anyway, so a
+  question parked on a board is usually a question that never gets answered;
+  a decision with its assumption written down is reversible work.
+- **A one-way door** — a choice that would cost more than a session to
+  reverse — → a card under `## Needs ruling`. One line, imperative
+  question, with a link to where the argument lives (a `requirements.md`
+  Q-nn, an ADR draft, a PR). That is the only kind of question that earns a
+  card. There is no `needs-ruling` label and no ruling issue.
+- **The issue bar** — an issue is filed only when a fresh session could
+  start work from the body alone: a link to evidence **and** a concrete next
+  action, or real work with a real owner. Status mirrors, notes, vague
+  loops and "review/merge X" are never issues. Below that bar it is a log
+  line or nothing.
 - **Public or private repo?** An issue goes on the public repo when its
   text passes the private-terms check — `state/global/private-terms.txt`
   in the state repo, read by path and never copied. When it would fail,
@@ -38,8 +45,8 @@ no GitHub home. Take the first line that fits:
 - **Half-done agent work** → the log and the hand-off prompt, as bare
   links with no state adjectives. A pushed branch has a PR or is a
   finding.
-- **An agent rabbit-trail** not worth a public issue, or too private for
-  one → a card. That is the only thing a card is for.
+- **An agent rabbit-trail** not worth an issue, or too private for one →
+  a card under `## Claude's`.
 
 ## The board
 
@@ -50,9 +57,12 @@ create a board unilaterally. A public repo's board never carries boats,
 hosts or services — those cards go global, with a link back. Dotfiles has
 no board: its cards go global.
 
-A board has one section, `## Claude's`. `## Solace's` (older boards:
-`## Yours`) is retired — Solace's loops are issues, and their GitHub
-"Assigned" tab is where he sees them.
+A board has two sections, in this order:
+
+- `## Needs ruling` — one-way doors waiting on Solace. Normally empty.
+- `## Claude's` — agent rabbit-trails with no GitHub home.
+
+`## Solace's` (older boards: `## Yours`) is retired.
 
 ## The line
 
@@ -77,10 +87,11 @@ repo's uncommitted board diff again at Stop. It rejects:
 
 1. a ticked box — `- [x]`;
 2. a bullet above the first `## ` heading;
-3. a heading other than `## Claude's`;
+3. a heading other than `## Needs ruling` or `## Claude's`;
 4. a card whose verb is review, merge, land, bump, close, approve, ship,
    ratify, rule on, decide, confirm, answer or watch, pointing at a
-   `/pull/N` or `/issues/N` — that loop's home is the PR or issue;
+   `/pull/N` or `/issues/N` — that loop's home is the PR or issue. Not
+   applied under `## Needs ruling`, where "decide X on PR N" is the point;
 5. a state word: merged, awaiting, not merged, CI green, open as;
 6. a card with no link.
 

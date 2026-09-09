@@ -119,6 +119,44 @@ run 0 'outside a repo, --file skips L3' --file "$SCRATCH/norepo-kanban.md"
 run 1 'a file not in HEAD: every non-Claude heading is new' --file "$R/untracked.md"
 has 'L3 on the untracked file' '^1: L3 '
 
+# --- ## Needs ruling: the second allowed section ------------------------------
+NR="$SCRATCH/ruling"; mkrepo "$NR"
+cat > "$NR/kanban.md" <<'EOF'
+# Open loops
+
+## Claude's
+- [ ] **Fix the awk** — drops the first bullet ([log](log/awk.md))
+EOF
+commit_board "$NR" kanban.md
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90))
+EOF
+run 0 'an added ## Needs ruling heading passes L3' --diff "$NR" kanban.md
+run 0 'a decide + PR link card under ## Needs ruling passes L4' --file "$NR/kanban.md"
+gitq "$NR" checkout -- kanban.md
+
+# The same card under ## Claude's is still the user's turn written down.
+cat >> "$NR/kanban.md" <<'EOF'
+- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90))
+EOF
+run 1 'the same card under ## Claude'"'"'s still fails L4' --diff "$NR" kanban.md
+has 'L4 names the verb'            '^5: L4 "decide"'
+has 'L4 points at the ruling section' '## Needs ruling'
+gitq "$NR" checkout -- kanban.md
+
+# A third heading is still refused.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Solace's
+- [ ] Another section ([log](log/x.md))
+EOF
+run 1 'a ## Solace'"'"'s heading added still fails L3' --diff "$NR" kanban.md
+has 'L3 names the heading'      '^6: L3 new heading "## Solace'"'"'s"'
+has 'L3 names both sections'    '## Needs ruling'
+gitq "$NR" checkout -- kanban.md
+
 # --- --diff: only added lines are judged -------------------------------------
 D="$SCRATCH/diff"; mkrepo "$D"; mkdir -p "$D/state/global"
 cat > "$D/state/global/kanban.md" <<'EOF'
@@ -234,7 +272,7 @@ reason=$(printf '%s' "$LAST" | jq -r .reason)
 LAST=$reason
 has 'reason names the file'             "$SCRATCH/proj/kanban.md"
 has 'reason carries line and rule'      '^7: L1 '
-has 'reason carries the routing row'    'needs-ruling'
+has 'reason carries the routing row'    '## Needs ruling'
 has 'reason points at card-write'       '/card-write'
 mkdir -p "$SCRATCH/sr/state/global/epics"; cp "$SCRATCH/epic.md" "$SCRATCH/sr/state/global/epics/e.md"
 LAST=$(hook "$(jq -n --arg f "$SCRATCH/sr/state/global/epics/e.md" '{tool_name:"Write",tool_input:{file_path:$f,content:"x"}}')")

@@ -14,7 +14,8 @@
 # The board is not read here. It used to be: the first 16 bullets of
 # kanban.md, half of them ticked, ~4 KB into every session, and a bullet
 # above the first heading never printed at all. `worklist --brief` owns that
-# view now -- live PR and issue state plus the `## Claude's` cards, <= 3 KB by
+# view now -- live PR and issue state plus the `## Needs ruling` and
+# `## Claude's` cards, <= 3 KB by
 # its contract, served from cache so it is fast. This hook only caps the wait
 # at 6 s (a hung gh call must never hold session start) and clips the output
 # at 4 KB, so a broken worklist cannot become a 40 KB tax. Missing worklist
@@ -118,7 +119,7 @@ board_lint_warning() {
   [ -f "$SD/kanban.md" ] || return 0
   if awk '/^## / { exit } /^- \[/ { found = 1; exit } END { exit !found }' "$SD/kanban.md"; then
     echo
-    echo "WARNING: kanban.md has a card above its first \`## \` heading -- no section, invisible to every reader. Move it under \`## Claude's\`."
+    echo "WARNING: kanban.md has a card above its first \`## \` heading -- no section, invisible to every reader. Move it under \`## Needs ruling\` or \`## Claude's\`."
   fi
 }
 

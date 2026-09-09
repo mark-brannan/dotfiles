@@ -1,7 +1,8 @@
 #!/bin/sh
 # Lints a kanban.md board (or an epic file's Status lines) against the board
-# contract: the board is the agent's private pull queue, one section, cards
-# that carry a link and no state.
+# contract: the board is the agent's pull queue in two sections -- ## Needs
+# ruling for a question only the user can settle, ## Claude's for agent
+# rabbit-trails -- with cards that carry a link and no state.
 #
 # Why: measured on 2026-09-08, the global board held 128 cards, 28 of them
 # ticked and never deleted, 63 restating the state of a PR or issue that
@@ -16,12 +17,14 @@
 # Rules, each printed by id so the reason can be looked up:
 #   L1  a "- [x]" line                  -- delete, never tick
 #   L2  a bullet above the first "## "  -- cards live under a heading
-#   L3  a heading other than ## Claude's, when it is not already in HEAD
+#   L3  a heading other than ## Needs ruling or ## Claude's, when it is
+#       not already in HEAD
 #   L4  a card whose action verb is the user's (review, merge, land, bump,
 #       close, approve, ship, ratify, rule on, decide, confirm, answer,
 #       watch) AND that links a /pull/N or /issues/N -- the user's turn is
 #       derived from the PR, never written down. Verb-keyed on purpose: a
-#       card citing a merged PR as provenance is fine.
+#       card citing a merged PR as provenance is fine. Not applied under
+#       ## Needs ruling, where "decide X on PR N" is exactly the card's job.
 #   L5  a state word (merged, awaiting, not merged, CI green, open as) --
 #       only on ADDED lines (--diff) or Status lines (--epic); bare "green"
 #       and "red" are not matched ("Red Sea", "green light");
@@ -68,6 +71,8 @@ run_lint() {
       n = split(ENVIRON["KL_HEADS"], a, "\n")
       for (i = 1; i <= n; i++) if (a[i] != "") heads[a[i]] = 1
       claudes = "## Claude\047s"
+      ruling = "## Needs ruling"
+      cursec = ""
       nv = split("review merge land bump close approve ship ratify rule_on decide confirm answer watch", verbs, " ")
       for (i = 1; i <= nv; i++) gsub(/_/, " ", verbs[i])
       ns = split("not merged|ci green|open as|merged|awaiting", states, "|")
@@ -115,8 +120,8 @@ run_lint() {
           verb = verb_at(t2)
         }
       }
-      if (verb != "" && text ~ /github\.com\/[^ )]*\/(pull|issues)\/[0-9]/)
-        report(cstart, "L4", "\"" verb "\" + a PR/issue link is the user\047s turn, which worklist derives from the PR/issue itself -- a question is an issue labelled needs-ruling, an action only the user can do is an issue assigned to the user; delete the card")
+      if (verb != "" && cursec != ruling && text ~ /github\.com\/[^ )]*\/(pull|issues)\/[0-9]/)
+        report(cstart, "L4", "\"" verb "\" + a PR/issue link is the user\047s turn, which worklist derives from the PR/issue itself -- the default is to work around it -- decide, record the assumption where the work lands, and carry on; only a one-way door earns a card, under " ruling ". Otherwise delete the card")
     }
     function flush() {
       if (cstart && touched && mode != "epic") check_card()
@@ -125,11 +130,12 @@ run_lint() {
     /^## / {
       flush(); h = trim($0); seenhead = 1
       if (mode == "epic") { instatus = (h == "## Status"); next }
-      if (added(NR) && h != claudes && l3 == "enforce" && !(h in heads))
-        report(NR, "L3", "new heading \"" h "\" -- the board has one section, " claudes "; a loop only the user can close is an issue assigned to the user (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
+      if (added(NR) && h != claudes && h != ruling && l3 == "enforce" && !(h in heads))
+        report(NR, "L3", "new heading \"" h "\" -- the board has two sections, " ruling " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
+      cursec = h
       next
     }
-    /^#/ { flush(); next }
+    /^#/ { flush(); cursec = ""; next }
     mode == "epic" && !instatus { next }
     /^[ \t]*$/ { flush(); next }
     /^(- |[0-9]+\. )/ {
@@ -229,7 +235,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds only agent rabbit-trails under ## Claude's; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling, and agent rabbit-trails under ## Claude's; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }

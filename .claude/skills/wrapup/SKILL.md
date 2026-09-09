@@ -73,5 +73,6 @@ does not.
 End with a prompt, not a status bullet or observation. A closing that reads
 "the vague thing is borked, your call" costs a read and returns nothing
 actionable. The closing message holds exactly two things: the hand-off
-prompt, and links to the `needs-ruling` issues awaiting Solace. Nothing else
-goes in it.
+prompt, and links to the `## Needs ruling` cards awaiting Solace. Nothing
+else goes in it. If nothing hit a one-way door, that half is simply absent —
+a question you worked around is reported in the PR body, not here.

@@ -68,8 +68,9 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   name boats, hosts and services. They go to the private
   `claude_prompts_scratch` repo under `state/global/`. `.gitignore` blocks the
   known paths; that is a backstop, not permission to try.
-- **Dotfiles has no board of its own.** Its loops are dotfiles issues; a
-  card on the global board only when a loop has no GitHub home.
+- **Dotfiles has no board of its own.** A loop that clears the issue bar —
+  a fresh session could start from the body alone — becomes a dotfiles
+  issue; the rest is a card on the global board, a log line, or nothing.
 - Real hostnames, boat names, service URLs and account identifiers stay out of
   tracked files, including in comments and example output. Use placeholders.
 

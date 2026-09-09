@@ -25,13 +25,13 @@ Solace's turn             PRs ready for her: not draft, mergeable, checks
                           green, no unresolved threads, no auto-merge
                           (failing check names printed, never a boolean)
 Queued (auto-merge)       auto-merge enabled, waiting on checks
-Needs ruling              `needs-ruling` issues with no `Ruled` comment
-Ruled, unlanded           `Ruled` comment present, landing PR not yet closed it
 Ready                     `ready` issues — agent-startable now
 Blocked                   `blocked` issues, with what blocks them
 Not ready (agent's turn)  open PRs that are none of the above, with why
 Untriaged: N              unlabelled issues, count only
 Stranded branches         pushed branches with no PR
+Needs ruling              the board's `## Needs ruling` cards, at most 8 —
+                          one-way doors only, so normally empty
 Board                     the `## Claude's` cards, at most 8
 ```
 

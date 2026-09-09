@@ -30,7 +30,10 @@ cd "$S/repo" || exit 1
 
 # --- the board -----------------------------------------------------------------
 {
-  printf '# Board\n\n## Solace'"'"'s\n- [ ] **Not an agent card** — [x](https://example.invalid)\n\n## Claude'"'"'s\n'
+  printf '# Board\n\n## Needs ruling\n'
+  printf -- '- [ ] **Board sections** — decide whether a question is a card or an issue ([o/r#90](https://github.com/o/r/pull/90))\n'
+  printf -- '- [ ] **Engine pin** — decide whether to pin the engine by tag ([o/r#93](https://github.com/o/r/pull/93))\n'
+  printf '\n## Solace'"'"'s\n- [ ] **Not an agent card** — [x](https://example.invalid)\n\n## Claude'"'"'s\n'
   for i in 1 2 3 4 5 6 7 8 9 10; do
     printf -- '- [ ] **Card %s** — a card body long enough to be cut at eighty characters when brief is asked for ([link](https://example.invalid/%s))\n' "$i" "$i"
   done
@@ -45,10 +48,10 @@ pr() { # number title draft mergeable rollup automerge unresolved contexts-json 
      reviewThreads:{nodes:(([range($u)] | map({isResolved:false})) + [{isResolved:true}])},
      commits:{nodes:[{commit:{statusCheckRollup:(if $r == "NONE" then null else {state:$r, contexts:{nodes:$cx}} end)}}]}}'
 }
-issue() { # number title labels-json assignees-json milestone-or-null comments-json
-  jq -n --argjson n "$1" --arg t "$2" --argjson l "$3" --argjson a "$4" --argjson ms "$5" --argjson c "$6" '
+issue() { # number title labels-json milestone-or-null
+  jq -n --argjson n "$1" --arg t "$2" --argjson l "$3" --argjson ms "$4" '
     {number:$n, title:$t, url:"https://github.com/o/alpha/issues/\($n)", labels:{nodes:($l|map({name:.}))},
-     assignees:{nodes:($a|map({login:.}))}, milestone:(if $ms then {title:$ms} else null end), comments:{nodes:$c}}'
+     milestone:(if $ms then {title:$ms} else null end)}'
 }
 green='[{"name":"ci-gate / gate","conclusion":"SUCCESS"}]'
 red='[{"name":"ci-gate / gate","conclusion":"FAILURE"},{"context":"coverage","state":"FAILURE"},{"name":"lint","conclusion":"SUCCESS"}]'
@@ -61,15 +64,12 @@ long_title="A title that runs well past the eighty character mark so that brief 
   pr 13 "Red PR" false MERGEABLE FAILURE false 0 "$red" o; echo ,
   pr 14 "Release PR" false MERGEABLE NONE false 0 '[]' 'release-please[bot]'
   echo ']},"issues":{"nodes":['
-  issue 20 "Needs a ruling" '["needs-ruling"]' '[]' null '[]'; echo ,
-  issue 21 "Ruled thing" '["needs-ruling"]' '[]' null '[{"author":{"login":"o"},"body":"Ruled: yes, do it"}]'; echo ,
-  issue 22 "Ruled by a stranger" '["needs-ruling"]' '[]' null '[{"author":{"login":"someone"},"body":"Ruled: no"}]'; echo ,
-  issue 23 "Ready issue" '["ready"]' '[]' null '[]'; echo ,
-  issue 24 "Blocked issue" '["blocked","ready"]' '[]' null '[]'; echo ,
-  issue 25 "Unlabelled" '[]' '[]' null '[]'; echo ,
-  issue 26 "Deferred" '[]' '[]' '"1.0"' '[]'; echo ,
-  issue 27 "Assigned" '[]' '["o"]' null '[]'; echo ,
-  issue 28 "$long_title" '["ready"]' '[]' null '[]'
+  issue 23 "Ready issue" '["ready"]' null; echo ,
+  issue 24 "Blocked issue" '["blocked","ready"]' null; echo ,
+  issue 25 "Unlabelled" '[]' null; echo ,
+  issue 26 "Deferred" '[]' '"1.0"'; echo ,
+  issue 27 "Formerly assigned" '[]' null; echo ,
+  issue 28 "$long_title" '["ready"]' null
   echo ']},"refs":{"nodes":[{"name":"main","associatedPullRequests":{"totalCount":0}},{"name":"release-please--branches--main","associatedPullRequests":{"totalCount":0}},{"name":"feature-x","associatedPullRequests":{"totalCount":0}},{"name":"pr-branch","associatedPullRequests":{"totalCount":1}}]}}}}'
 } | jq -c . > "$FIXTURES/alpha.json"
 jq -nc '{data:{repository:{defaultBranchRef:{name:"main"},pullRequests:{nodes:[{number:5,title:"Draft PR",url:"https://github.com/o/beta/pull/5",isDraft:true,mergeable:"MERGEABLE",autoMergeRequest:null,author:{login:"o"},reviewThreads:{nodes:[]},commits:{nodes:[{commit:{statusCheckRollup:null}}]}}]},issues:{nodes:[]},refs:{nodes:[{name:"main",associatedPullRequests:{totalCount:0}}]}}}}' > "$FIXTURES/beta.json"
@@ -131,18 +131,21 @@ OUT_ALL=$OUT
 OUT=$(section "Solace's turn")
 has 'ready PR is Solace'"'"'s turn' '^  alpha#10  Ready PR  https://github.com/o/alpha/pull/10$'
 has 'release PR (no checks, bot author) is Solace'"'"'s turn, author named' '^  alpha#14  Release PR  -- by release-please\[bot\]'
-has 'assigned issue is Solace'"'"'s turn' '^  alpha#27  Assigned .* \(assigned\)$'
+lacks 'no issue reaches Solace'"'"'s turn' 'alpha#2[0-9]'
+lacks 'the (assigned) suffix is gone' '\(assigned\)'
 lacks 'queued PR not Solace'"'"'s turn' 'alpha#11'
 lacks 'threaded PR not Solace'"'"'s turn' 'alpha#12'
 lacks 'red PR not Solace'"'"'s turn' 'alpha#13'
 lacks 'draft PR not Solace'"'"'s turn' 'beta#5'
 OUT=$(section "Queued (auto-merge)"); has 'queued PR listed separately' '^  alpha#11  Queued PR'
+OUT=$OUT_ALL
+has 'Needs ruling reads the board section' "^Needs ruling, showing 2 of 2$"
 OUT=$(section "Needs ruling")
-has 'needs-ruling without a ruling' '^  alpha#20  Needs a ruling'
-has 'a stranger'"'"'s Ruled comment does not count' '^  alpha#22  Ruled by a stranger'
-lacks 'ruled issue left this bucket' 'alpha#21'
-OUT=$(section "Ruled, unlanded"); has 'owner comment starting Ruled' '^  alpha#21  Ruled thing'
-OUT=$(section "Ready"); has 'ready label' '^  alpha#23  Ready issue'; lacks 'blocked beats ready' 'alpha#24'; lacks 'needs-ruling beats ready' 'alpha#2[012]'
+has 'a ruling card renders' '^  \*\*Board sections\*\* — decide whether a question is a card or an issue'
+lacks 'no issue reaches Needs ruling' 'alpha#'
+OUT=$OUT_ALL
+lacks 'the Ruled, unlanded bucket is gone' 'Ruled, unlanded'
+OUT=$(section "Ready"); has 'ready label' '^  alpha#23  Ready issue'; lacks 'blocked beats ready' 'alpha#24'
 OUT=$(section "Blocked"); has 'blocked label' '^  alpha#24  Blocked issue'
 OUT=$(section "Not ready (agent's turn)")
 has 'unresolved thread named as a count' '^  alpha#12  Threaded PR  -- 1 unresolved thread\(s\)'
@@ -150,7 +153,7 @@ has 'failing checks named, never a boolean' '^  alpha#13  Red PR  -- failing: ci
 lacks 'a green check is not listed as failing' 'lint'
 has 'draft noted' '^  beta#5  Draft PR  -- draft'
 OUT=$OUT_ALL
-has 'untriaged is a count, deferred separately' '^Untriaged: 1 \(deferred to a milestone: 1\)$'
+has 'untriaged is a count, deferred separately' '^Untriaged: 2 \(deferred to a milestone: 1\)$'
 OUT=$(section "Stranded branches (no PR)")
 has 'branch with no PR' '^  alpha: feature-x$'
 lacks 'main is not stranded' 'main'; lacks 'release-please branch is not stranded' 'release-please'; lacks 'branch with a PR is not stranded' 'pr-branch'

@@ -135,9 +135,9 @@ Hooks handle the mechanics unprompted.
   afterward doesn't substitute.
 - A loop not worth a card is not worth telling me about.
 - **End with a prompt, not a status bullet or observation.** Work remaining
-  → hand-off prompt; only-I-can-do → the PR or issue, by link; a card only
-  when the loop has no GitHub home. Nothing else in a closing message;
-  `/wrapup` has the spec.
+  → hand-off prompt; a question → a `## Needs ruling` card, and the default
+  is to work around it: decide, record the assumption where the work lands,
+  carry on. Nothing else in a closing message; `/wrapup` has the spec.
 - **Every hand-off prompt names a recommended model and difficulty (effort)
   setting.** Not optional, not only under `/wrapup` — any prompt meant to be
   pasted into a new session. A hand-off without both is unfinished.
