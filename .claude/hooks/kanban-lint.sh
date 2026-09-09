@@ -1,8 +1,9 @@
 #!/bin/sh
 # Lints a kanban.md board (or an epic file's Status lines) against the board
-# contract: the board is the agent's pull queue in two sections -- ## Needs
-# ruling for a question only the user can settle, ## Claude's for agent
-# rabbit-trails -- with cards that carry a link and no state.
+# contract: the board is the agent's pull queue in three sections -- ## Needs
+# ruling for a question only the user can settle, ## Solace's for click work
+# an agent cannot do, ## Claude's for agent rabbit-trails -- with cards that
+# carry a link and no state.
 #
 # Why: measured on 2026-09-08, the global board held 128 cards, 28 of them
 # ticked and never deleted, 63 restating the state of a PR or issue that
@@ -17,9 +18,9 @@
 # Rules, each printed by id so the reason can be looked up:
 #   L1  a "- [x]" line                  -- delete, never tick
 #   L2  a bullet above the first "## "  -- cards live under a heading
-#   L3  a heading other than ## Needs ruling or ## Claude's, when it is
-#       not already in HEAD -- including a "### " group heading anywhere
-#       but inside ## Needs ruling, where the groups live
+#   L3  a heading other than ## Needs ruling, ## Solace's or ## Claude's,
+#       when it is not already in HEAD -- including a "### " group heading
+#       anywhere but inside ## Needs ruling, where the groups live
 #   L4  a card whose action verb is the user's (review, merge, land, bump,
 #       close, approve, ship, ratify, rule on, decide, confirm, answer,
 #       watch) AND that links a /pull/N or /issues/N -- the user's turn is
@@ -34,6 +35,13 @@
 #   L7  a card under ## Needs ruling with no "### <project>" group heading
 #       above it -- rulings are grouped by the project that owns them, so
 #       a session in one repo can see its own without reading the rest
+#   L8  a card under ## Needs ruling missing any of "default:", "undo:",
+#       "until:", "risk:" -- the agent's evaluation travels on the card so
+#       the ruling is one word; a bare question is hedging written down
+#   L9  a card under ## Solace's missing "why you:" (the mechanism an agent
+#       lacks, or "learn"), or missing "why this:" (the evidence this is the
+#       confirmed fix) when "why you:" is not "learn" -- click work with no
+#       proof sent the user to rotate a secret sops already held
 #
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
@@ -75,6 +83,7 @@ run_lint() {
       n = split(ENVIRON["KL_HEADS"], a, "\n")
       for (i = 1; i <= n; i++) if (a[i] != "") heads[a[i]] = 1
       claudes = "## Claude\047s"
+      solaces = "## Solace\047s"
       ruling = "## Needs ruling"
       cursec = ""; curgroup = ""
       nv = split("review merge land bump close approve ship ratify rule_on decide confirm answer watch", verbs, " ")
@@ -82,6 +91,7 @@ run_lint() {
       ns = split("not merged|ci green|open as|merged|awaiting", states, "|")
       instatus = (mode != "epic")
       seenhead = 0; cstart = 0; ctext = ""; touched = 0
+      hdrtouched = 0; grptouched = 0
     }
     function added(n) { return allad || (n in ad) }
     function report(n, id, msg) { printf "%d: %s %s\n", n, id, msg }
@@ -126,6 +136,27 @@ run_lint() {
       }
       if (verb != "" && cursec != ruling && text ~ /github\.com\/[^ )]*\/(pull|issues)\/[0-9]/)
         report(cstart, "L4", "\"" verb "\" + a PR/issue link is the user\047s turn, which worklist derives from the PR/issue itself -- the default is to work around it -- decide, record the assumption where the work lands, and carry on; only a one-way door earns a card, under " ruling ". Otherwise delete the card")
+      fields(text)
+    }
+    # L8/L9: the fields a ruling or click-work card must carry, matched as
+    # "<name>:" anywhere on the folded card, case-insensitive.
+    function has_field(t, name) { return index(t, " " name ":") || index(t, "(" name ":") || substr(t, 1, length(name) + 1) == name ":" }
+    function fields(text,   t, miss) {
+      t = " " tolower(text)
+      if (cursec == ruling) {
+        miss = ""
+        if (!has_field(t, "default")) miss = miss ", default:"
+        if (!has_field(t, "undo")) miss = miss ", undo:"
+        if (!has_field(t, "until")) miss = miss ", until:"
+        if (!has_field(t, "risk")) miss = miss ", risk:"
+        if (miss != "")
+          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong) so the ruling is one word; without a default it is hedging, not a one-way door")
+      } else if (cursec == solaces) {
+        if (!has_field(t, "why you"))
+          report(cstart, "L9", "click-work card missing why you: -- name the mechanism an agent lacks (no API, a consent screen, a USB bus), or \"learn\" when the user has chosen to do it by hand; \"needs a credential\" is not a reason unless the credential cannot be given to an agent")
+        else if (t !~ /why you:[ \t]*learn([^a-z]|$)/ && !has_field(t, "why this"))
+          report(cstart, "L9", "click-work card missing why this: -- the evidence that this is the confirmed fix, with the alternatives tried and ruled out (the failing run, the sops key checked, the PR that would fix it instead); the user does not click through an unverified guess")
+      }
     }
     function flush() {
       if (cstart && touched && mode != "epic") check_card()
@@ -134,33 +165,43 @@ run_lint() {
     /^## / {
       flush(); h = trim($0); seenhead = 1
       if (mode == "epic") { instatus = (h == "## Status"); next }
-      if (added(NR) && h != claudes && h != ruling && l3 == "enforce" && !(h in heads))
-        report(NR, "L3", "new heading \"" h "\" -- the board has two sections, " ruling " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
+      if (added(NR) && h != claudes && h != ruling && h != solaces && l3 == "enforce" && !(h in heads))
+        report(NR, "L3", "new heading \"" h "\" -- the board has three sections, " ruling ", " solaces " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
       cursec = h; curgroup = ""
+      # An added/changed "## " line re-parents every card below it -- until
+      # the next "## " -- so those cards must be (re)validated even though
+      # their own lines were not touched by this diff.
+      hdrtouched = added(NR); grptouched = 0
       next
     }
     /^### / {
       flush(); h = trim($0)
       if (mode == "epic") next
-      if (cursec == ruling) { curgroup = h; next }
+      if (cursec == ruling) { curgroup = h; grptouched = added(NR); next }
       if (added(NR) && l3 == "enforce" && !(h in heads))
         report(NR, "L3", "group heading \"" h "\" outside " ruling " -- \"### \" headings group ruling cards by project and are allowed nowhere else; " claudes " is one flat list")
-      curgroup = ""
+      curgroup = ""; grptouched = 0
       next
     }
-    /^#/ { flush(); cursec = ""; curgroup = ""; next }
+    /^#/ { flush(); cursec = ""; curgroup = ""; hdrtouched = 0; grptouched = 0; next }
     mode == "epic" && !instatus { next }
     /^[ \t]*$/ { flush(); next }
     /^(- |[0-9]+\. )/ {
-      flush(); cstart = NR; ctext = $0; touched = added(NR)
+      flush(); cstart = NR; ctext = $0
+      # touched: this card own line was added, OR the "## "/"### " scope it
+      # now sits under changed -- a heading edit that re-parents a card into
+      # Needs ruling or the Solaces section (or into/out of a project group)
+      # must still (re)validate it, not just lines the diff literally added.
+      touched = added(NR) || hdrtouched || grptouched
       if (added(NR)) {
         if (mode != "epic") {
           if ($0 ~ /^- \[[xX]\]/) report(NR, "L1", "ticked card -- delete the line; done work lives in git log and log/, never on the board")
           if (!seenhead) report(NR, "L2", "bullet above the first \"## \" heading -- move it under " claudes)
-          if (cursec == ruling && curgroup == "") report(NR, "L7", "ruling card with no \"### <project>\" group above it -- put it under the group named for the project-<name> topic that owns it, or \"### global\" when none does; create the group if it is missing")
         }
         if (mode != "file") l5(NR, $0)
       }
+      if (mode != "epic" && cursec == ruling && curgroup == "" && touched)
+        report(NR, "L7", "ruling card with no \"### <project>\" group above it -- put it under the group named for the project-<name> topic that owns it, or \"### global\" when none does; create the group if it is missing")
       next
     }
     {
@@ -249,7 +290,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk: -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }
