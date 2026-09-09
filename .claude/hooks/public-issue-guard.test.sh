@@ -93,6 +93,14 @@ check deny 'term in --body-file'     "$(bash_in "$PUB" "gh issue create -t x --b
 check deny 'term in -F, relative path' "$(bash_in "$SCRATCH" 'gh pr create -t x -F body.md')"
 check deny 'term in --body-file=~ path' "$(cp "$SCRATCH/body.md" "$HOME/b.md"; bash_in "$PUB" 'gh issue comment 4 --body-file=~/b.md')"
 check allow 'clean --body-file'      "$(bash_in "$PUB" "gh issue create -t x -F $SCRATCH/clean.md")"
+# The path is read, not posted: a term in the directory name is not a hit,
+# while a term in the file at that path still is.
+mkdir -p "$SCRATCH/Wanderlust"; cp "$SCRATCH/clean.md" "$SCRATCH/body.md" "$SCRATCH/Wanderlust/"
+check allow 'term in --body-file path only'   "$(bash_in "$PUB" "gh issue create -t x --body-file $SCRATCH/Wanderlust/clean.md")"
+check allow 'term in --body-file= path only'  "$(bash_in "$PUB" "gh pr comment 4 --body-file=$SCRATCH/Wanderlust/clean.md")"
+check allow 'term in api @file path only'     "$(bash_in "$PUB" "gh api repos/o/r/issues -f title=x -F body=@$SCRATCH/Wanderlust/clean.md")"
+check deny  'term in file under such a path'  "$(bash_in "$PUB" "gh issue create -t x --body-file $SCRATCH/Wanderlust/body.md")"
+check deny  'term elsewhere, path masked'     "$(bash_in "$PUB" "gh issue create -t Wanderlust --body-file $SCRATCH/Wanderlust/clean.md")"
 
 # --- case-insensitive, fixed strings ------------------------------------------
 check deny 'upper-case body, lower-case list' "$(bash_in "$PUB" 'gh issue create -t x -b "ACCT-4471 again"')"

@@ -20,7 +20,9 @@
 # The text judged is the whole command after quote removal (so a term
 # spelled `ho\stname` or split across quotes still reads whole), every
 # heredoc body, the file named by --body-file/-F/--input/-F key=@file, and
-# for MCP every string in tool_input. It is grepped case-insensitively, as
+# for MCP every string in tool_input. The one thing cut out is the path
+# operand of those file flags: a path is read, not posted, and a scratchpad
+# under $HOME would otherwise trip a term that names the home directory. It is grepped case-insensitively, as
 # fixed substrings, against state/global/private-terms.txt in the state repo;
 # comment and blank lines in that file are ignored. The reason names the
 # term(s) that hit and nothing around them.
@@ -175,7 +177,16 @@ case "$tool" in
       printf 'R\t-\n' >> "$META"
     fi
     grep -q '^R	' "$META" || exit 0
-    { printf '%s\n' "$cmd"; sed -n 's/^T	//p' "$META"; } >> "$TEXT"
+    # Mask the file-flag path operands: the file is scanned below, the path
+    # never leaves the machine. Fixed-string, every occurrence, in the raw
+    # command and in the words alike (`--body-file=/p` is one word).
+    sed -n 's/^F	//p' "$META" | grep -v '^$' > "$WORK/fpaths"
+    { printf '%s\n' "$cmd"; sed -n 's/^T	//p' "$META"; } | awk -v pf="$WORK/fpaths" '
+      FILENAME == pf { paths[++np] = $0; next }
+      { for (i = 1; i <= np; i++) { out = ""; s = $0
+          while ((j = index(s, paths[i])) > 0) { out = out substr(s, 1, j - 1) "<file>"; s = substr(s, j + length(paths[i])) }
+          $0 = out s }
+        print }' "$WORK/fpaths" - >> "$TEXT" || deny 'awk failed, cannot inspect the command'
     ;;
   mcp__*__create_issue|mcp__*__update_issue|mcp__*__issue_write|mcp__*__add_issue_comment| \
   mcp__*__create_pull_request|mcp__*__update_pull_request| \
