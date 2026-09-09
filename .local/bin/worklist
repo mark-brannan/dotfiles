@@ -230,7 +230,7 @@ def pr_notes($owner): [
   (if (failing_names|length) == 0 and (rollup|IN("PENDING","EXPECTED")) then "checks pending" else empty end),
   (unresolved | if . > 0 then "\(.) unresolved thread(s)" else empty end) ];
 # rollup NONE (no checks at all) counts as ready: a repo without CI still needs the user to merge. Ruled on #90.
-def marks_turn: (.isDraft|not) and .mergeable == "MERGEABLE" and (failing_names|length) == 0
+def awaiting_human: (.isDraft|not) and .mergeable == "MERGEABLE" and (failing_names|length) == 0
   and (rollup|IN("SUCCESS","NONE")) and unresolved == 0 and .autoMergeRequest == null;
 def notes_sfx($owner): pr_notes($owner) | if length > 0 then "  -- " + join("; ") else "" end;
 def labels: [(.labels.nodes // [])[].name];
@@ -267,13 +267,13 @@ def ms_sfx: if .milestone then "  [\(.milestone.title)]" else "" end;
       else "counts: \(.prs) open PRs, \(.issues) open issues across \($owner)" end) as $counts
 | [ $c.label + " " + ($c.repos | map(split("/")[1]) | join(", ")) ]
   + $fails + $trunc + [ $counts, "",
-  bucket("Solace'"'"'s turn"; ($prs | map(select(marks_turn) | .line)) + ($asg | map(.line + "  (assigned)"))),
+  bucket("Solace'"'"'s turn"; ($prs | map(select(awaiting_human) | .line)) + ($asg | map(.line + "  (assigned)"))),
   bucket("Queued (auto-merge)"; $prs | map(select(.autoMergeRequest != null) | .line)),
   bucket("Needs ruling"; $nr | map(select(.rld|not) | .line)),
   bucket("Ruled, unlanded"; $nr | map(select(.rld) | .line)),
   bucket("Ready"; $rd | map(.line)),
   bucket("Blocked"; $bl | map(.line)),
-  bucket("Not ready (agent'"'"'s turn)"; $prs | map(select(.autoMergeRequest == null and (marks_turn|not)) | .line)),
+  bucket("Not ready (agent'"'"'s turn)"; $prs | map(select(.autoMergeRequest == null and (awaiting_human|not)) | .line)),
   "Untriaged: \($untriaged)" + (if $deferred > 0 then " (deferred to a milestone: \($deferred))" else "" end),
   bucket("Stranded branches (no PR)"; $stranded) ]
 | join("\n")
