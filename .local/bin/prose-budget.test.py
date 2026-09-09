@@ -410,13 +410,48 @@ class ConfigRelaxTest(RepoCase):
         self.stage_config({"lines": {"README.md": 10}}, "docs/x.md")
         self.assertEqual(self.config_findings("--staged"), [])
 
-    def test_enforce_false_disables_the_rule(self):
+    def test_enforce_already_false_at_the_base_disables_the_rule(self):
         self.start({"lines": {"README.md": 10}, "config": {"enforce": False}})
         self.stage_config({"lines": {"README.md": 40}, "config": {"enforce": False}}, "docs/x.md")
         self.assertEqual(self.config_findings("--staged"), [])
 
+    def test_switching_enforce_off_in_the_same_diff_cannot_self_grant(self):
+        self.start({"lines": {"README.md": 10}})
+        self.stage_config({"lines": {"README.md": 999}, "config": {"enforce": False}}, "docs/x.md")
+        f = self.config_findings("--staged")
+        self.assertEqual(len(f), 1)
+        self.assertIn("config.enforce: true -> false", f[0]["message"])
+        self.assertIn("lines.README.md: 10 -> 999", f[0]["message"])
+
+    def test_setting_the_whole_rule_to_false_cannot_self_grant(self):
+        self.start({"lines": {"README.md": 10}})
+        self.stage_config({"lines": {"README.md": 999}, "config": False}, "docs/x.md")
+        f = self.config_findings("--staged")
+        self.assertIn("config: rule turned off", f[0]["message"])
+        self.assertIn("lines.README.md: 10 -> 999", f[0]["message"])
+
+    def test_an_override_more_permissive_than_the_built_in_default_is_a_relaxation(self):
+        self.start({"lines": {"README.md": 10}})
+        self.stage_config({"lines": {"README.md": 10}, "sections": {"max_words": 5000}}, "docs/x.md")
+        f = self.config_findings("--staged")
+        self.assertIn("sections.max_words: 140 -> 5000", f[0]["message"])
+
+    def test_narrowing_default_coverage_with_an_explicit_list_is_a_relaxation(self):
+        self.start({"lines": {"README.md": 10}})
+        self.stage_config({"lines": {"README.md": 10}, "voice": {"targets": ["README.md"]}}, "docs/x.md")
+        f = self.config_findings("--staged")
+        self.assertIn("voice.targets: -", f[0]["message"])
+
 
 class RelaxationsTest(unittest.TestCase):
+    def test_a_cap_introduced_above_the_built_in_default(self):
+        """An on-by-default rule is already binding, so an explicit override loosens it."""
+        self.assertEqual(pb.relaxations({}, {"sections": {"max_words": 5000}}),
+                         ["sections.max_words: 140 -> 5000"])
+
+    def test_switching_an_off_by_default_rule_on_is_a_tightening(self):
+        self.assertEqual(pb.relaxations({}, {"json_prose": {"targets": ["x.json"], "max_chars": 9000}}), [])
+
     def test_a_raised_cap_and_a_grown_exemption(self):
         old = {"json_prose": {"max_chars": 300}, "narration": {"disable": []}}
         new = {"json_prose": {"max_chars": 900}, "narration": {"disable": ["issue"]}}

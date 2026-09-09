@@ -432,22 +432,28 @@ def _added(items, n=3):
 
 
 def relaxations(old, new):
-    """Every way `new` is a weaker guard than `old`, described for a human."""
+    """Every way `new` is a weaker guard than `old`, described for a human.
+
+    Both sides are compared after defaults are applied: a config that never
+    mentioned `sections` is already bound by the built-in cap, so introducing
+    a more permissive explicit value is a relaxation like any other.
+    """
     out = []
     try:
         old_r, new_r = parse_config(old), parse_config(new)
     except ConfigError:
-        old_r = new_r = None
-    if old_r and new_r:
-        for name, v in old_r.items():
-            if v and not new_r.get(name):
-                out.append(f"{name}: rule turned off")
+        return out
+    for name, v in old_r.items():
+        if v and not new_r.get(name):
+            out.append(f"{name}: rule turned off")
+    if _dig(old_r, "config.enforce") and not _dig(new_r, "config.enforce"):
+        out.append("config.enforce: true -> false")
     for path in RELAX_CAPS:
-        a, b = _dig(old, path), _dig(new, path)
+        a, b = _dig(old_r, path), _dig(new_r, path)
         if isinstance(a, int) and isinstance(b, int) and b > a:
             out.append(f"{path}: {a} -> {b}")
     for path in RELAX_EXEMPT:
-        a, b = _dig(old, path), _dig(new, path)
+        a, b = _dig(old_r, path), _dig(new_r, path)
         if isinstance(b, (list, dict)):
             added = [k for k in b if not isinstance(a, (list, dict)) or k not in a]
             if added:
@@ -457,20 +463,20 @@ def relaxations(old, new):
                 if isinstance(v, int) and isinstance(a.get(k), int) and v > a[k]:
                     out.append(f"{path}.{k}: {a[k]} -> {v}")
     for path in RELAX_COVER:
-        a, b = _dig(old, path), _dig(new, path)
+        a, b = _dig(old_r, path), _dig(new_r, path)
         if isinstance(a, list):
             dropped = [k for k in a if not isinstance(b, list) or k not in b]
             if dropped:
                 out.append(f"{path}: -{len(dropped)} ({', '.join(_label(k) for k in dropped[:3])}"
                            + (", ..." if len(dropped) > 3 else "") + ")")
-    a, b = old.get("lines"), new.get("lines")
+    a, b = _dig(old_r, "lines.files"), _dig(new_r, "lines.files")
     if isinstance(a, dict) and isinstance(b, dict):
         for k, v in b.items():
-            if k not in LINES_META and isinstance(v, int) and isinstance(a.get(k), int) and v > a[k]:
+            if isinstance(v, int) and isinstance(a.get(k), int) and v > a[k]:
                 out.append(f"lines.{k}: {a[k]} -> {v}")
-        if a.get("required") and not b.get("required", False):
-            out.append("lines.required: true -> false")
-    if _dig(old, "voice.scope") == "tree" and _dig(new, "voice.scope") != "tree":
+    if _dig(old_r, "lines.required") and not _dig(new_r, "lines.required"):
+        out.append("lines.required: true -> false")
+    if _dig(old_r, "voice.scope") == "tree" and _dig(new_r, "voice.scope") != "tree":
         out.append("voice.scope: tree -> diff")
     return out
 
@@ -585,8 +591,7 @@ class Checker:
                 self.check_delta(r["delta"])
             if r["land_alone"]:
                 self.check_land_alone(r["land_alone"])
-            if r["config"]:
-                self.check_config(r["config"])
+            self.check_config()
         self.findings.sort(key=lambda f: (f["file"], f["line"] or 0, f["pointer"] or "", f["rule"]))
         return self.findings
 
@@ -792,8 +797,10 @@ class Checker:
                      + " land in their own change so they can be reviewed and rejected on their own; "
                      "also changed: " + ", ".join(strays))
 
-    def check_config(self, cfg):
-        if not cfg["enforce"] or not self.config_rel or self.config_rel not in self.changed:
+    def check_config(self):
+        """The base version of the config decides whether this runs, so a diff
+        cannot both switch the rule off and use the switch it just threw."""
+        if not self.config_rel or self.config_rel not in self.changed:
             return
         before = self.repo.show(self.before_ref, self.config_rel)
         after = (self.repo.show(self.after_ref, self.config_rel) if self.mode == "staged"
@@ -801,9 +808,16 @@ class Checker:
         if before is None or after is None:
             return
         try:
-            relaxed = relaxations(json.loads(before), json.loads(after))
+            old, new = json.loads(before), json.loads(after)
         except ValueError:
             return
+        try:
+            was = parse_config(old).get("config")
+        except ConfigError:
+            return
+        if not was or not was["enforce"]:
+            return
+        relaxed = relaxations(old, new)
         if not relaxed:
             return
         detail = "; ".join(relaxed)
@@ -815,7 +829,6 @@ class Checker:
                  "in its own change with the reason in the body, so it can be reviewed and rejected on its "
                  "own -- tightening needs no ceremony. Also changed: "
                  + ", ".join(strays[:5]) + (", ..." if len(strays) > 5 else ""))
-
 
 # --- CLI -------------------------------------------------------------------------
 
