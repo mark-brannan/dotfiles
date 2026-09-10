@@ -93,6 +93,17 @@ eq 'dirty before unpushed' 'not archivable: worktree dirty, 1 commit(s) unpushed
 gitq "$WORK" checkout -- f
 gitq "$WORK" push
 
+# --- a branch that was never pushed at all -------------------------------------
+# No upstream means `rev-list @{u}..HEAD` fails rather than answering 0, so a
+# fallback of 0 would call a clean, home-having branch archivable while every
+# commit still lives only on local disk.
+gitq "$WORK" checkout -b claude/never-pushed
+echo five >> "$WORK/f"; gitq "$WORK" add f; gitq "$WORK" commit -m local-only
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'never pushed is not archivable' \
+  'not archivable: `claude/never-pushed` has no upstream (never pushed)' "$(verdict)"
+gitq "$WORK" checkout claude/work
+
 # --- "cannot verify" is never a pass ------------------------------------------------
 GH_FAIL=1 stop
 has 'unverified is not archivable' '^\*\*Verdict:\*\* not archivable: branch home unverified' "$CKPT"

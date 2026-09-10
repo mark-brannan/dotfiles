@@ -206,8 +206,22 @@ set_verdict() {
   esac
   if [ -n "$work_root" ]; then
     [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] && add_reason "worktree dirty"
-    unpushed=$(git -C "$work_root" rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)
-    case "${unpushed:-0}" in 0|"") ;; *) add_reason "$unpushed commit(s) unpushed" ;; esac
+    # An unconfigured upstream makes `rev-list @{u}..HEAD` fail, and a failure
+    # that falls back to 0 is indistinguishable from a fully-pushed branch --
+    # the "lost work" failure mode one step earlier than #108/#110. Ask about
+    # the upstream first, so a never-pushed branch gets its own reason.
+    if git -C "$work_root" rev-parse --verify -q --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      unpushed=$(git -C "$work_root" rev-list --count "@{u}..HEAD" 2>/dev/null || printf '')
+      case "${unpushed:-}" in
+        0)  ;;
+        '') add_reason "could not count unpushed commits" ;;
+        *)  add_reason "$unpushed commit(s) unpushed" ;;
+      esac
+    elif [ "$work_branch" = HEAD ] || [ -z "$work_branch" ]; then
+      add_reason "detached HEAD, no upstream to compare against"
+    else
+      add_reason "\`$work_branch\` has no upstream (never pushed)"
+    fi
   fi
   [ -n "${1:-}" ] && add_reason "$1"
 
