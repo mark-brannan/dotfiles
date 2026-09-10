@@ -105,19 +105,18 @@ has 'queue exhausted, final tally' '^done: Ready queue exhausted\. Running total
 sess=$(latest_session)
 eq 'two items recorded in state' 2 "$(jq '.items | length' "$sess")"
 
-# --- threshold lines: crossed once fires the loudest one reached that turn ------
+# --- threshold lines: each fires once, even when one item crosses several ------
 # Only two Ready items exist, so item 1 crosses 25%, item 2 jumps straight to
-# 100% (and the budget-reached pause) -- confirms the loudest-crossed-this-turn
-# rule rather than every threshold firing on every item.
+# 100% (and the budget-reached pause): 50% and 75% both announce on item 2.
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
 reply 5.00 "done" 1    # 25% of 20
-reply 15.00 "done" 2   # +75% = 100% -> budget reached, 75% line (not 50%) fires
+reply 15.00 "done" 2   # +75% = 100% -> budget reached, 50% and 75% lines fire
 : > "$CLAUDE_LOG"
 run --session-budget 20 --pause-every 10
 has '25% line on the first item' '\*\*\* 25% of session budget spent \(\$5\.00 / \$20\.00\) \*\*\*'
-has '75% line (loudest crossed) on the second, not 50%' '\*\*\* 75% of session budget spent \(\$20\.00 / \$20\.00\) \*\*\*'
-lacks '50% line skipped -- one line per item, loudest threshold reached' '50% of session budget'
+has '50% line also fires on the second item' '\*\*\* 50% of session budget spent \(\$20\.00 / \$20\.00\) \*\*\*'
+has '75% line on the second item' '\*\*\* 75% of session budget spent \(\$20\.00 / \$20\.00\) \*\*\*'
 eq 'no line printed twice' 1 "$(printf '%s\n' "$OUT" | grep -c '25% of session budget')"
 has 'pauses when the session budget is reached' '^pause: session budget reached \(\$20\.00 / \$20\.00\)\.'
 sess=$(latest_session)
@@ -273,6 +272,47 @@ run --resume "$session_id"
 eq 'the failed item retried on resume' 1 "$(calls_claude)"
 has 'retried item now succeeds' '^o/alpha#7: Flaky item --'
 eq 'now recorded in state' 1 "$(jq '.items | length' "$sess")"
+
+# --- a worker that exits non-zero WITH a JSON result: cost kept, item retried ------
+rm -f "$S/state/grind"/*.json
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+echo '{"is_error":true,"total_cost_usd":5.00,"usage":{"input_tokens":100,"output_tokens":50},"result":"Budget exceeded"}'
+exit 1
+GH
+chmod +x "$S/bin/claude"
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+has 'logged as a failure' '^FAILED: o/alpha#7 .*will retry on --resume'
+sess=$(latest_session)
+eq 'recorded in state as failed' failed "$(jq -r '.items[0].status' "$sess")"
+eq 'its cost is kept' 5.00 "$(jq -r '.items[0].cost' "$sess")"
+has 'running total includes the failed spend' 'running \$5\.00 / \$100\.00'
+session_id=$(basename "$sess" .json)
+: > "$CLAUDE_LOG"
+run --resume "$session_id"
+eq 'failed-with-cost item retried on resume' 1 "$(calls_claude)"
+
+# restore the real claude shim
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else echo '{"total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50},"result":"GRIND_STATUS: done"}'; fi
+GH
+chmod +x "$S/bin/claude"
+
+# --- --repo naming a repo the cwd is not a checkout of ---------------------------
+run --repo o/other
+eq 'exit 1 when cwd is not a checkout of --repo' 1 "$RC"
+has 'says which repo it found' 'not a checkout of o/other \(found: o/alpha\)'
 
 # --- empty queue -----------------------------------------------------------------
 cat > "$S/ready.json" <<'JSON'

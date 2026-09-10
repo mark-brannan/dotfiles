@@ -116,11 +116,22 @@ fi
 
 resume_cmd="grind --resume $session_id"
 
+# Worktrees are cut from the current directory's repository, so it must be
+# a checkout of $repo -- otherwise the worker is handed the wrong codebase.
+if [ "$dry_run" -eq 0 ]; then
+  here=$(cwd_repo) || here=""
+  [ "$here" = "$repo" ] \
+    || { printf 'grind: current directory is not a checkout of %s (found: %s); cd there first\n' \
+           "$repo" "${here:-no GitHub remote}" >&2; exit 1; }
+fi
+
 # refs (owner/repo#N) already accounted for from a prior run of this session,
 # delimited so a ref that is a prefix of another (e.g. #5 vs #50) can't
 # falsely match on a raw substring test.
+# Items recorded as failed keep their cost but are retried, so they are
+# excluded here.
 done_refs="|"
-[ -f "$state_file" ] && done_refs="|$(jq -r '.items[].ref' "$state_file" | tr '\n' '|')"
+[ -f "$state_file" ] && done_refs="|$(jq -r '.items[] | select(.status != "failed") | .ref' "$state_file" | tr '\n' '|')"
 
 is_done_ref() {
   case "$done_refs" in *"|$1|"*) return 0 ;; esac
@@ -224,21 +235,16 @@ while [ "$i" -lt "$count" ]; do
     || { printf 'grind: could not create worktree for %s -- skipping\n' "$ref" >&2; continue; }
 
   prompt=$(build_prompt "$(printf '%s' "$item" | jq -r '.body')")
-  claude_failed=0
+  claude_rc=0
   result_json=$( (cd "$wt_path" && printf '%s' "$prompt" | \
     claude -p --output-format json --max-budget-usd "$item_budget" --model "$model" --effort "$effort") ) \
-    || claude_failed=1
+    || claude_rc=$?
 
   git worktree remove -f "$wt_path" >/dev/null 2>&1 || true
 
-  # A non-zero exit or unparseable/empty JSON means the worker never
-  # produced a result -- distinct from a worker that ran and reported one.
-  # Don't record it as done: --resume must retry it, not skip it forever.
-  if [ "$claude_failed" -eq 0 ]; then
-    printf '%s' "$result_json" | jq -e . >/dev/null 2>&1 || claude_failed=1
-  fi
-
-  if [ "$claude_failed" -eq 1 ]; then
+  # Unparseable/empty JSON means the worker never produced a result, so its
+  # spend is unknown: don't record it, and let --resume retry it.
+  if ! printf '%s' "$result_json" | jq -e . >/dev/null 2>&1; then
     printf 'FAILED: %s -- %s -- claude invocation did not complete; not recorded, will retry on --resume\n' \
       "$ref" "$title" >&2
     continue
@@ -250,9 +256,14 @@ while [ "$i" -lt "$count" ]; do
      + (.usage.cache_creation_input_tokens // 0) + (.usage.cache_read_input_tokens // 0))' 2>/dev/null)
   tokens=${tokens:-0}
   text=$(printf '%s' "$result_json" | jq -r '.result // ""' 2>/dev/null)
+  is_error=$(printf '%s' "$result_json" | jq -r '.is_error // false' 2>/dev/null)
 
+  # A non-zero exit or an is_error result (e.g. the item cap was hit) still
+  # spent money: record the cost so the session budget stays honest, but mark
+  # it failed so --resume retries it instead of skipping it forever.
   status=done
   case "$text" in *"GRIND_STATUS: carded"*) status=carded ;; esac
+  if [ "$claude_rc" -ne 0 ] || [ "$is_error" = true ]; then status=failed; fi
 
   running_total=$(awk -v a="$running_total" -v b="$cost" 'BEGIN { printf "%.4f", a + b }')
   processed_this_run=$((processed_this_run + 1))
@@ -261,7 +272,10 @@ while [ "$i" -lt "$count" ]; do
      && mv "$state_file.tmp" "$state_file"
 
   percent=$(pct "$running_total" "$session_budget")
-  if [ "$status" = carded ]; then
+  if [ "$status" = failed ]; then
+    printf 'FAILED: %s -- %s -- worker reported an error (%s, %s tokens, running %s / %s -- %s%%); will retry on --resume\n' \
+      "$ref" "$title" "$(fmt_usd "$cost")" "$tokens" "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$percent" >&2
+  elif [ "$status" = carded ]; then
     printf 'carded: %s -- %s (%s, %s tokens, running %s / %s -- %s%%)\n' \
       "$ref" "$title" "$(fmt_usd "$cost")" "$tokens" "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$percent"
   else
@@ -269,12 +283,15 @@ while [ "$i" -lt "$count" ]; do
       "$ref" "$title" "$model" "$(fmt_usd "$cost")" "$tokens" "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$percent"
   fi
 
+  # Independent checks so one item that crosses two lines announces both.
+  if [ "$percent" -ge 25 ] && [ "$loud_25" -eq 0 ]; then
+    loud_25=1; printf '*** 25%% of session budget spent (%s / %s) ***\n' "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")"
+  fi
+  if [ "$percent" -ge 50 ] && [ "$loud_50" -eq 0 ]; then
+    loud_50=1; printf '*** 50%% of session budget spent (%s / %s) ***\n' "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")"
+  fi
   if [ "$percent" -ge 75 ] && [ "$loud_75" -eq 0 ]; then
     loud_75=1; printf '*** 75%% of session budget spent (%s / %s) ***\n' "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")"
-  elif [ "$percent" -ge 50 ] && [ "$loud_50" -eq 0 ]; then
-    loud_50=1; printf '*** 50%% of session budget spent (%s / %s) ***\n' "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")"
-  elif [ "$percent" -ge 25 ] && [ "$loud_25" -eq 0 ]; then
-    loud_25=1; printf '*** 25%% of session budget spent (%s / %s) ***\n' "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")"
   fi
 
   # pause conditions, checked in this order: budget, outlier cost, cadence.
