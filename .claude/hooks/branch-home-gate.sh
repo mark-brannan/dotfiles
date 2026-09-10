@@ -208,7 +208,10 @@ fi
 
 [ -n "$found" ] && exit 0
 
-repo=$(basename "$work_root")
+# The remote's name, not the checkout's: a worktree directory is named for
+# the branch, which would make the block message say "in stop-hook-refusal".
+repo=$(git -C "$work_root" remote get-url origin 2>/dev/null | sed 's#/*$##; s#\.git$##; s#.*[/:]##')
+[ -n "$repo" ] || repo=$(basename "$work_root")
 if [ -n "$unverified" ]; then
   note "blocked: could not verify a home for \`$branch\` ($unverified)"
   block "branch-home-gate: this session cannot end yet. Branch \`$branch\` in $repo is $ahead commit(s) ahead of $base, and whether it has a home could not be verified -- $unverified. This is a gate and fails closed, so \"can't check\" is not a pass: open the PR, or file a pointer card (/card-write) naming the branch and what it holds, then end the turn again. If the branch is not worth keeping, make \`abandon\` the whole of a line in your final message and it will be deleted locally and on the remote. This gate fires once per session."
