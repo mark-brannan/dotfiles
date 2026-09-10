@@ -157,9 +157,10 @@ sc_salvage() {
   # Nothing uncommitted (tracked or untracked).
   [ -n "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || return 0
 
-  # Re-read the branch: the value captured at hook start can be stale by now.
-  # branch-home-gate.sh detaches HEAD when it abandons a branch, and pushing
-  # the name it used to have would put the branch straight back on the remote.
+  # Re-read the branch: the value captured at hook start can be stale by now
+  # if anything detached HEAD since (e.g. a hand-run abandon-branch.sh), and
+  # pushing the name it used to have would put an abandoned branch straight
+  # back on the remote.
   work_branch=$(git -C "$work_root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
   # --- named refusals: something is dirty but we will not touch it ---------
