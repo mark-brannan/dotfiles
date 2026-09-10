@@ -320,10 +320,15 @@ glyphs() {
   printf '%s' "$out"
 }
 
-# Count of $2 (ascending, space-separated) that $1 has reached or passed.
-count_rungs() {
-  local total="$1" line="$2" n=0 L
-  for L in $line; do [ "$total" -ge "$L" ] && n=$((n + 1)); done
+fib_rungs() {
+  local total="$1" n=0 L
+  for L in 1 2 3 5 8; do [ "$total" -ge "$L" ] && n=$((n + 1)); done
+  printf '%s' "$n"
+}
+
+time_rungs() {
+  local total="$1" n=0 L
+  for L in 25 47 62 90 120; do [ "$total" -ge "$L" ] && n=$((n + 1)); done
   printf '%s' "$n"
 }
 
@@ -591,12 +596,6 @@ fi
 # Shown to the user at the end of a turn -- never sent to the model, so the
 # running decision count costs nothing to display. Any crossing line rides on
 # the front of it rather than arriving as a second message.
-#
-# dotfiles#137: persistent block, rung vocabulary (⛁/⚖/⚡ reps = rungs
-# crossed), built in bash next to the state it already tracks. `row` is
-# untouched. Descopes: sitting glyph reads night/day off the current clock,
-# not each rung's crossing time; nag-reason cluster omits ⚡/🌙/⏱️ (no
-# threshold set yet).
 if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
   # night_nag needs Pacific time, not the host's TZ -- an ephemeral/cloud
   # session usually runs UTC, which read as "LATE!" all evening. Compute the
@@ -610,10 +609,9 @@ if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
   }')
   export TZOFF
 
-  bl_dec=$(printf '%s\n' "$metrics" | jq -r '.session.decisions.total // 0')
-  bl_fric=$(printf '%s\n' "$metrics" | jq -r '.session.friction.total // 0')
-  bl_blocked=$(printf '%s\n' "$metrics" | jq -r '.session.blocked.total // 0')
-  bl_ctx=$(printf '%s\n' "$metrics" | jq -r '.session.context_peak // 0')
+  IFS=$'\t' read -r bl_dec bl_fric bl_blocked bl_ctx <<<"$(printf '%s\n' "$metrics" | jq -r \
+    '[(.session.decisions.total // 0), (.session.friction.total // 0),
+      (.session.blocked.total // 0), (.session.context_peak // 0)] | @tsv')"
 
   bl_ctx_denom=$ctx_line
   if [ "${bl_ctx_denom:-0}" -eq 0 ]; then
@@ -625,7 +623,7 @@ if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
 
   bl_dec_cluster=""
   if [ "${bl_dec:-0}" -gt 0 ]; then
-    r=$(count_rungs "$bl_dec" "1 2 3 5 8")
+    r=$(fib_rungs "$bl_dec")
     g=""; for ((i = 0; i < r; i++)); do g="${g}⚖"; done
     p=""; [ "$bl_dec" -gt 3 ] && p="🤔"
     bl_dec_cluster="${p}${g}(x${bl_dec})"
@@ -633,7 +631,7 @@ if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
 
   bl_fric_cluster=""
   if [ "${bl_fric:-0}" -gt 0 ]; then
-    r=$(count_rungs "$bl_fric" "1 2 3 5 8")
+    r=$(fib_rungs "$bl_fric")
     g=""; for ((i = 0; i < r; i++)); do g="${g}⚡"; done
     bl_fric_cluster="${g}(x${bl_fric})"
   fi
@@ -644,9 +642,9 @@ if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
   bl_sit_cluster=""
   if [ "${sit_start:-0}" -gt 0 ]; then
     sit_min=$(( (now_ts - sit_start) / 60 ))
-    r=$(count_rungs "$sit_min" "25 46 66 90 120")
+    r=$(time_rungs "$sit_min")
     pac_hour=$(( ( ($(date +%s) + TZOFF) / 3600 ) % 24 ))
-    sg="⏱️"; [ "$pac_hour" -ge 23 ] && sg="🌙"
+    sg="⏱️"; { [ "$pac_hour" -ge 22 ] || [ "$pac_hour" -lt 5 ]; } && sg="🌙"
     reps=""; for ((i = 0; i < r; i++)); do reps="${reps}${sg}"; done
     bl_sit_cluster="⏱$(hm "$sit_min")${reps}"
   fi
