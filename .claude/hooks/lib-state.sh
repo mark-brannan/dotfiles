@@ -140,7 +140,7 @@ unpushed_state() {
 
 # archivable_reasons <work_root> <work_branch> -- the reasons a session on
 # this branch is not yet archivable, comma-joined; empty when it is. Order:
-# branch home, worktree dirty, unpushed commits.
+# worktree dirty, unpushed commits, branch home.
 #
 # Lives here for the same reason unpushed_state does: metrics-live.sh's live
 # nag and stop-continuity.sh's Stop-hook verdict must never disagree about
@@ -153,19 +153,18 @@ unpushed_state() {
 # this file and is shelled out to, not sourced, so its own gate (which fires
 # once per session, separately) and this read-only check never share state.
 #
+# Home is checked last, and only when dirty/unpushed are already clean: it's
+# the one check here that can shell out to `gh` (up to two 30s calls in
+# branch-home-gate.sh), so a dirty mid-work tree -- the common case, and the
+# one Stop fires on every turn -- never pays that cost. Restores the
+# short-circuit the pre-dotfiles#149 archivable() had.
+#
 # Not this function's job: "not a git repo" (there is no branch here to
 # judge) and anything that only becomes true after a push is attempted --
 # both are the caller's own facts to add.
 archivable_reasons() {
   local work_root="$1" work_branch="$2" reasons="" home ust
   add_reason() { reasons="${reasons:+$reasons, }$1"; }
-
-  home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
-  case "$home" in
-    home:*)       : ;;
-    unverified:*) add_reason "branch home unverified (${home#unverified: })" ;;
-    *)            add_reason "no PR and no pointer for \`$work_branch\`" ;;
-  esac
 
   [ -z "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || add_reason "worktree dirty"
 
@@ -182,6 +181,15 @@ archivable_reasons() {
       fi
       ;;
   esac
+
+  if [ -z "$reasons" ]; then
+    home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
+    case "$home" in
+      home:*)       : ;;
+      unverified:*) add_reason "branch home unverified (${home#unverified: })" ;;
+      *)            add_reason "no PR and no pointer for \`$work_branch\`" ;;
+    esac
+  fi
 
   printf '%s' "$reasons"
 }
