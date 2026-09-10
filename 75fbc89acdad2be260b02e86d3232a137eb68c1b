@@ -1,0 +1,6 @@
+Revision history for #157:
+
+rev 2 (content) 2026-09-10 18:52 UTC — review: caption the multi-rung example so the second number reads as the rung, not a second measurement
+rev 1 (initial) 2026-09-10 18:52 UTC
+
+<!-- mergify-revision-data: {"schema_version":1,"pull_number":157,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"751d533b658132d7d7bd702adcee9cd6d714cde5","timestamp_iso":"2026-09-10T18:52:42Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"content","old_sha":"751d533b658132d7d7bd702adcee9cd6d714cde5","new_sha":"478b3feb332a26e852144f9e94a9823c37a38dea","timestamp_iso":"2026-09-10T18:52:42Z","reason":"review: caption the multi-rung example so the second number reads as the rung, not a second measurement","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/751d533b658132d7d7bd702adcee9cd6d714cde5...478b3feb332a26e852144f9e94a9823c37a38dea"}]} -->
