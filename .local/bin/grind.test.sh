@@ -174,6 +174,106 @@ run --session-budget 100 --pause-every 1
 eq 'stops after exactly one item' 1 "$(calls_claude)"
 has 'pause names the cadence' 'pause every 1'
 
+# --- done-ref matching is whole-entry, not substring (issue #5 vs #50) ----------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 5, "title": "Item five", "body": "b", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]},
+  {"number": 50, "title": "Item fifty", "body": "b", "url": "https://github.com/o/alpha/issues/50", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 0.10 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+sess=$(latest_session)
+session_id=$(basename "$sess" .json)
+: > "$CLAUDE_LOG"
+rm -f "$S/claude-replies"/*.json
+reply 0.10 "done" 1
+run --resume "$session_id"
+eq 'item 50 is not skipped as a substring match of done #5' 1 "$(calls_claude)"
+has 'item 50 actually ran' '^o/alpha#50: Item fifty'
+
+# --- --resume seeds running_total/costs from prior-run item costs ----------------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 1, "title": "A", "body": "b", "url": "https://github.com/o/alpha/issues/1", "labels": [{"name": "ready"}]},
+  {"number": 2, "title": "B", "body": "b", "url": "https://github.com/o/alpha/issues/2", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 15.00 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 20 --pause-every 1
+has 'first run spends $15 of a $20 session budget' 'running \$15\.00 / \$20\.00'
+sess=$(latest_session)
+session_id=$(basename "$sess" .json)
+rm -f "$S/claude-replies"/*.json
+reply 15.00 "done" 1
+: > "$CLAUDE_LOG"
+run --resume "$session_id"
+eq 'resume runs the one remaining item' 1 "$(calls_claude)"
+has 'running total continues from the seeded $15, not from $0' 'running \$30\.00 / \$20\.00'
+has 'pauses on budget once the seeded total plus this item crosses it' '^pause: session budget reached \(\$30\.00 / \$20\.00\)\.'
+
+# a session already at/over budget on resume pauses before spending anything
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 25.00 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 20 --pause-every 1
+sess=$(latest_session)
+session_id=$(basename "$sess" .json)
+rm -f "$S/claude-replies"/*.json
+: > "$CLAUDE_LOG"
+run --resume "$session_id"
+eq 'no further spend once already over budget from a prior run' 0 "$(calls_claude)"
+has 'pauses immediately using the seeded total' '^pause: session budget reached \(\$25\.00 / \$20\.00\)\.'
+
+# --- a failed claude invocation is not recorded as done; --resume retries it ------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 7, "title": "Flaky item", "body": "b", "url": "https://github.com/o/alpha/issues/7", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+exit 1
+GH
+chmod +x "$S/bin/claude"
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+has 'a failed invocation is logged as a failure, not a normal cost line' '^FAILED: o/alpha#7'
+lacks 'no cost line for the failed item' '^o/alpha#7: Flaky item --'
+sess=$(latest_session)
+eq 'failed item is not recorded in state' 0 "$(jq '.items | length' "$sess")"
+
+# restore the real claude shim and confirm --resume retries the failed item
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else echo '{"total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50},"result":"GRIND_STATUS: done"}'; fi
+GH
+chmod +x "$S/bin/claude"
+session_id=$(basename "$sess" .json)
+: > "$CLAUDE_LOG"
+run --resume "$session_id"
+eq 'the failed item retried on resume' 1 "$(calls_claude)"
+has 'retried item now succeeds' '^o/alpha#7: Flaky item --'
+eq 'now recorded in state' 1 "$(jq '.items | length' "$sess")"
+
 # --- empty queue -----------------------------------------------------------------
 cat > "$S/ready.json" <<'JSON'
 []

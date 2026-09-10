@@ -116,9 +116,16 @@ fi
 
 resume_cmd="grind --resume $session_id"
 
-# refs (owner/repo#N) already accounted for from a prior run of this session
-done_refs=""
-[ -f "$state_file" ] && done_refs=$(jq -r '.items[].ref' "$state_file")
+# refs (owner/repo#N) already accounted for from a prior run of this session,
+# delimited so a ref that is a prefix of another (e.g. #5 vs #50) can't
+# falsely match on a raw substring test.
+done_refs="|"
+[ -f "$state_file" ] && done_refs="|$(jq -r '.items[].ref' "$state_file" | tr '\n' '|')"
+
+is_done_ref() {
+  case "$done_refs" in *"|$1|"*) return 0 ;; esac
+  return 1
+}
 
 # --- fetch the Ready queue, top (lowest number) first -------------------------
 ready_json=$(gh issue list --repo "$repo" --label ready --state open --limit 100 \
@@ -160,10 +167,22 @@ median() {
 pct() { awk -v a="$1" -v b="$2" 'BEGIN { if (b == 0) { print 0 } else { printf "%.0f", (a / b) * 100 } }'; }
 fmt_usd() { awk -v v="$1" 'BEGIN { printf "$%.2f", v }'; }
 
+# Seed running_total and costs from prior-run item costs already in
+# $state_file so a --resume honors the original --session-budget as a
+# cap on the whole session, not just on this invocation.
 running_total=0
-loud_25=0; loud_50=0; loud_75=0
-processed_this_run=0
 costs=""
+if [ -f "$state_file" ]; then
+  running_total=$(jq -r '[.items[].cost] | add // 0' "$state_file")
+  costs=$(jq -r '.items[].cost' "$state_file" | tr '\n' ' ')
+fi
+
+start_percent=$(pct "$running_total" "$session_budget")
+loud_25=0; loud_50=0; loud_75=0
+[ "$start_percent" -ge 25 ] && loud_25=1
+[ "$start_percent" -ge 50 ] && loud_50=1
+[ "$start_percent" -ge 75 ] && loud_75=1
+processed_this_run=0
 
 i=0
 while [ "$i" -lt "$count" ]; do
@@ -173,7 +192,17 @@ while [ "$i" -lt "$count" ]; do
   title=$(printf '%s' "$item" | jq -r '.title')
   ref="$repo#$number"
 
-  case "$done_refs" in *"$ref"*) continue ;; esac
+  is_done_ref "$ref" && continue
+
+  if [ "$dry_run" -eq 0 ]; then
+    already_reached=$(awk -v a="$running_total" -v b="$session_budget" 'BEGIN { print (a >= b) ? 1 : 0 }')
+    if [ "$already_reached" -eq 1 ]; then
+      printf 'pause: session budget reached (%s / %s). %d item(s) processed this run.\n' \
+        "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$processed_this_run"
+      printf 'resume: %s\n' "$resume_cmd"
+      exit 0
+    fi
+  fi
 
   branch="grind-$number"
   wt_path="$worktree_root/$number"
@@ -195,11 +224,25 @@ while [ "$i" -lt "$count" ]; do
     || { printf 'grind: could not create worktree for %s -- skipping\n' "$ref" >&2; continue; }
 
   prompt=$(build_prompt "$(printf '%s' "$item" | jq -r '.body')")
+  claude_failed=0
   result_json=$( (cd "$wt_path" && printf '%s' "$prompt" | \
     claude -p --output-format json --max-budget-usd "$item_budget" --model "$model" --effort "$effort") ) \
-    || result_json=""
+    || claude_failed=1
 
   git worktree remove -f "$wt_path" >/dev/null 2>&1 || true
+
+  # A non-zero exit or unparseable/empty JSON means the worker never
+  # produced a result -- distinct from a worker that ran and reported one.
+  # Don't record it as done: --resume must retry it, not skip it forever.
+  if [ "$claude_failed" -eq 0 ]; then
+    printf '%s' "$result_json" | jq -e . >/dev/null 2>&1 || claude_failed=1
+  fi
+
+  if [ "$claude_failed" -eq 1 ]; then
+    printf 'FAILED: %s -- %s -- claude invocation did not complete; not recorded, will retry on --resume\n' \
+      "$ref" "$title" >&2
+    continue
+  fi
 
   cost=$(printf '%s' "$result_json" | jq -r '.total_cost_usd // 0' 2>/dev/null); cost=${cost:-0}
   tokens=$(printf '%s' "$result_json" | jq -r '
