@@ -1,6 +1,6 @@
 ---
 name: sequence
-description: Walk one decision card to a ruling, a spawned work item, or an unblocked card — a typed contract (exact question in, one of three outcomes out), not a status update. Use on "/sequence", "walk the decision cards", "what needs deciding", or when `worklist`'s `## Needs ruling` isn't empty. High-judgment, few calls — Opus, Fable for the harder calls.
+description: Walk one decision card to a ruling, a spawned work item, or an unblocked card — a typed contract (exact question in, one of three outcomes out), not a status update. Use on "/sequence", "walk the decision cards", "what needs deciding", or when `worklist`'s `## Needs ruling` isn't empty. High-judgment, few calls — Opus, Fable for the harder calls. Not for doing the work; that is grind.
 ---
 
 # Sequence

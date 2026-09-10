@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# Tests for grind. Run: bash .local/bin/grind.test.sh
+#
+# What matters: --dry-run lists every Ready (non-blocked) item and the exact
+# command per item without spending anything; a real run parses cost/tokens
+# out of the worker's JSON, prints the running-total/percent line, and pauses
+# -- with the exact resume command -- on session budget, an outlier item cost,
+# or the pause-every cadence; a carded worker is logged and not treated as a
+# failure; --resume skips what a prior run already accounted for. gh and
+# claude are both faked; no real `claude -p` is ever invoked.
+set -uo pipefail
+
+GRIND="$(cd "$(dirname "$0")" && pwd)/grind"
+pass=0; fail=0
+S=$(mktemp -d); export S
+cleanup() { rm -rf "$S"; }
+trap cleanup EXIT
+
+mkdir -p "$S/bin" "$S/home" "$S/state" "$S/repo" "$S/nogit"
+export HOME="$S/home" XDG_STATE_HOME="$S/state" TMPDIR="$S/tmp"
+mkdir -p "$TMPDIR"
+export GH_LOG="$S/gh.log" CLAUDE_LOG="$S/claude.log"
+: > "$GH_LOG"; : > "$CLAUDE_LOG"
+export PATH="$S/bin:$PATH"
+
+git -C "$S/repo" init -q
+git -C "$S/repo" config user.email t@example.invalid
+git -C "$S/repo" config user.name t
+git -C "$S/repo" remote add origin https://github.com/o/alpha.git
+git -C "$S/repo" commit -q --allow-empty -m init
+cd "$S/repo" || exit 1
+
+# --- canned Ready queue --------------------------------------------------------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 20, "title": "Second item", "body": "do the second thing", "url": "https://github.com/o/alpha/issues/20", "labels": [{"name": "ready"}]},
+  {"number": 5, "title": "First item", "body": "do the first thing", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]},
+  {"number": 9, "title": "Blocked item", "body": "not yet", "url": "https://github.com/o/alpha/issues/9", "labels": [{"name": "ready"}, {"name": "blocked"}]}
+]
+JSON
+
+cat > "$S/bin/gh" <<GH
+#!/bin/sh
+echo "\$*" >> "$GH_LOG"
+case "\$1 \$2" in
+  "issue list") cat "$S/ready.json" ;;
+  *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
+esac
+GH
+chmod +x "$S/bin/gh"
+
+# fake claude -- reads the prompt from stdin (unused), writes a canned JSON
+# result read from $CLAUDE_MODE for the current item (matched by title in the
+# piped prompt) via $S/claude-replies/<n>.json, defaulting to a $1 flat reply.
+mkdir -p "$S/claude-replies"
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else echo '{"total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50},"result":"GRIND_STATUS: done"}'; fi
+GH
+chmod +x "$S/bin/claude"
+reply() { jq -nc --argjson cost "$1" --arg status "$2" '{total_cost_usd:$cost, usage:{input_tokens:100,output_tokens:50}, result:("done work\nGRIND_STATUS: " + $status)}' > "$S/claude-replies/$3.json"; }
+
+ok()   { pass=$((pass + 1)); }
+bad()  { fail=$((fail + 1)); printf 'FAIL: %s\n' "$1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/    /'; }
+has()  { if printf '%s\n' "$OUT" | grep -Eq -- "$2"; then ok; else bad "$1 (missing /$2/)" "$OUT"; fi; }
+lacks(){ if printf '%s\n' "$OUT" | grep -Eq -- "$2"; then bad "$1 (has /$2/)" "$OUT"; else ok; fi; }
+eq()   { if [ "$2" = "$3" ]; then ok; else bad "$1: want [$2] got [$3]"; fi; }
+assert() { local d=$1; shift; if "$@"; then ok; else bad "$d"; fi; }
+run() { rm -f "$S/claude-next"; OUT=$(sh "$GRIND" "$@" 2>&1); RC=$?; }
+calls_claude() { wc -l < "$CLAUDE_LOG" | tr -d ' '; }
+latest_session() { ls -t "$S/state/grind"/*.json 2>/dev/null | head -1; }
+
+# --- --dry-run: lists Ready items, top (lowest number) first, blocked excluded ---
+: > "$GH_LOG"
+run --dry-run
+eq 'exit 0' 0 "$RC"
+eq 'no claude call in dry-run' 0 "$(calls_claude)"
+first_line=$(printf '%s\n' "$OUT" | grep -m1 '^\[')
+has 'first item is the lower-numbered one' '^\[1/2\] o/alpha#5 -- First item$'
+has 'second item follows' '^\[2/2\] o/alpha#20 -- Second item$'
+lacks 'blocked item excluded' 'alpha#9'
+has 'a worktree command is shown' 'git worktree add -b grind-5'
+has 'the claude command is shown, with defaults' 'claude -p <issue o/alpha#5 body> --output-format json --max-budget-usd 5 --model sonnet --effort medium'
+assert 'dry-run wrote no state file' bash -c '! ls '"$S"'/state/grind/*.json >/dev/null 2>&1'
+
+# --- --dry-run respects override flags -----------------------------------------
+run --dry-run --model opus --effort high --item-budget 2
+has 'overrides reach the command line' -- '--max-budget-usd 2 --model opus --effort high'
+
+# --- a real run: cost/tokens parsed, running total and percent printed ----------
+rm -f "$S/claude-replies"/*.json
+reply 1.00 done 1
+reply 2.00 done 2
+: > "$CLAUDE_LOG"
+run --session-budget 20 --pause-every 5
+eq 'exit 0' 0 "$RC"
+eq 'two claude invocations' 2 "$(calls_claude)"
+has 'first item line: cost, tokens, running total, percent' '^o/alpha#5: First item -- sonnet, \$1\.00, 150 tokens -- running \$1\.00 / \$20\.00 -- 5%$'
+has 'second item line: running total accumulates' '^o/alpha#20: Second item -- sonnet, \$2\.00, 150 tokens -- running \$3\.00 / \$20\.00 -- 15%$'
+has 'queue exhausted, final tally' '^done: Ready queue exhausted\. Running total \$3\.00 / \$20\.00\.$'
+sess=$(latest_session)
+eq 'two items recorded in state' 2 "$(jq '.items | length' "$sess")"
+
+# --- threshold lines: crossed once fires the loudest one reached that turn ------
+# Only two Ready items exist, so item 1 crosses 25%, item 2 jumps straight to
+# 100% (and the budget-reached pause) -- confirms the loudest-crossed-this-turn
+# rule rather than every threshold firing on every item.
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 5.00 done 1    # 25% of 20
+reply 15.00 done 2   # +75% = 100% -> budget reached, 75% line (not 50%) fires
+: > "$CLAUDE_LOG"
+run --session-budget 20 --pause-every 10
+has '25% line on the first item' '\*\*\* 25% of session budget spent \(\$5\.00 / \$20\.00\) \*\*\*'
+has '75% line (loudest crossed) on the second, not 50%' '\*\*\* 75% of session budget spent \(\$20\.00 / \$20\.00\) \*\*\*'
+lacks '50% line skipped -- one line per item, loudest threshold reached' '50% of session budget'
+eq 'no line printed twice' 1 "$(printf '%s\n' "$OUT" | grep -c '25% of session budget')"
+has 'pauses when the session budget is reached' '^pause: session budget reached \(\$20\.00 / \$20\.00\)\.'
+sess=$(latest_session)
+resume_line=$(printf '%s\n' "$OUT" | grep '^resume: ')
+has 'exact resume command printed' '^resume: grind --resume grind-'
+resume_cmd=${resume_line#resume: }
+
+# --- --resume skips already-processed items and keeps the same session file -----
+session_id=$(basename "$sess" .json)
+: > "$CLAUDE_LOG"
+run --resume "$session_id"
+eq 'exit 0' 0 "$RC"
+eq 'no more items to run -- queue already exhausted' 0 "$(calls_claude)"
+has 'says the queue is done' 'Ready queue exhausted'
+eq 'state file unchanged (still 2 items)' 2 "$(jq '.items | length' "$sess")"
+
+# --- outlier pause: one item costs more than twice the running median -----------
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 1.00 done 1
+reply 3.00 done 2
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+has 'pauses on the outlier, not the budget' '^pause: o/alpha#20 cost \$3\.00, more than twice the running median \(\$1\.00\)'
+eq 'only the second item ran before the pause' 2 "$(calls_claude)"
+
+# equal-to-twice-median is not an outlier -- confirms a strict >, not >=.
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 1.00 done 1
+reply 2.00 done 2
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+lacks 'exactly 2x median does not trip the outlier pause' '^pause: o/alpha#20 cost'
+has 'runs to completion instead' '^done: Ready queue exhausted'
+
+# --- carded: logged, not a failure, item still counted toward pause-every -------
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 0.50 carded 1
+reply 0.50 done 2
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 2
+has 'carded item logged distinctly' '^carded: o/alpha#5 -- First item'
+sess=$(latest_session)
+eq 'carded status recorded' 'carded' "$(jq -r '.items[0].status' "$sess")"
+has 'pauses on cadence after two items (one carded)' '^pause: 2 items processed this run'
+
+# --- pause-every cadence, exact count ---------------------------------------------
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 0.10 done 1
+reply 0.10 done 2
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+eq 'stops after exactly one item' 1 "$(calls_claude)"
+has 'pause names the cadence' 'pause every 1'
+
+# --- empty queue -----------------------------------------------------------------
+cat > "$S/ready.json" <<'JSON'
+[]
+JSON
+run
+eq 'exit 0 on an empty queue' 0 "$RC"
+has 'says nothing is ready' '^grind: no Ready items on o/alpha$'
+
+# --- not in a repo, no --repo given -----------------------------------------------
+cd "$S/nogit" || exit 1
+run
+eq 'exit 1 outside a repo without --repo' 1 "$RC"
+has 'says so' 'not in a GitHub repo'
+cd "$S/repo" || exit 1
+
+printf '%d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]
