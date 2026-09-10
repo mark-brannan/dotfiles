@@ -279,7 +279,7 @@ def labels: [(.labels.nodes // [])[].name];
       else $e[] | "\(.repo): \(.error)" end ] as $fails
 | [ $c.records[] | select(.data) | (.repo|split("/")[1]) as $s
     | (if .data.pullRequests.pageInfo.hasNextPage then "\($s): more than 50 open PRs -- PR buckets truncated" else empty end),
-      (if .data.issues.pageInfo.hasNextPage then "\($s): more than 100 open issues -- issue buckets and Untriaged truncated" else empty end) ] as $trunc
+      (if .data.issues.pageInfo.hasNextPage then "\($s): more than 100 open issues -- issue buckets, Untriaged and the stranded-branch pointer check truncated" else empty end) ] as $trunc
 | ($c.counts | if (.prs|type) == "string" and (.issues|type) == "string" and .prs == .issues and (.prs|test("^[0-9]")|not)
       then "unavailable (\(.prs))"
       else "\(.prs) open PRs, \(.issues) open issues across \($owner)" end) as $acct
@@ -295,7 +295,7 @@ def labels: [(.labels.nodes // [])[].name];
   + $fails + $trunc + [ $counts, "", "@@RULINGS@@",
   table_bucket("Solace'"'"'s turn"; "Notes"; $prs | map(select(awaiting_human))),
   table_bucket("Queued (auto-merge)"; "Notes"; $prs | map(select(.autoMergeRequest != null))),
-  table_bucket("Stranded branches (no PR)"; "Notes"; $stranded),
+  table_bucket("Stranded branches (no PR)"; "Notes"; $stranded | map(.item |= cut)),
   table_bucket("Ready"; "Updated"; $rd),
   table_bucket("Blocked"; "Updated"; $bl),
   table_bucket("Not ready (agent'"'"'s turn)"; "Notes"; $prs | map(select(.autoMergeRequest == null and (awaiting_human|not)))),
@@ -337,12 +337,16 @@ STRANDED_CANDIDATES='
 '
 
 # stranded_rows <cache file> -- {ref,item,notes} rows for the "Stranded
-# branches" bucket: a branch is dropped from the bucket, not merely
-# annotated, once a home names it -- a board card (names_branch against
-# $kb, set by board_path) or an open issue in the same repo (whole-token
-# match against title+body). Same names_branch as branch-home-gate.sh
-# (dotfiles#114), shared via lib-state.sh so a branch counts as pointed-at
-# the same way in both places. When lib-state.sh could not be found at all
+# branches" bucket, one row per branch (not grouped by repo) so brief mode's
+# row cap and "+N more" line work the same as every other bucket. A branch
+# is dropped from the bucket, not merely annotated, once a home names it --
+# a board card (names_branch against $kb, set by board_path) or an open
+# issue in the same repo (whole-token match against title+body). Same
+# names_branch as branch-home-gate.sh (dotfiles#114), shared via
+# lib-state.sh so a branch counts as pointed-at the same way in both
+# places. Only the first 100 open issues are ever fetched (see $trunc), so
+# a pointer past that page is missed the same way every other issue-derived
+# bucket already accepts. When lib-state.sh could not be found at all
 # (board_path never sourced it, so names_branch is undefined) every no-PR
 # branch is still listed -- "could not check for a pointer" is not the same
 # as "checked, found none".
@@ -360,11 +364,8 @@ stranded_rows() {
       fi
       [ "$pointed" = 0 ] && printf '%s\t%s\n' "$repo" "$branch"
     done
-  done | jq -R -s --arg brief "$brief" '
-    split("\n") | map(select(length > 0) | split("\t") | {repo:.[0], branch:.[1]})
-    | group_by(.repo)
-    | map({ref: .[0].repo, item: ([.[].branch] | join(", ")), notes: ""})
-    | if $brief == "1" then map(.item |= (if length > 80 then .[:77] + "..." else . end)) else . end
+  done | jq -R -s '
+    split("\n") | map(select(length > 0) | split("\t") | {ref:.[0], item:.[1], notes:""})
   '
 }
 
