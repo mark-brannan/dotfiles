@@ -144,14 +144,19 @@ resolve_path_arg() {
 # separator:
 #   "DENY"                    -- a yadm invocation: always a hit, decided
 #                                 here since it needs no path resolution.
-#   "G\t<KIND>\t<value>"      -- a git invocation: sh resolves KIND (CWD,
-#                                 the payload cwd with no value; C, a `-C`
-#                                 target; WORKTREE/GITDIR, a
+#   "G\t<KIND>\t<value>"      -- a git invocation: sh resolves KIND (C, a
+#                                 `-C` target; WORKTREE/GITDIR, a
 #                                 --work-tree/--git-dir or
-#                                 GIT_WORK_TREE=/GIT_DIR= value) and denies
-#                                 if any of them targets $HOME.
+#                                 GIT_WORK_TREE=/GIT_DIR= value; CWD, the
+#                                 payload cwd with no value, emitted only
+#                                 when the segment carries none of the
+#                                 other three -- a `-C`/`--work-tree`/
+#                                 `--git-dir` already pins where the
+#                                 command resolves, so the payload cwd is
+#                                 irrelevant once one is present) and
+#                                 denies if any of them targets $HOME.
 out=$(printf '%s\n' "$cmd" | awk "$(cat "$LIB")"'
-function segment(a, b, nested,   g, i, sidx, kind, is_yadm, dashdash) {
+function segment(a, b, nested,   g, i, sidx, kind, is_yadm, dashdash, found_target) {
   g = cmd_index(w, k, a, b, "(^|/)(git|yadm)$", nested, "")
   if (!g) return
   is_yadm = (w[g] ~ /(^|\/)yadm$/)
@@ -174,17 +179,18 @@ function segment(a, b, nested,   g, i, sidx, kind, is_yadm, dashdash) {
 
   if (is_yadm) { print "DENY"; return }
 
+  found_target = 0
   for (i = a; i <= b; i++) {
     if (k[i] != "w") continue
-    if (w[i] == "-C") { if (i + 1 <= b && k[i + 1] == "w") print "G\tC\t" w[i + 1]; continue }
-    if (w[i] == "--git-dir")        { if (i + 1 <= b && k[i + 1] == "w") print "G\tGITDIR\t" w[i + 1]; continue }
-    if (w[i] ~ /^--git-dir=/)       { print "G\tGITDIR\t" substr(w[i], index(w[i], "=") + 1); continue }
-    if (w[i] == "--work-tree")      { if (i + 1 <= b && k[i + 1] == "w") print "G\tWORKTREE\t" w[i + 1]; continue }
-    if (w[i] ~ /^--work-tree=/)     { print "G\tWORKTREE\t" substr(w[i], index(w[i], "=") + 1); continue }
-    if (w[i] ~ /^GIT_DIR=/)         { print "G\tGITDIR\t" substr(w[i], index(w[i], "=") + 1); continue }
-    if (w[i] ~ /^GIT_WORK_TREE=/)   { print "G\tWORKTREE\t" substr(w[i], index(w[i], "=") + 1); continue }
+    if (w[i] == "-C") { if (i + 1 <= b && k[i + 1] == "w") { print "G\tC\t" w[i + 1]; found_target = 1 }; continue }
+    if (w[i] == "--git-dir")        { if (i + 1 <= b && k[i + 1] == "w") { print "G\tGITDIR\t" w[i + 1]; found_target = 1 }; continue }
+    if (w[i] ~ /^--git-dir=/)       { print "G\tGITDIR\t" substr(w[i], index(w[i], "=") + 1); found_target = 1; continue }
+    if (w[i] == "--work-tree")      { if (i + 1 <= b && k[i + 1] == "w") { print "G\tWORKTREE\t" w[i + 1]; found_target = 1 }; continue }
+    if (w[i] ~ /^--work-tree=/)     { print "G\tWORKTREE\t" substr(w[i], index(w[i], "=") + 1); found_target = 1; continue }
+    if (w[i] ~ /^GIT_DIR=/)         { print "G\tGITDIR\t" substr(w[i], index(w[i], "=") + 1); found_target = 1; continue }
+    if (w[i] ~ /^GIT_WORK_TREE=/)   { print "G\tWORKTREE\t" substr(w[i], index(w[i], "=") + 1); found_target = 1; continue }
   }
-  print "G\tCWD\t"
+  if (!found_target) print "G\tCWD\t"
 }
 { buf = buf $0 "\n" }
 END {
