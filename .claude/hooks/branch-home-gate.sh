@@ -45,6 +45,15 @@ run_to() {
   if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi
 }
 
+# True when $1 appears as a whole branch-name token in text on stdin -- not
+# merely as a substring. `-w` alone is not enough: branch names are built
+# from hyphens too, so claude/homed-extra is a `-w` match for claude/homed.
+# Extract every maximal run of branch-name characters and require one to
+# equal the branch exactly.
+names_branch() {
+  grep -oE '[A-Za-z0-9._/-]+' | grep -qxF -- "$1"
+}
+
 payload=$(cat) || exit 0
 
 # stop_hook_active is the last-resort loop breaker: it suppresses blocking
@@ -136,20 +145,33 @@ do_abandon() {
   fi
 
   sha=$(git -C "$work_root" rev-parse --short HEAD 2>/dev/null || echo '?')
-  if git -C "$work_root" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+  git -C "$work_root" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1
+  remote_rc=$?
+  # Exit 2 means ls-remote reached origin and found no matching ref: the
+  # branch is confirmed absent there. Any other nonzero (network, auth, a
+  # dead remote) is "could not check", not "not there" -- and must not be
+  # treated as license to delete the only copy.
+  if [ "$remote_rc" -eq 0 ]; then
     # Refspec form, not --delete: a ref name is never mistaken for a flag.
     if run_to 60 git -C "$work_root" push -q origin ":refs/heads/$branch" >/dev/null 2>&1; then
       remote=deleted
     else
       remote="NOT deleted (push failed)"
     fi
-  else
+  elif [ "$remote_rc" -eq 2 ]; then
     remote="not on the remote"
+  else
+    remote="NOT deleted (could not verify remote, ls-remote exit $remote_rc)"
   fi
 
-  local_state=deleted
+  # Only delete the local branch once the remote side is a confirmed absence
+  # or a confirmed deletion -- never on an indeterminate remote check.
+  case "$remote" in
+    deleted|"not on the remote") local_state=deleted ;;
+    *) local_state="kept ($remote)" ;;
+  esac
   cur=$(git -C "$work_root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')
-  if [ "$cur" = "$branch" ]; then
+  if [ "$local_state" = deleted ] && [ "$cur" = "$branch" ]; then
     # The branch is checked out here, so detach first. Uncommitted changes
     # survive a detach; the commits stay reachable through the reflog.
     git -C "$work_root" checkout -q --detach >/dev/null 2>&1 \
@@ -177,7 +199,7 @@ abandon_requested && do_abandon
 found=
 unverified=
 board="$(state_dir)/kanban.md"
-if [ -f "$board" ] && grep -Fq -- "$branch" "$board" 2>/dev/null; then
+if [ -f "$board" ] && names_branch "$branch" < "$board" 2>/dev/null; then
   found="a card on $board names it"
 fi
 
@@ -198,8 +220,14 @@ fi
 
 if [ -z "$found" ] && [ -z "$unverified" ]; then
   if iss=$( (cd "$work_root" && run_to 30 gh issue list --state open --limit 200 --json number,title,body) 2>/dev/null ); then
-    num=$(printf '%s' "$iss" | jq -r --arg b "$branch" \
-      'map(select(((.title // "") + " " + (.body // "")) | contains($b))) | .[0].number // empty' 2>/dev/null)
+    # Whole-token match via names_branch, same as the board check: jq's
+    # `contains` is a plain substring test and gives claude/foobar's issue
+    # to claude/foo too.
+    num=$(printf '%s' "$iss" | jq -r \
+      '.[] | [.number, (((.title // "") + " " + (.body // "")) | gsub("\n";" "))] | @tsv' 2>/dev/null \
+      | while IFS="$(printf '\t')" read -r n text; do
+          printf '%s' "$text" | names_branch "$branch" && { printf '%s\n' "$n"; break; }
+        done)
     [ -n "$num" ] && found="open issue #$num names it"
   else
     unverified="gh issue list failed (not authenticated here?)"

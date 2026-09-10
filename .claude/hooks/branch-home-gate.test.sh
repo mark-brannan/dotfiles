@@ -139,6 +139,18 @@ gitq "$SR" checkout -- state/global/kanban.md 2>/dev/null || \
 GH_ISSUES='[{"number":4,"title":"t","body":"the work is on claude/homed"}]' \
   check silent 'an open issue names the branch' h3
 
+# A card or issue naming a longer branch must not give a false home to its
+# prefix: claude/homed-extra does not mean claude/homed has one.
+setup_repo claude/homed
+printf -- '- [ ] **Design lives on `claude/homed-extra`** ([log](log/e.md))\n' >> "$BOARD"
+GH_FAIL=1 check block 'a board card for a longer branch is not a home' h4
+gitq "$SR" checkout -- state/global/kanban.md 2>/dev/null || \
+  printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Something else** ([log](log/x.md))\n' > "$BOARD"
+
+setup_repo claude/homed
+GH_ISSUES='[{"number":5,"title":"t","body":"the work is on claude/homed-extra"}]' \
+  check block 'an open issue for a longer branch is not a home' h5
+
 # --- no home ------------------------------------------------------------------
 setup_repo claude/orphan
 check block 'ahead, no PR, no card, no issue'   b1
@@ -222,6 +234,16 @@ transcript "abandon"
 check other 'abandon a branch that was never pushed' a5
 reason 'says there was nothing on the remote'    'remote not on the remote'
 no 'the local branch is gone'  gitq "$WORK" rev-parse --verify claude/local
+
+# An unreachable remote is "could not check", not "not there": the local
+# branch must survive when ls-remote itself fails (not just reports absent).
+setup_repo claude/unreachable
+gitq "$WORK" remote set-url origin "$SCRATCH/no-such-remote.git"
+transcript "abandon"
+check other 'abandon when the remote cannot be reached' a7
+reason 'says the remote could not be verified'  'could not verify remote'
+ok 'the local branch is kept, not deleted on an indeterminate remote' \
+   [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = claude/unreachable ]
 
 # $HOME is the yadm gate's; never delete a branch out from under it.
 setup_repo claude/athome
