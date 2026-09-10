@@ -222,6 +222,13 @@ has 'a restarted clock frees the other session to speak again' \
 REPO="$SCRATCH/repo"; mkdir -p "$REPO"
 git -C "$REPO" init -q -b feat/nags
 git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+# A real upstream, pushed and clean -- these tests are about the sitting
+# clock and the Stop block, not about unpushed work, and a branch with no
+# upstream at all is its own "not archivable" reason (metrics-live's
+# archivable() checks that before anything else below runs).
+git init -q --bare "$SCRATCH/repo.git"
+git -C "$REPO" remote add origin "$SCRATCH/repo.git"
+git -C "$REPO" push -q -u origin feat/nags
 cat > "$SCRATCH/bin/gh" <<'GH'
 #!/bin/sh
 echo 1
