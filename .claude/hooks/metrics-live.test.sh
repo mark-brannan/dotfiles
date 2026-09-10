@@ -365,6 +365,70 @@ ctx6d=$(payload "$TP6b" "$SID6b" "$SCRATCH" \
 t 'one jump across three stop-eligible rungs still sends one line' \
   1 "$(printf '%s' "$ctx6d" | grep -c 'stopping point\|Already raised')"
 
+# --- 6b. model injection: sitting clock, mirrors section 6 --------------------
+# Same shape as the context ladder: nothing below the first rung, the first
+# crossing offers the action, a later crossing at a higher rung still names
+# the first rung it was raised at -- and a sitting-clock restart (rung back to
+# 0) clears m_sit_at so the line can fire again on the next real crossing.
+SID6e=sitmodel
+sitting "$SID6e" 40 10
+out6e=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+t 'below the first sitting rung, nothing reaches the model' '' "$(ctx "$out6e")"
+
+clock 61 10
+out6f=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+has 'the first sitting crossing offers a break' \
+    'Sitting 1h01 at this machine, past 1h00. Say so and offer a break.' "$(ctx "$out6f")"
+
+clock 121 10
+out6g=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+has 'a later sitting crossing names the earlier rung raised' \
+    'Already raised at 1h00' "$(ctx "$out6g")"
+hasnt 'and does not repeat the break offer' 'offer a break' "$(ctx "$out6g")"
+
+clock 5 2
+out6h=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+t 'a sitting-clock restart resets the model side too' '' "$(ctx "$out6h")"
+
+clock 61 10
+out6i=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+has 'so the next real crossing offers again, not "already raised"' \
+    'past 1h00. Say so and offer a break.' "$(ctx "$out6i")"
+clock_clear
+
+# --- 6c. model injection: decision load, mirrors section 6 --------------------
+# askturn() is turn() with an assistant "ask" message, the shape
+# session-metrics.jq counts as a decision pushed to the user.
+askturn() {  # like turn(), but the assistant text is an ask
+  jq -nc --arg ts "2026-09-09T10:00:00.000Z" \
+    '{type:"assistant", timestamp:$ts, requestId:("q-" + (now|tostring)),
+      message:{model:"claude-opus-5", role:"assistant",
+               content:[{type:"text", text:"Which way should this go?"}],
+               usage:{input_tokens:40000, output_tokens:10,
+                      cache_read_input_tokens:0, cache_creation_input_tokens:0}}}' >> "$1"
+  jq -nc --arg ts "2026-09-09T10:00:00.000Z" \
+    '{type:"queue-operation", operation:"enqueue", timestamp:$ts,
+      sessionId:"t", content:"the first one"}' >> "$1"
+}
+TP6c="$SCRATCH/decmodel.jsonl"; SID6c=decmodel
+turn "$TP6c" 40000
+ctx6j=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+t 'below the first decision rung, nothing reaches the model' '' "$ctx6j"
+
+for _ in 1 2 3; do askturn "$TP6c"; done
+ctx6k=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+has 'the first decision crossing offers to front-load or card' \
+    '3 decisions pushed to Solace this session .* past 3\. Front-load or card the rest\.' "$ctx6k"
+
+for _ in 1 2; do askturn "$TP6c"; done
+ctx6l=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+has 'a later decision crossing names the earlier rung raised' \
+    'past 5\. Already raised at 3 and not acted on\.' "$ctx6l"
+hasnt 'and does not repeat the front-load offer' 'Front-load or card the rest\.' "$ctx6l"
+
 # --- 7. the sitting line carries git state once #129 makes it safe to ---------
 # dotfiles#132's third deferred item, reconciled now that #129 landed: a dirty
 # or unpushed tree is exactly the fact the "stop here" verdict needs. A fresh
