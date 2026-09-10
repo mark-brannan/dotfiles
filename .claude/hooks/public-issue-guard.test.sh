@@ -154,6 +154,9 @@ check allow 'other tool'             "$(jq -n '{tool_name:"Read",tool_input:{fil
 # own.
 check deny 'add-label churn-ok'      "$(bash_in "$PUB" 'gh pr edit 12 --add-label churn-ok')"
 reason 'names the label'             'churn-ok'
+# The one bypass a review actually found: the compare folds case, and
+# GitHub label names are unique case-insensitively, so CHURN-OK reaches it.
+check deny 'add-label CHURN-OK'      "$(bash_in "$PUB" 'gh pr edit 12 --add-label CHURN-OK')"
 check deny 'churn-ok through gh api' "$(bash_in "$PUB" 'gh api repos/mark-brannan/dotfiles/issues/12/labels -f "labels[]=churn-ok"')"
 check allow 'another label is fine'  "$(bash_in "$PUB" 'gh pr edit 12 --add-label ready')"
 check allow 'the label named in a body' "$(bash_in "$PUB" 'gh pr comment 12 -b "this needs the churn-ok label"')"
