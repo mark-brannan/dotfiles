@@ -275,7 +275,7 @@ must every library a hook loads (`lib-*.awk`).** A convenience hook wired in
 settings but missing from the seed is a silent no-op in every cloud session —
 its settings entry is `[ -f ]`-guarded and ends in `|| true`, so it looks
 identical to a hook that ran and found nothing to do. A gate hook
-(`no-git-reset-hard`, `no-git-footguns`, `no-rm-tree`, `no-unsigned-push`) is
+(`no-git-footguns`, `no-rm-tree`, `no-unsigned-push`) is
 the opposite: its entry denies when the file is missing or crashes, so a
 seed gap there blocks every Bash call with a message naming the hook. After
 editing either file, diff the two lists (CI runs the same check):
