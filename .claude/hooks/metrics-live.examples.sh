@@ -29,7 +29,7 @@ turn "$TP" 152000
 out=$(payload "$TP" a "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 printf '  %s\n' "$(msg "$out")"
 
-show "one jump crosses five rungs at once (350k)"
+show "one jump crosses six rungs at once (350k)"
 TP2="$SCRATCH/b.jsonl"; turn "$TP2" 350000
 out=$(payload "$TP2" b "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 printf '%s\n' "$(msg "$out")" | sed 's/^/  /'
