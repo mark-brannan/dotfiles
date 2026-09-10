@@ -92,10 +92,10 @@ esc() { printf '%s' "$1" | sed 's/|/\\|/g'; }
 cut80() { if [ "$brief" = 1 ]; then printf '%s' "$1" | cut -c1-77; else printf '%s' "$1"; fi; }
 
 # --- collect ---------------------------------------------------------------
-# One record per line: mtime<TAB>path<TAB>branch<TAB>next<TAB>model<TAB>effort
-# One record per line, US-separated: mtime path branch next model effort
-#   repo worktree note
-# two adjacent separators into one and shift every later column.
+# One record per line, unit-separator (\037) delimited: mtime path branch
+# next model effort repo worktree note. Not a tab: tab is IFS whitespace, so
+# `read` would collapse an empty field's two adjacent separators into one and
+# shift every later column.
 sep=$(printf '\037')
 recs=""
 for f in "$auto"/*.md; do
