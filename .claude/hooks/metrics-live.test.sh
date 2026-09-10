@@ -562,10 +562,13 @@ OUT10="$STATE/metrics/live/race.json"
 payload "$TP10" race "$REPO10" Stop \
   | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show > "$SCRATCH/o10.out" 2>&1 &
 hook_pid=$!
+until [ -f "$OUT10" ]; do :; done
 rm -f "$OUT10"
 wait "$hook_pid"
 o10=$(cat "$SCRATCH/o10.out")
 has 'the block still opens with $OUT removed mid-run' '^(»|⛁)' "$(msg "$o10")"
+t   '$OUT was actually gone when the hook read it' absent \
+    "$( [ -f "$OUT10" ] && echo present || echo absent )"
 cat > "$SCRATCH/bin/gh" <<'GH'
 #!/bin/sh
 echo 1
