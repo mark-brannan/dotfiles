@@ -266,7 +266,7 @@ for v in ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tr
 done
 # -1 is a nag file written before the clock moved out of it: its time_line
 # belongs to a sitting nobody can name, so it is spent rather than trusted.
-[ "$tl_sitting" -eq "$sit_start" ] || { time_line=0; m_sit_at=0; tl_sitting=$sit_start; }
+[ "$tl_sitting" -eq "$sit_start" ] || { time_line=0; tl_sitting=$sit_start; }
 
 # A nag file written before context_rungs/context_stop_line existed has
 # context_line but defaults both new fields to 0 -- read literally, a session
@@ -496,17 +496,25 @@ if [ "$run_engine" -eq 1 ]; then
       add_line "$t"; record_crossing time "$n" "$t"
       time_line=$n
     fi
-    # Model side: same clock, its own cadence -- every prompt once the
-    # sitting is over the first rung.
-    r=$(rung_of "$NAG_SIT_EVERY_MIN" "$NAG_SIT_EVERY_MIN" "$sit_min")
-    if [ "$r" -gt 0 ]; then
-      if [ "$r" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then sit_verdict="Stop here and run /wrapup."
-      else sit_verdict="Say so and offer a break."; fi
+  fi
+
+  # Model side of the sitting clock. Reads the same thresholds the screen
+  # line does and defines none of its own; a rung of 0 means the shared clock
+  # restarted, which spends the injection with it.
+  if [ "$is_prompt" -eq 1 ] && [ "$NAG_SIT_EVERY_MIN" -gt 0 ] \
+     && [ "$sit_start" -gt 0 ]; then
+    m_min=$(( (now_ts - sit_start) / 60 ))
+    r=$(rung_of "$NAG_SIT_EVERY_MIN" "$NAG_SIT_EVERY_MIN" "$m_min")
+    if [ "$r" -eq 0 ]; then
+      m_sit_at=0
+    else
+      if [ "$r" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then sv="Stop here and run /wrapup."
+      else sv="Say so and offer a break."; fi
       if [ "$m_sit_at" -eq 0 ]; then
         m_sit_at=$r
-        add_model "Sitting $(hm "$sit_min") at this machine, past $(hm "$r"). $sit_verdict"
+        add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). $sv"
       else
-        add_model "Sitting $(hm "$sit_min"), past $(hm "$r"). Already raised at $(hm "$m_sit_at") and not acted on. $sit_verdict"
+        add_model "Sitting $(hm "$m_min"), past $(hm "$r"). Already raised at $(hm "$m_sit_at") and not acted on. $sv"
       fi
     fi
   fi
