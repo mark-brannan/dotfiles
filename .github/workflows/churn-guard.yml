@@ -81,8 +81,9 @@ jobs:
           fi
 
           count=$(wc -l < gated.txt)
-          lines=$(git diff --numstat "$base...HEAD" \
-            --pathspec-from-file=gated.txt \
+          # $(cat) unquoted on purpose: no path in this repo has a space,
+          # and git diff has no --pathspec-from-file.
+          lines=$(git diff --numstat "$base...HEAD" -- $(cat gated.txt) \
             | awk '{ a += $1 + $2 } END { print a + 0 }')
           echo "scripts touched ($count):"
           sed 's/^/  /' gated.txt
