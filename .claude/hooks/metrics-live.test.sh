@@ -335,9 +335,9 @@ t 'six rungs cross in one jump, in order' \
   "$(jq -r 'select(.kind == "context") | .at' "$STATE/metrics/crossings/$SID5.jsonl" 2>/dev/null)"
 
 # --- 6. model injection rides its own context ladder -------------------------
-# Below the first NAG_MODEL_CONTEXT_LINES rung (105k default) nothing reaches
-# the model. At or above it the first prompt offers a stopping point; every
-# prompt after says plainly it was already raised, instead of repeating it.
+# Below the first rung, nothing reaches the model. At or above it, the first
+# prompt offers a stopping point and every prompt after says it was already
+# raised.
 TP6="$SCRATCH/inject.jsonl"; SID6=inject
 turn "$TP6" 103000
 ctx6a=$(payload "$TP6" "$SID6" "$SCRATCH" \

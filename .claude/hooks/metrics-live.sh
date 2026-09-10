@@ -407,7 +407,7 @@ if [ "$run_engine" -eq 1 ]; then
     save_sitting
   fi
 
-  IFS=$'\t' read -r ctx gates decs fric_total fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
+  IFS=$'\t' read -r ctx gates decisions fric_total fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
     --argjson w "$NAG_FRICTION_TURNS" \
     '(.session.user_turns // 0) as $t
      | [ (.session.context_peak // 0),
@@ -419,7 +419,7 @@ if [ "$run_engine" -eq 1 ]; then
             | select((.turn_ordinal // 0) > ($t - $w)) ] | length) ] | @tsv')"
   [ -n "${ctx:-}" ] || ctx=0
   [ -n "${gates:-}" ] || gates=0
-  [ -n "${decs:-}" ] || decs=0
+  [ -n "${decisions:-}" ] || decisions=0
   [ -n "${fric_total:-}" ] || fric_total=0
   [ -n "${fric_win:-}" ] || fric_win=0
 
@@ -535,13 +535,13 @@ if [ "$run_engine" -eq 1 ]; then
   # user this session -- scoping, inline and gate -- not gate alone: the
   # capacity that runs out is the capacity to decide, whatever kind.
   if [ "$is_prompt" -eq 1 ]; then
-    r=$(rung_of "$NAG_MODEL_DECISION_LINES" "$NAG_MODEL_DECISION_STEP" "$decs")
+    r=$(rung_of "$NAG_MODEL_DECISION_LINES" "$NAG_MODEL_DECISION_STEP" "$decisions")
     if [ "$r" -gt 0 ]; then
       if [ "$m_dec_at" -eq 0 ]; then
         m_dec_at=$r
-        add_model "$decs decisions pushed to Solace this session ($gates of them gates), past $r. Front-load or card the rest."
+        add_model "$decisions decisions pushed to Solace this session ($gates of them gates), past $r. Front-load or card the rest."
       else
-        add_model "$decs decisions pushed to Solace this session ($gates of them gates), past $r. Already raised at $m_dec_at and not acted on."
+        add_model "$decisions decisions pushed to Solace this session ($gates of them gates), past $r. Already raised at $m_dec_at and not acted on."
       fi
     fi
   fi
