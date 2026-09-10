@@ -43,9 +43,9 @@ HERE=$(dirname "$0")
 LIB="$HERE/lib-shell-words.awk"
 PRIVATE_REPO="mark-brannan/claude_prompts_scratch"
 # Labels a session may not apply, space separated. `churn-ok` waives the
-# metrics churn gate (.github/workflows/metrics-churn.yml): a gate whose
-# bypass the gated party can apply to its own PR is not a gate, so that
-# label is a human's to add.
+# churn gate (.github/workflows/churn-guard.yml): a gate whose bypass the
+# gated party can apply to its own PR is not a gate, so that label is a
+# human's to add.
 DENY_LABELS="churn-ok"
 
 deny() {
@@ -231,7 +231,7 @@ while IFS="$(printf '\t')" read -r kind value; do
   [ "$kind" = L ] || continue
   value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
   for bad in $DENY_LABELS; do
-    [ "$value" = "$bad" ] && deny "the label \`$bad\` is a human's to apply, not a session's -- it waives the metrics churn gate, and a gate whose bypass the gated party can reach is not a gate. Split the PR instead, or say in the PR body why it has to be over budget and let the label be added by hand."
+    [ "$value" = "$bad" ] && deny "the label \`$bad\` is a human's to apply, not a session's -- it waives the churn gate, and a gate whose bypass the gated party can reach is not a gate. Split the PR instead, or say in the PR body why it has to be over budget and let the label be added by hand."
   done
 done < "$META"
 
