@@ -91,10 +91,10 @@ askturn() {  # like turn(), but the assistant text is an ask
       sessionId:"t", content:"the first one"}' >> "$1"
 }
 TP6="$SCRATCH/g.jsonl"; turn "$TP6" 40000
-for i in 1 2 3; do askturn "$TP6"; done
+for _ in 1 2 3; do askturn "$TP6"; done
 out=$(payload "$TP6" g "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 printf '  additionalContext: %s\n' "$(ctx "$out")"
-for i in 4 5; do askturn "$TP6"; done
+for _ in 1 2; do askturn "$TP6"; done
 out=$(payload "$TP6" g "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 printf '  additionalContext: %s\n' "$(ctx "$out")"
 rm -f "$SITFILE"
