@@ -57,6 +57,9 @@ jobs:
           set -euo pipefail
           git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
           base="origin/$BASE_REF"
+          # A temp file, never a path in the checkout: running this script by
+          # hand must not leave an untracked artefact in the worktree.
+          gated=$(mktemp)
 
           # A script is a file with a shebang, read out of the commit rather
           # than the worktree so this is exact wherever it runs; .jq files
@@ -73,20 +76,20 @@ jobs:
                 case "$sig" in
                   '#!') printf '%s\n' "$f" ;;
                 esac
-              done > gated.txt || true
+              done > "$gated" || true
 
-          if [ ! -s gated.txt ]; then
+          if [ ! -s "$gated" ]; then
             echo "ok: no script touched"
             exit 0
           fi
 
-          count=$(wc -l < gated.txt)
+          count=$(wc -l < "$gated")
           # $(cat) unquoted on purpose: no path in this repo has a space,
           # and git diff has no --pathspec-from-file.
-          lines=$(git diff --numstat "$base...HEAD" -- $(cat gated.txt) \
+          lines=$(git diff --numstat "$base...HEAD" -- $(cat "$gated") \
             | awk '{ a += $1 + $2 } END { print a + 0 }')
           echo "scripts touched ($count):"
-          sed 's/^/  /' gated.txt
+          sed 's/^/  /' "$gated"
           echo "changed lines: $lines (budget $BUDGET)"
 
           over=""
