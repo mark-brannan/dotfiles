@@ -363,9 +363,17 @@ if [ "$run_engine" -eq 1 ]; then
   [ -n "${fric_total:-}" ] || fric_total=0
   [ -n "${fric_win:-}" ] || fric_win=0
 
-  # Note for agents: do not modify without direct, explicit interaction with Solace.
-  # If changing the display, you must show in the chat session
-  # examples of the expected output, before and after.
+  # Note for agents: do not modify this block without direct, explicit
+  # interaction with Solace.
+  #
+  # Changes here are small and contained -- one glyph/family at a time.
+  # Never a wholesale rewrite: don't drop an existing glyph, family, or
+  # behavior (⛁ ⚖ ⚡ ⏱ 🔧 ...) without her explicit call to drop it.
+  #
+  # Before touching this line: propose it visually in-chat first --
+  # rendered before/after examples, not a description of the change.
+  # Before merging: the PR description carries those same rendered
+  # examples. Prose alone does not satisfy this.
   #
   # context -- lines ascending, so a jump past several of them reports each in
   # order. The ladder is the configured lines, then NAG_CONTEXT_STEP forever
