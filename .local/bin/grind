@@ -179,6 +179,16 @@ if [ "$dry_run" -eq 0 ]; then
 fi
 skipped=0
 
+# Every way out of the loop goes through here so a skipped item fails the
+# run whether it ended by pause or by exhausting the queue.
+finish() {
+  if [ "$skipped" -gt 0 ]; then
+    err "$skipped item(s) skipped (worktree could not be created); see WARN lines above"
+    exit 1
+  fi
+  exit 0
+}
+
 # --- one worktree per item -----------------------------------------------------
 worktree_root=${TMPDIR:-/tmp}/grind-worktrees
 
@@ -235,7 +245,7 @@ while [ "$i" -lt "$count" ]; do
       printf 'pause: session budget reached (%s / %s). %d item(s) processed this run.\n' \
         "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$processed_this_run"
       printf 'resume: %s\n' "$resume_cmd"
-      exit 0
+      finish
     fi
   fi
 
@@ -348,19 +358,19 @@ while [ "$i" -lt "$count" ]; do
     printf 'pause: session budget reached (%s / %s). %d item(s) processed this run.\n' \
       "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$processed_this_run"
     printf 'resume: %s\n' "$resume_cmd"
-    exit 0
+    finish
   fi
   if [ "$outlier" -eq 1 ]; then
     printf 'pause: %s cost %s, more than twice the running median (%s). %d item(s) processed this run.\n' \
       "$ref" "$(fmt_usd "$cost")" "$(fmt_usd "$prior_median")" "$processed_this_run"
     printf 'resume: %s\n' "$resume_cmd"
-    exit 0
+    finish
   fi
   if [ "$processed_this_run" -ge "$pause_every" ]; then
     printf 'pause: %d items processed this run (pause every %d). Running total %s / %s.\n' \
       "$processed_this_run" "$pause_every" "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")"
     printf 'resume: %s\n' "$resume_cmd"
-    exit 0
+    finish
   fi
 done
 
@@ -369,7 +379,4 @@ if [ "$dry_run" -eq 1 ]; then
 fi
 
 printf 'done: Ready queue exhausted. Running total %s / %s. %d skipped.\n' "$(fmt_usd "$running_total")" "$(fmt_usd "$session_budget")" "$skipped"
-if [ "$skipped" -gt 0 ]; then
-  err "$skipped item(s) skipped (worktree could not be created); see WARN lines above"
-  exit 1
-fi
+finish

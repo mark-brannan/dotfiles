@@ -148,6 +148,13 @@ has 'WARN line for the skip names the item and the branch' 'WARN  skipping o/alp
 has 'the other item still runs' '^o/alpha#20: Second item --'
 has 'tally counts the skip' 'Ready queue exhausted\. .* 1 skipped\.$'
 has 'ERR line at the end' 'ERR   1 item\(s\) skipped'
+
+# same skip, but the run ends on the cadence pause instead of the queue: still exit 1
+rm -f "$S/state/grind"/*.json
+run --session-budget 100 --pause-every 1
+eq 'exit 1 when a skip precedes a pause' 1 "$RC"
+has 'the pause line still prints' '^pause: 1 items processed this run'
+has 'ERR line after the pause' 'ERR   1 item\(s\) skipped'
 git -C "$S/repo" worktree remove -f "$S/wt5" >/dev/null 2>&1; git -C "$S/repo" branch -D grind-5 >/dev/null 2>&1
 
 # --- outlier pause: one item costs more than twice the running median -----------
