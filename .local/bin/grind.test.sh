@@ -80,7 +80,6 @@ latest_session() { ls -t "$S/state/grind"/*.json 2>/dev/null | head -1; }
 run --dry-run
 eq 'exit 0' 0 "$RC"
 eq 'no claude call in dry-run' 0 "$(calls_claude)"
-first_line=$(printf '%s\n' "$OUT" | grep -m1 '^\[')
 has 'first item is the lower-numbered one' '^\[1/2\] o/alpha#5 -- First item$'
 has 'second item follows' '^\[2/2\] o/alpha#20 -- Second item$'
 lacks 'blocked item excluded' 'alpha#9'
@@ -94,8 +93,8 @@ has 'overrides reach the command line' -- '--max-budget-usd 2 --model opus --eff
 
 # --- a real run: cost/tokens parsed, running total and percent printed ----------
 rm -f "$S/claude-replies"/*.json
-reply 1.00 done 1
-reply 2.00 done 2
+reply 1.00 "done" 1
+reply 2.00 "done" 2
 : > "$CLAUDE_LOG"
 run --session-budget 20 --pause-every 5
 eq 'exit 0' 0 "$RC"
@@ -112,8 +111,8 @@ eq 'two items recorded in state' 2 "$(jq '.items | length' "$sess")"
 # rule rather than every threshold firing on every item.
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
-reply 5.00 done 1    # 25% of 20
-reply 15.00 done 2   # +75% = 100% -> budget reached, 75% line (not 50%) fires
+reply 5.00 "done" 1    # 25% of 20
+reply 15.00 "done" 2   # +75% = 100% -> budget reached, 75% line (not 50%) fires
 : > "$CLAUDE_LOG"
 run --session-budget 20 --pause-every 10
 has '25% line on the first item' '\*\*\* 25% of session budget spent \(\$5\.00 / \$20\.00\) \*\*\*'
@@ -122,9 +121,7 @@ lacks '50% line skipped -- one line per item, loudest threshold reached' '50% of
 eq 'no line printed twice' 1 "$(printf '%s\n' "$OUT" | grep -c '25% of session budget')"
 has 'pauses when the session budget is reached' '^pause: session budget reached \(\$20\.00 / \$20\.00\)\.'
 sess=$(latest_session)
-resume_line=$(printf '%s\n' "$OUT" | grep '^resume: ')
 has 'exact resume command printed' '^resume: grind --resume grind-'
-resume_cmd=${resume_line#resume: }
 
 # --- --resume skips already-processed items and keeps the same session file -----
 session_id=$(basename "$sess" .json)
@@ -138,8 +135,8 @@ eq 'state file unchanged (still 2 items)' 2 "$(jq '.items | length' "$sess")"
 # --- outlier pause: one item costs more than twice the running median -----------
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
-reply 1.00 done 1
-reply 3.00 done 2
+reply 1.00 "done" 1
+reply 3.00 "done" 2
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 10
 has 'pauses on the outlier, not the budget' '^pause: o/alpha#20 cost \$3\.00, more than twice the running median \(\$1\.00\)'
@@ -148,8 +145,8 @@ eq 'only the second item ran before the pause' 2 "$(calls_claude)"
 # equal-to-twice-median is not an outlier -- confirms a strict >, not >=.
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
-reply 1.00 done 1
-reply 2.00 done 2
+reply 1.00 "done" 1
+reply 2.00 "done" 2
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 10
 lacks 'exactly 2x median does not trip the outlier pause' '^pause: o/alpha#20 cost'
@@ -158,8 +155,8 @@ has 'runs to completion instead' '^done: Ready queue exhausted'
 # --- carded: logged, not a failure, item still counted toward pause-every -------
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
-reply 0.50 carded 1
-reply 0.50 done 2
+reply 0.50 "carded" 1
+reply 0.50 "done" 2
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 2
 has 'carded item logged distinctly' '^carded: o/alpha#5 -- First item'
@@ -170,8 +167,8 @@ has 'pauses on cadence after two items (one carded)' '^pause: 2 items processed 
 # --- pause-every cadence, exact count ---------------------------------------------
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
-reply 0.10 done 1
-reply 0.10 done 2
+reply 0.10 "done" 1
+reply 0.10 "done" 2
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 1
 eq 'stops after exactly one item' 1 "$(calls_claude)"
