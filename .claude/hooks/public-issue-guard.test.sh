@@ -155,6 +155,7 @@ check deny 'add-label churn-ok'      "$(bash_in "$PUB" 'gh pr edit 12 --add-labe
 reason 'names the label'             'churn-ok'
 check deny 'churn-ok among others'   "$(bash_in "$PUB" 'gh pr edit 12 --add-label "bug,churn-ok"')"
 check deny 'churn-ok with ='         "$(bash_in "$PUB" 'gh issue edit 3 --add-label=churn-ok')"
+check deny 'churn-ok in another case' "$(bash_in "$PUB" 'gh pr edit 12 --add-label CHURN-OK')"
 check deny 'churn-ok at create'      "$(bash_in "$PUB" 'gh issue create -t x -b "all public" --label churn-ok')"
 check deny 'churn-ok on the private repo' "$(bash_in "$PUB" "gh pr edit 12 --repo $PRIVATE --add-label churn-ok")"
 check deny 'churn-ok through gh api' "$(bash_in "$PUB" 'gh api repos/mark-brannan/dotfiles/issues/12/labels -f "labels[]=churn-ok"')"

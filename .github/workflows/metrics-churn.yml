@@ -35,6 +35,9 @@ jobs:
     env:
       BUDGET: 60
       LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+      # Through env, never interpolated into the script: a context expression
+      # pasted into shell is the standard injection hole, whoever owns the ref.
+      BASE_REF: ${{ github.base_ref }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,9 +46,8 @@ jobs:
       - name: One metrics file, under the line budget
         run: |
           set -euo pipefail
-          base_ref="${{ github.base_ref }}"
-          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
-          base="origin/$base_ref"
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base="origin/$BASE_REF"
 
           # Gated: the metrics sources. A test, an example and the
           # requirements doc are how a change is explained, so they never
