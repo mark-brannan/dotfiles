@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Tests for abandon-branch.sh. Run: bash .claude/hooks/abandon-branch.test.sh
 #
-# Not wired to anything (dotfiles#115) -- this only checks the script itself:
-# it deletes on both sides when it can confirm the remote side, refuses in
+# Deletes on both sides when it can confirm the remote side, refuses in
 # $HOME, and never deletes the local branch on an indeterminate remote check
 # (network/auth failure, not a confirmed absence).
 set -uo pipefail

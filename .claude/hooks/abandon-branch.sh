@@ -1,15 +1,6 @@
 #!/bin/sh
-# Deletes a branch locally and on its remote, deliberately.
-#
-# NOT WIRED UP. This is the abandon half that used to live inside
-# branch-home-gate.sh (split out in dotfiles#115); nothing calls this script
-# yet, on purpose. branch-home-gate.sh's own `abandon` outcome was flagged in
-# review (PR #114) as an injection surface: it authorized this same deletion
-# from the session's own last assistant message, which content Claude reads
-# mid-session could in principle steer without the user having said so.
-# Whether this becomes a skill (explicit invocation), gets wired back into a
-# hook, or moves to a record-now/delete-at-sweep model is still open --
-# dotfiles#115 tracks the decision. Until then, run it by hand.
+# Deletes a branch locally and on its remote, deliberately. Split out of
+# branch-home-gate.sh; see dotfiles#115.
 #
 # Usage: abandon-branch.sh [-C <path>] [<branch>]
 #   -C <path>   the repo to act in (default: cwd)

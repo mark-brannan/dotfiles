@@ -7,8 +7,7 @@
 # nothing ahead, no origin, not a repo); a PR, a board card or an open issue
 # each count as a home, and a false substring match doesn't; nothing at all
 # blocks once and only once per session; "cannot look" blocks rather than
-# passing. Deletion (`abandon`) is not this script's job any more --
-# abandon-branch.test.sh covers that.
+# passing.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 

@@ -15,13 +15,8 @@
 # path costs nothing: HEAD on the default branch, a detached HEAD, no origin,
 # or no commits ahead and the hook exits before any network call.
 #
-# Read-only: this hook only detects and blocks. It used to also delete a
-# branch on request (`abandon`); that authorized a destructive action from
-# the session's own last assistant message, which review on PR #114 flagged
-# as an injection surface -- content Claude reads mid-session could in
-# principle steer it into emitting that line unprompted. Split out to
-# abandon-branch.sh (dotfiles#115), left disconnected until record-vs-delete
-# and skill-vs-hook are decided.
+# Read-only: detects and blocks, never deletes. Abandon lives in its own
+# script now, abandon-branch.sh; see dotfiles#115.
 #
 # Two outcomes:
 #   pass      a PR, a board card or an open issue names the branch
