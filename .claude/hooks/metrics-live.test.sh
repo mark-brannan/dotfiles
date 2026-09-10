@@ -497,6 +497,19 @@ has 'a dirty tree appends git state to the same line' '⇢ [0-9]+ ⚙ [0-9]+ ⎇
 # writing $OUT and reaching the display check. If that delete lands in the
 # window, the display must still open with the block -- it comes from
 # $metrics/$merged in memory now, not a re-read of the cache file.
+#
+# A clean, pushed repo of its own -- not $REPO, which carries the leftover
+# "dirty" file from test 3 onward. archivable() short-circuits on a dirty
+# worktree before it ever shells out to `gh`, so reusing $REPO would let this
+# test pass on the timing of the script's own subprocess spawns rather than
+# on the slow `gh` mock it's actually exercising.
+REPO10="$SCRATCH/repo10"; mkdir -p "$REPO10"
+git -C "$REPO10" init -q -b feat/race
+git -C "$REPO10" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git init -q --bare "$SCRATCH/repo10.git"
+git -C "$REPO10" remote add origin "$SCRATCH/repo10.git"
+git -C "$REPO10" push -q -u origin feat/race
+
 TP10="$SCRATCH/race.jsonl"; turn "$TP10" 1000
 cat > "$SCRATCH/bin/gh" <<'GH'
 #!/bin/sh
@@ -506,7 +519,7 @@ GH
 chmod +x "$SCRATCH/bin/gh"
 OUT10="$STATE/metrics/live/race.json"
 ( sleep 0.1; rm -f "$OUT10" ) &
-o10=$(payload "$TP10" race "$REPO" Stop | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show 2>&1)
+o10=$(payload "$TP10" race "$REPO10" Stop | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show 2>&1)
 wait
 has 'the block still opens with $OUT removed just before display' '^(»|⛁)' "$(msg "$o10")"
 t   '$OUT was actually gone when the hook read it' absent \
