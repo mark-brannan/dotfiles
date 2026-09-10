@@ -15,12 +15,18 @@
 # path costs nothing: HEAD on the default branch, a detached HEAD, no origin,
 # or no commits ahead and the hook exits before any network call.
 #
-# Three outcomes:
+# Read-only: this hook only detects and blocks. It used to also delete a
+# branch on request (`abandon`); that authorized a destructive action from
+# the session's own last assistant message, which review on PR #114 flagged
+# as an injection surface -- content Claude reads mid-session could in
+# principle steer it into emitting that line unprompted. Split out to
+# abandon-branch.sh (dotfiles#115), left disconnected until record-vs-delete
+# and skill-vs-hook are decided.
+#
+# Two outcomes:
 #   pass      a PR, a board card or an open issue names the branch
-#   abandon   the session's last message says `abandon`; the branch is deleted
-#             locally and on the remote and the checkpoint says so
 #   block     once per session, with the branch, what was searched, and the
-#             three ways out
+#             two ways out
 #
 # Blocks at most once per session (a marker beside the notes file under
 # TMPDIR, the same convention pr-ownership-context.sh uses for its record --
@@ -56,8 +62,7 @@ names_branch() {
 
 payload=$(cat) || exit 0
 
-# stop_hook_active is the last-resort loop breaker: it suppresses blocking
-# (never the abandon path) even when the marker could not be written.
+# stop_hook_active is the last-resort loop breaker.
 if command -v jq >/dev/null 2>&1; then
   active=$(printf '%s' "$payload" | jq -r '.stop_hook_active // false' 2>/dev/null)
 else
@@ -69,7 +74,6 @@ fi
 
 sid=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null)
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
-tp=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -n "$sid" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
@@ -97,97 +101,10 @@ done
 ahead=$(git -C "$work_root" rev-list --count "$base..HEAD" 2>/dev/null || echo 0)
 [ "${ahead:-0}" -gt 0 ] 2>/dev/null || exit 0
 
-# One file per session: the notes that reach the checkpoint, and the
-# once-per-session marker (a line beginning "blocked").
+# One file per session: the once-per-session marker (a line beginning
+# "blocked") for the checkpoint.
 rec="${TMPDIR:-/tmp}/claude-branch-home.$(printf '%s' "$sid" | tr -c 'A-Za-z0-9_-' '_')"
 note() { printf '%s\n' "$1" >> "$rec" 2>/dev/null || true; }
-
-# ---------------------------------------------------------------- abandon
-# The session's last assistant message, and only that one: an `abandon` from
-# three turns ago must never delete a branch the session went on to use.
-last_message() {
-  [ -n "$tp" ] && [ -f "$tp" ] || return 1
-  tail -n 400 "$tp" 2>/dev/null \
-    | jq -Rc 'fromjson? // empty | select(.type == "assistant")
-              | [.message.content[]? | select(.type == "text") | .text]
-              | join("\n") | select(length > 0)' 2>/dev/null \
-    | tail -n 1 | jq -r . 2>/dev/null
-}
-
-# True when a whole line of that message is `abandon`, or `abandon <branch>`.
-# Compared literally after stripping the markup a model reaches for, so the
-# word inside a sentence never counts.
-abandon_requested() {
-  msg=$(last_message) || return 1
-  [ -n "$msg" ] || return 1
-  lower_branch=$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')
-  printf '%s\n' "$msg" | while IFS= read -r line; do
-    t=$(printf '%s' "$line" | tr -d '`*_"'"'" | tr '[:upper:]' '[:lower:]' \
-        | sed 's/^[[:space:]]*//; s/[[:space:]]*[.!]*[[:space:]]*$//')
-    case "$t" in
-      abandon|"abandon $lower_branch") exit 9 ;;
-    esac
-  done
-  [ $? -eq 9 ]
-}
-
-do_abandon() {
-  if [ "$work_root" = "$HOME" ]; then
-    note "abandon refused: the checkout is \$HOME (yadm gate); branch \`$branch\` left alone"
-    printf '{"systemMessage":%s}\n' "$(json_str "branch-home-gate: refused to abandon \`$branch\` -- the checkout is \$HOME. Delete it by hand from a worktree.")"
-    exit 0
-  fi
-  # Same lock stop-continuity.sh takes before it commits and pushes, so the
-  # two never interleave and a salvage push cannot resurrect the branch we
-  # are deleting. Best effort: a machine without flock proceeds unlocked.
-  if command -v flock >/dev/null 2>&1; then
-    exec 9>"${TMPDIR:-/tmp}/claude-state-push.lock" 2>/dev/null && flock -w 90 9 2>/dev/null
-  fi
-
-  sha=$(git -C "$work_root" rev-parse --short HEAD 2>/dev/null || echo '?')
-  git -C "$work_root" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1
-  remote_rc=$?
-  # Exit 2 means ls-remote reached origin and found no matching ref: the
-  # branch is confirmed absent there. Any other nonzero (network, auth, a
-  # dead remote) is "could not check", not "not there" -- and must not be
-  # treated as license to delete the only copy.
-  if [ "$remote_rc" -eq 0 ]; then
-    # Refspec form, not --delete: a ref name is never mistaken for a flag.
-    if run_to 60 git -C "$work_root" push -q origin ":refs/heads/$branch" >/dev/null 2>&1; then
-      remote=deleted
-    else
-      remote="NOT deleted (push failed)"
-    fi
-  elif [ "$remote_rc" -eq 2 ]; then
-    remote="not on the remote"
-  else
-    remote="NOT deleted (could not verify remote, ls-remote exit $remote_rc)"
-  fi
-
-  # Only delete the local branch once the remote side is a confirmed absence
-  # or a confirmed deletion -- never on an indeterminate remote check.
-  case "$remote" in
-    deleted|"not on the remote") local_state=deleted ;;
-    *) local_state="kept ($remote)" ;;
-  esac
-  cur=$(git -C "$work_root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')
-  if [ "$local_state" = deleted ] && [ "$cur" = "$branch" ]; then
-    # The branch is checked out here, so detach first. Uncommitted changes
-    # survive a detach; the commits stay reachable through the reflog.
-    git -C "$work_root" checkout -q --detach >/dev/null 2>&1 \
-      || local_state="NOT deleted (could not detach HEAD)"
-  fi
-  if [ "$local_state" = deleted ]; then
-    git -C "$work_root" branch -q -D "$branch" >/dev/null 2>&1 \
-      || local_state="NOT deleted (checked out in another worktree?)"
-  fi
-
-  note "abandoned \`$branch\` at $sha: local $local_state, remote $remote (\`git checkout -b $branch $sha\` restores it while the reflog holds)"
-  printf '{"systemMessage":%s}\n' "$(json_str "branch-home-gate: abandoned \`$branch\` at $sha -- local $local_state, remote $remote. The checkpoint records it; \`git checkout -b $branch $sha\` restores it while the reflog holds.")"
-  exit 0
-}
-
-abandon_requested && do_abandon
 
 # --------------------------------------------------------- already blocked
 [ -f "$rec" ] && grep -q '^blocked' "$rec" 2>/dev/null && exit 0
@@ -242,15 +159,14 @@ repo=$(git -C "$work_root" remote get-url origin 2>/dev/null | sed 's#/*$##; s#\
 [ -n "$repo" ] || repo=$(basename "$work_root")
 if [ -n "$unverified" ]; then
   note "blocked: could not verify a home for \`$branch\` ($unverified)"
-  block "branch-home-gate: this session cannot end yet. Branch \`$branch\` in $repo is $ahead commit(s) ahead of $base, and whether it has a home could not be verified -- $unverified. This is a gate and fails closed, so \"can't check\" is not a pass: open the PR, or file a pointer card (/card-write) naming the branch and what it holds, then end the turn again. If the branch is not worth keeping, make \`abandon\` the whole of a line in your final message and it will be deleted locally and on the remote. This gate fires once per session."
+  block "branch-home-gate: this session cannot end yet. Branch \`$branch\` in $repo is $ahead commit(s) ahead of $base, and whether it has a home could not be verified -- $unverified. This is a gate and fails closed, so \"can't check\" is not a pass: open the PR, or file a pointer card (/card-write) naming the branch and what it holds, then end the turn again. This gate fires once per session."
 fi
 
 note "blocked: \`$branch\` is $ahead commit(s) ahead of $base with no PR and no pointer"
 block "branch-home-gate: this session cannot end yet. Branch \`$branch\` in $repo is $ahead commit(s) ahead of $base with no PR and no pointer: no PR has this head, no open issue names the branch, and no card on the board does either.
 
-Take one of the three ways out, then end the turn again:
+Take one of the two ways out, then end the turn again:
   - open the PR (not draft), or
-  - file a pointer card (/card-write) naming the branch and what it holds -- a card on the global board or an open issue, either counts, or
-  - make \`abandon\` the whole of a line in your final message: the branch is then deleted locally and on the remote, and the session's checkpoint records that it was deliberate.
+  - file a pointer card (/card-write) naming the branch and what it holds -- a card on the global board or an open issue, either counts.
 
 Detection is not closure -- a pushed branch nobody points at is how two pieces of design work were lost. This gate fires once per session."

@@ -5,10 +5,10 @@
 #
 # What matters: the quiet path really is quiet (default branch, detached HEAD,
 # nothing ahead, no origin, not a repo); a PR, a board card or an open issue
-# each count as a home; nothing at all blocks once and only once per session;
-# "cannot look" blocks rather than passing; and `abandon` deletes the branch on
-# both sides -- but only when it is the whole of a line in the session's LAST
-# message, never from the word in a sentence and never from an older turn.
+# each count as a home, and a false substring match doesn't; nothing at all
+# blocks once and only once per session; "cannot look" blocks rather than
+# passing. Deletion (`abandon`) is not this script's job any more --
+# abandon-branch.test.sh covers that.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 
@@ -75,20 +75,9 @@ setup_repo() {  # setup_repo <branch|""> [commits-ahead]
 }
 
 # --- payloads -----------------------------------------------------------------
-TP="$SCRATCH/transcript.jsonl"
-transcript() {  # transcript <assistant text>...
-  : > "$TP"
-  local t
-  for t in "$@"; do
-    jq -nc --arg t "$t" '{type:"assistant",message:{role:"assistant",content:[{type:"text",text:$t}]}}' >> "$TP"
-  done
-}
-transcript "Nothing to see here."
-
 stop_input() {  # stop_input <sid> [cwd] [stop_hook_active]
-  jq -n --arg sid "$1" --arg cwd "${2:-$WORK}" --arg tp "$TP" \
-        --argjson a "${3:-false}" \
-    '{session_id:$sid,cwd:$cwd,transcript_path:$tp,stop_hook_active:$a}'
+  jq -n --arg sid "$1" --arg cwd "${2:-$WORK}" --argjson a "${3:-false}" \
+    '{session_id:$sid,cwd:$cwd,stop_hook_active:$a}'
 }
 
 # check <block|silent|other> <desc> <sid> [cwd] [active]
@@ -103,7 +92,6 @@ check() {
 }
 reason() { if printf '%s' "$LAST" | jq -r '.reason // .systemMessage // empty' | grep -Eq -- "$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (message lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
 ok()     { if "${@:2}"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s\n' "$1"; fi; }
-no()     { if "${@:2}"; then fail=$((fail+1)); printf 'FAIL: %s\n' "$1"; else pass=$((pass+1)); fi; }
 rec_for() { printf '%s/claude-branch-home.%s' "$TMPDIR" "$1"; }
 
 # --- the quiet path -----------------------------------------------------------
@@ -158,7 +146,6 @@ reason 'names the branch'                        'claude/orphan'
 reason 'says how far ahead'                      '1 commit\(s\) ahead of origin/main'
 reason 'offers the PR'                           'open the PR'
 reason 'offers a pointer card'                   '/card-write'
-reason 'offers abandon'                          '`abandon`'
 reason 'says it fires once'                      'once per session'
 ok 'the block is recorded for the checkpoint'    grep -q '^blocked' "$(rec_for b1)"
 
@@ -186,71 +173,6 @@ LAST=$(stop_input u3 | PATH="$SCRATCH/nojq" /bin/sh "$GATE" 2>&1)
 ok 'jq missing blocks with valid JSON' [ "$(printf '%s' "$LAST" | jq -r .decision 2>/dev/null)" = block ]
 LAST=$(stop_input u4 "$WORK" true | PATH="$SCRATCH/nojq" /bin/sh "$GATE" 2>&1)
 ok 'jq missing on a retry is quiet'    [ -z "$LAST" ]
-
-# --- abandon ------------------------------------------------------------------
-# The word inside a sentence is not a command.
-setup_repo claude/prose
-transcript "I would rather not abandon this branch just yet."
-check block 'abandon inside a sentence does not fire' a1
-ok 'the branch is still there' gitq "$WORK" rev-parse --verify claude/prose
-
-# An `abandon` from an earlier turn is not a command either.
-setup_repo claude/stale
-transcript "abandon" "On reflection, here is the design."
-check block 'abandon in an older message does not fire' a2
-ok 'the branch is still there' gitq "$WORK" rev-parse --verify claude/stale
-
-# The real thing: last message, whole line, markup and case allowed.
-setup_repo claude/gone
-transcript "Nothing worth keeping here.
-
-\`Abandon\`"
-check other 'abandon deletes the branch'        a3
-reason 'says what it did'                        'abandoned .claude/gone'
-no 'the local branch is gone'  gitq "$WORK" rev-parse --verify claude/gone
-ok 'HEAD is detached, work still reachable' \
-   [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = HEAD ]
-ok 'the remote branch is gone' \
-   [ -z "$(git -C "$WORK" ls-remote --heads origin claude/gone 2>/dev/null)" ]
-ok 'the abandon is recorded for the checkpoint' grep -q '^abandoned' "$(rec_for a3)"
-
-# `abandon <branch>` is accepted too, and it works on the retry after a block:
-# the once-per-session marker must not swallow the way out it just offered.
-setup_repo claude/named
-transcript "Nothing to keep."
-check block 'blocks first'                      a4
-transcript "abandon claude/named"
-check other 'abandon on the retry still fires'  a4 "$WORK" true
-no 'the local branch is gone'  gitq "$WORK" rev-parse --verify claude/named
-ok 'the remote branch is gone' \
-   [ -z "$(git -C "$WORK" ls-remote --heads origin claude/named 2>/dev/null)" ]
-
-# A branch that was never pushed is still ahead and still stranded; abandoning
-# it deletes the local half and says plainly that there was no remote half.
-setup_repo ""
-gitq "$WORK" checkout -b claude/local
-echo three > "$WORK/h"; gitq "$WORK" add -- h; gitq "$WORK" commit -m three
-transcript "abandon"
-check other 'abandon a branch that was never pushed' a5
-reason 'says there was nothing on the remote'    'remote not on the remote'
-no 'the local branch is gone'  gitq "$WORK" rev-parse --verify claude/local
-
-# An unreachable remote is "could not check", not "not there": the local
-# branch must survive when ls-remote itself fails (not just reports absent).
-setup_repo claude/unreachable
-gitq "$WORK" remote set-url origin "$SCRATCH/no-such-remote.git"
-transcript "abandon"
-check other 'abandon when the remote cannot be reached' a7
-reason 'says the remote could not be verified'  'could not verify remote'
-ok 'the local branch is kept, not deleted on an indeterminate remote' \
-   [ "$(git -C "$WORK" rev-parse --abbrev-ref HEAD)" = claude/unreachable ]
-
-# $HOME is the yadm gate's; never delete a branch out from under it.
-setup_repo claude/athome
-transcript "abandon"
-HOME="$WORK" check other 'refuses to abandon in $HOME' a6
-reason 'says why it refused'                     'refused to abandon'
-ok 'the branch is untouched' gitq "$WORK" rev-parse --verify claude/athome
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
