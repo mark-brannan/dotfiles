@@ -40,7 +40,13 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 # fires once, when the counter first crosses it this session, and then says
 # nothing until the next line up -- edge-triggered, not level-triggered.
 #
-#   context   size and a verdict; "propose stopping" from CONTEXT_STOP_AT up
+#   context   size and a verdict; "propose stopping" from CONTEXT_STOP_AT up.
+#             The line repeats its glyph once per threshold rung crossed this
+#             session (capped at 5, then "(xN)"), and the ladder extends past
+#             the last configured line by CONTEXT_STEP forever, so it keeps
+#             escalating instead of going quiet at the top. At or above
+#             CONTEXT_STOP_AT it also reaches the model: once as an offer to
+#             stop, and plainly, not repeated, on every rung after that
 #   sitting   elapsed, context, verdict -- driven entirely by prompts: it
 #             starts at the first one, restarts when the gap between two of
 #             them runs past SIT_GAP_MIN (a session picked up after dinner is
@@ -55,6 +61,7 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 #   gate      gate decisions pushed to the user, every GATE_EVERY
 NAG_CONTEXT_LINES="${METRICS_CONTEXT_LINES:-100000 150000 200000}"
 NAG_CONTEXT_STOP_AT="${METRICS_CONTEXT_STOP_AT:-150000}"
+NAG_CONTEXT_STEP="${METRICS_CONTEXT_STEP:-50000}"
 NAG_SIT_EVERY_MIN="${METRICS_SIT_EVERY_MIN:-60}"
 NAG_SIT_GAP_MIN="${METRICS_SIT_GAP_MIN:-30}"
 NAG_FRICTION_N="${METRICS_FRICTION_N:-3}"
@@ -209,12 +216,13 @@ save_sitting() {
 # sitting_start that time_line was recorded against -- when the shared clock
 # restarts, every session's line is stale, including the ones that were not
 # the prompt that restarted it, and they must be free to speak again.
-ctx_line=0; time_line=0; tl_sitting=0; gate_line=0; fric_tripped=0
+ctx_line=0; ctx_rungs=0; ctx_stop_line=0; time_line=0; tl_sitting=0; gate_line=0; fric_tripped=0
 since_nag=0; resume_ts=0; nag_pending=0; late_nagged=0
 if [ -f "$NAGF" ]; then
-  IFS=$'\t' read -r ctx_line time_line tl_sitting gate_line fric_tripped \
+  IFS=$'\t' read -r ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tripped \
                     since_nag resume_ts nag_pending late_nagged \
-    <<<"$(jq -r '[(.context_line // 0), (.time_line // 0), (.time_line_sitting // -1),
+    <<<"$(jq -r '[(.context_line // 0), (.context_rungs // 0), (.context_stop_line // 0),
+                  (.time_line // 0), (.time_line_sitting // -1),
                   (.gate_line // 0),
                   (if .friction_tripped then 1 else 0 end),
                   (if .since_nag then 1 else 0 end),
@@ -222,7 +230,7 @@ if [ -f "$NAGF" ]; then
                   (if .nag_pending then 1 else 0 end),
                   (if .late_nagged then 1 else 0 end)] | @tsv' "$NAGF" 2>/dev/null)"
 fi
-for v in ctx_line time_line tl_sitting gate_line fric_tripped \
+for v in ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tripped \
          since_nag resume_ts nag_pending late_nagged; do
   [ -n "${!v}" ] || eval "$v=0"
 done
@@ -231,11 +239,13 @@ done
 [ "$tl_sitting" -eq "$sit_start" ] || { time_line=0; tl_sitting=$sit_start; }
 
 save_nag() {
-  jq -n --argjson cl "$ctx_line" --argjson tl "$time_line" --argjson ts "$tl_sitting" \
+  jq -n --argjson cl "$ctx_line" --argjson cr "$ctx_rungs" --argjson cs "$ctx_stop_line" \
+        --argjson tl "$time_line" --argjson ts "$tl_sitting" \
         --argjson gl "$gate_line" --argjson ft "$fric_tripped" \
         --argjson sn "$since_nag" --argjson rt "$resume_ts" --argjson np "$nag_pending" \
         --argjson ln "$late_nagged" \
-    '{context_line: $cl, time_line: $tl, time_line_sitting: $ts, gate_line: $gl,
+    '{context_line: $cl, context_rungs: $cr, context_stop_line: $cs,
+      time_line: $tl, time_line_sitting: $ts, gate_line: $gl,
       friction_tripped: ($ft == 1),
       since_nag: ($sn == 1), resume_ts: $rt, nag_pending: ($np == 1),
       late_nagged: ($ln == 1)}' \
@@ -255,8 +265,33 @@ kfmt() { awk -v n="$1" 'BEGIN { if (n >= 1000) printf "%dk", int(n / 1000); else
 hm()   { awk -v m="$1" 'BEGIN { if (m >= 60) printf "%dh%02d", int(m / 60), m % 60; else printf "%dm", m }'; }
 hhmm() { date -d "@$1" +%H:%M 2>/dev/null || date -r "$1" +%H:%M 2>/dev/null || echo "??:??"; }
 
+# $1 glyph count, $2 glyph char -- repeats the glyph up to 5 times, then
+# switches to "(xN)" so an escalation past the cap still reads as a number
+# instead of a wall of characters.
+glyphs() {
+  local n="$1" g="$2" i shown out=""
+  shown=$n; [ "$shown" -gt 5 ] && shown=5
+  for ((i = 0; i < shown; i++)); do out="${out}${g}"; done
+  [ "$n" -gt 5 ] && out="${out}(x${n})"
+  printf '%s' "$out"
+}
+
+# Git state folded into a nag line -- the same shorthand as lib-metrics-fmt.jq's
+# `work`, but the crossing lines run in bash, not jq. Empty on a clean tree.
+work_str() {
+  [ "${ncommits:-0}" -gt 0 ] || [ "${dirty:-0}" -gt 0 ] || [ "${unpushed:-0}" -gt 0 ] \
+    || return 0
+  local s="⎇ "
+  [ "${ncommits:-0}" -gt 0 ] && s="${s}${ncommits}c"
+  [ "${dirty:-0}" -gt 0 ]    && s="${s}${dirty}~"
+  [ "${unpushed:-0}" -gt 0 ] && s="${s}${unpushed}↑"
+  printf '%s' "$s"
+}
+
 sys_lines=""; model_line=""
-add_line() { sys_lines="${sys_lines:+$sys_lines
+add_line()  { sys_lines="${sys_lines:+$sys_lines
+}$1"; }
+add_model() { model_line="${model_line:+$model_line
 }$1"; }
 record_crossing() {
   mkdir -p "$CROSSD" 2>/dev/null || return 0
@@ -289,24 +324,62 @@ if [ "$run_engine" -eq 1 ]; then
     save_sitting
   fi
 
-  IFS=$'\t' read -r ctx gates fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
+  IFS=$'\t' read -r ctx gates fric_total fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
     --argjson w "$NAG_FRICTION_TURNS" \
     '(.session.user_turns // 0) as $t
      | [ (.session.context_peak // 0),
          (.session.decisions.gate // 0),
+         (.session.friction.total // 0),
          ([ .friction[]?
             | select(.type == "correction" or .type == "rebuke")
             | select((.turn_ordinal // 0) > ($t - $w)) ] | length) ] | @tsv')"
   [ -n "${ctx:-}" ] || ctx=0
   [ -n "${gates:-}" ] || gates=0
+  [ -n "${fric_total:-}" ] || fric_total=0
   [ -n "${fric_win:-}" ] || fric_win=0
 
-  # context -- lines ascending, so a jump past two of them reports both, in order
-  for L in $NAG_CONTEXT_LINES; do
+  # Note for agents: do not modify without direct, explicit interaction with Solace.
+  # If changing the display, you must show in the chat session
+  # examples of the expected output, before and after.
+  #
+  # context -- lines ascending, so a jump past several of them reports each in
+  # order. The ladder is the configured lines, then NAG_CONTEXT_STEP forever
+  # past the last one, so a session that blows through every configured line
+  # keeps getting a line instead of going quiet. ⛁ repeats once per rung
+  # crossed this session (glyphs(); capped at 5, then "(xN)") -- the same
+  # escalation as ⚡, keyed off the friction total instead of the rung count.
+  # ⚖ stays a plain digit; no rung tracks gate decisions.
+  ladder="$NAG_CONTEXT_LINES"
+  last_cfg=0
+  for L in $NAG_CONTEXT_LINES; do last_cfg=$L; done
+  if [ "$NAG_CONTEXT_STEP" -gt 0 ] && [ "$last_cfg" -gt 0 ]; then
+    L=$((last_cfg + NAG_CONTEXT_STEP))
+    while [ "$ctx" -ge "$L" ]; do
+      ladder="$ladder $L"
+      L=$((L + NAG_CONTEXT_STEP))
+    done
+  fi
+  for L in $ladder; do
     if [ "$ctx" -ge "$L" ] && [ "$L" -gt "$ctx_line" ]; then
-      if [ "$L" -ge "$NAG_CONTEXT_STOP_AT" ]; then verdict="propose stopping"
-      else verdict="still room"; fi
-      t="⛁ context $(kfmt "$ctx") — past $(kfmt "$L"): $verdict."
+      ctx_rungs=$((ctx_rungs + 1))
+      if [ "$L" -ge "$NAG_CONTEXT_STOP_AT" ]; then
+        verdict="propose stopping"
+        # Model injection only from the stop threshold up: the first such
+        # crossing offers a stopping point, every one after it says plainly
+        # that the offer already went out and nothing came of it, rather than
+        # repeating it verbatim rung after rung.
+        if [ "$ctx_stop_line" -eq 0 ]; then
+          add_model "Context at $(kfmt "$ctx") — a stopping point. Consider /wrapup."
+        else
+          add_model "Context at $(kfmt "$ctx"), past $(kfmt "$L"). Already raised at $(kfmt "$ctx_stop_line") and not acted on."
+        fi
+        ctx_stop_line=$L
+      else
+        verdict="still room"
+      fi
+      fpart=""
+      [ "$fric_total" -gt 0 ] && fpart=" $(glyphs "$fric_total" "⚡") $fric_total"
+      t="$(glyphs "$ctx_rungs" "⛁") $(kfmt "$ctx")/$(kfmt "$L") ⚖${gates}${fpart} — ${verdict}."
       add_line "$t"; record_crossing context "$L" "$t"
       ctx_line=$L; since_nag=1
     fi
@@ -327,6 +400,7 @@ if [ "$run_engine" -eq 1 ]; then
         verdict="stop here, run /wrapup"; since_nag=1
       else verdict="stand up"; fi
       t="⏱ sitting $(hm "$n") — context $(kfmt "$ctx"): $verdict."
+      w=$(work_str); [ -n "$w" ] && t="$t $w"
       add_line "$t"; record_crossing time "$n" "$t"
       time_line=$n
     fi
@@ -346,8 +420,8 @@ if [ "$run_engine" -eq 1 ]; then
   # is addressed to the model, which is the thing the capacity rule asks of.
   if [ "$is_prompt" -eq 1 ] && [ "$fric_tripped" -ne 1 ] \
      && [ "$fric_win" -ge "$NAG_FRICTION_N" ]; then
-    model_line="$fric_win corrections or rebukes in the last $NAG_FRICTION_TURNS turns. Apply the capacity rule from the standing orders, once."
-    record_crossing friction "$fric_win" "$model_line"
+    fm="$fric_win corrections or rebukes in the last $NAG_FRICTION_TURNS turns. Apply the capacity rule from the standing orders, once."
+    add_model "$fm"; record_crossing friction "$fric_win" "$fm"
     fric_tripped=1; since_nag=1
   fi
 fi
