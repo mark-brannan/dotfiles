@@ -101,16 +101,19 @@ jobs:
             exit 0
           fi
 
+          # Before the ::error::, not after: a labelled PR is a deliberate,
+          # human allowance and must not carry an error annotation on a
+          # green step.
+          case " $LABELS " in
+            *" churn-ok "*)
+              echo "::notice::over budget ($over ) -- allowed by the churn-ok label"
+              exit 0
+              ;;
+          esac
+
           echo "::error::churn over budget:$over"
           echo "Split it. One script, one concern, smallest piece first."
           echo "The ruling, in full:"
           echo "https://github.com/mark-brannan/dotfiles/issues/149"
           echo "Raising the ceiling is Solace's call, not a session's."
-
-          case " $LABELS " in
-            *" churn-ok "*)
-              echo "::notice::allowed by the churn-ok label"
-              exit 0
-              ;;
-          esac
           exit 1
