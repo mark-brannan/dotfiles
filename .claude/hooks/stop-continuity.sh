@@ -353,6 +353,8 @@ if [ -n "$(git status --porcelain -- "$board" 2>/dev/null)" ]; then
   [ "$board_ok" = 1 ] || printf '\n## Board NOT committed\n\n`%s` failed kanban-lint; its edits stay uncommitted in the working tree (anything you had already staged for it is left staged). Fix or delete the lines, then commit by hand or let the next Stop try again.\n\n```\n%s\n```\n' "$board" "$lint_out" >> "$ckpt"
 fi
 
+# Before the add, so the correction is what gets committed.
+[ "$board_ok" = 1 ] || set_verdict "board not committed (kanban-lint failed)"
 git add state/ >/dev/null 2>&1
 if [ "$board_ok" != 1 ]; then
   git reset -q -- "$board" >/dev/null 2>&1
@@ -363,7 +365,7 @@ git diff --cached --quiet 2>/dev/null && exit 0   # nothing changed
 git -c user.name="${GIT_AUTHOR_NAME:-Claude}" \
     -c user.email="${GIT_AUTHOR_EMAIL:-noreply@anthropic.com}" \
     -c commit.gpgsign=false \
-    commit -q -m "State: $work_repo session ${sid:0:8} ($today)" >/dev/null 2>&1 || exit 0
+    commit -q -m "State: $work_repo session ${sid:0:8} ($today)" >/dev/null 2>&1 || { set_verdict "state-repo commit failed"; exit 0; }
 
 for attempt in 1 2; do
   timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1

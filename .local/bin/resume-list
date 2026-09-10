@@ -93,8 +93,10 @@ cut80() { if [ "$brief" = 1 ]; then printf '%s' "$1" | cut -c1-77; else printf '
 
 # --- collect ---------------------------------------------------------------
 # One record per line: mtime<TAB>path<TAB>branch<TAB>next<TAB>model<TAB>effort
-#   <TAB>repo<TAB>worktree<TAB>note
-tab=$(printf '\t')
+# One record per line, US-separated: mtime path branch next model effort
+#   repo worktree note
+# two adjacent separators into one and shift every later column.
+sep=$(printf '\037')
 recs=""
 for f in "$auto"/*.md; do
   [ -f "$f" ] || continue
@@ -140,7 +142,7 @@ for f in "$auto"/*.md; do
   fi
   [ "$drop" = 1 ] && continue
 
-  recs="$recs$(mtime "$f")$tab$f$tab$branch$tab$next$tab$(field "$f" model)$tab$(field "$f" effort)$tab$repo$tab${work:-?}$tab$note
+  recs="$recs$(mtime "$f")$sep$f$sep$branch$sep$next$sep$(field "$f" model)$sep$(field "$f" effort)$sep$repo$sep${work:-?}$sep$note
 "
 done
 
@@ -153,7 +155,7 @@ if [ -z "$recs" ]; then
 fi
 
 if [ "$files" = 1 ]; then
-  printf '%s\n' "$recs" | awk -F'\t' -v OFS='\t' '{print $3, $2}'
+  printf '%s\n' "$recs" | awk -F "$sep" -v OFS='\t' '{print $3, $2}'
   exit 0
 fi
 
@@ -161,7 +163,7 @@ total=$(printf '%s\n' "$recs" | grep -c '^')
 limit=8; [ "$brief" = 1 ] && limit=5
 printf 'Resume, showing %s of %s\n\n' "$( [ "$total" -gt "$limit" ] && echo "$limit" || echo "$total" )" "$total"
 printf '| Branch | Next step | Age | Model | Notes |\n|---|---|---|---|---|\n'
-printf '%s\n' "$recs" | head -n "$limit" | while IFS="$tab" read -r mt _path branch next model effort repo work note; do
+printf '%s\n' "$recs" | head -n "$limit" | while IFS="$sep" read -r mt _path branch next model effort repo work note; do
   m=$model
   [ -n "$effort" ] && m="${m:+$m · }$effort"
   notes="$repo"
