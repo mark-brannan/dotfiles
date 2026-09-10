@@ -159,10 +159,18 @@ metrics=$(jq -s \
 [ -n "$metrics" ] || exit 0
 
 # Git state, the part that decides whether the chat is safe to kill.
-dirty=0; unpushed=0; ncommits=0; start_sha=""
+dirty=0; unpushed=0; no_upstream=0; ncommits=0; start_sha=""
 if [ -n "$work_root" ]; then
   dirty=$(git -C "$work_root" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-  unpushed=$(git -C "$work_root" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
+  # `rev-list @{u}..HEAD` fails when the branch has no upstream at all, and
+  # the `|| echo 0` below used to swallow that into "0 unpushed" -- a never-
+  # pushed branch read as clean. Tell the two apart, same guard as
+  # stop-continuity.sh's.
+  if git -C "$work_root" rev-parse --verify -q --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    unpushed=$(git -C "$work_root" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
+  else
+    no_upstream=1
+  fi
   # Commits counted from the SHA this session started at, not by timestamp.
   # `--since=<start>` counts everything in the window whatever wrote it, so a
   # fresh clone whose history landed today reports a session's commits as 13
@@ -363,11 +371,12 @@ rung_of() {
 # `work`, but the crossing lines run in bash, not jq. Empty on a clean tree.
 work_str() {
   [ "${ncommits:-0}" -gt 0 ] || [ "${dirty:-0}" -gt 0 ] || [ "${unpushed:-0}" -gt 0 ] \
-    || return 0
+    || [ "${no_upstream:-0}" -gt 0 ] || return 0
   local s="⎇ "
   [ "${ncommits:-0}" -gt 0 ] && s="${s}${ncommits}c"
   [ "${dirty:-0}" -gt 0 ]    && s="${s}${dirty}~"
-  [ "${unpushed:-0}" -gt 0 ] && s="${s}${unpushed}↑"
+  if [ "${no_upstream:-0}" -gt 0 ]; then s="${s}no-upstream"
+  elif [ "${unpushed:-0}" -gt 0 ]; then s="${s}${unpushed}↑"; fi
   printf '%s' "$s"
 }
 
@@ -572,7 +581,9 @@ archivable() {
   add_areason() { archival_reasons="${archival_reasons:+$archival_reasons, }$1"; }
 
   [ "${dirty:-0}" -eq 0 ] || add_areason "worktree dirty"
-  [ "${unpushed:-0}" -eq 0 ] || add_areason "$unpushed commit(s) unpushed"
+  [ "${no_upstream:-0}" -eq 0 ] \
+    && { [ "${unpushed:-0}" -eq 0 ] || add_areason "$unpushed commit(s) unpushed"; } \
+    || add_areason "\`$work_branch\` has no upstream (never pushed)"
   sr=$(state_repo 2>/dev/null) || sr=""
   if [ -n "$sr" ]; then
     n=$(git -C "$sr" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
