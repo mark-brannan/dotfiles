@@ -12,6 +12,9 @@
 #   the gap     a gap over 30 minutes between prompts starts a new sitting, so
 #               the 60-minute line does not fire on a clock that began before
 #               the gap -- and a short gap leaves that clock running
+#   the clock    prompts own it outright: a Stop or a SubagentStop never starts
+#               it, never moves it and never reads it out, so a session whose
+#               first wired event is a Stop is sitting for zero minutes
 #   the Stop    a Stop on an archivable session past the line blocks once with
 #               one instruction, then passes with the resume-block message, and
 #               every Stop after that carries only the block's age
@@ -107,9 +110,42 @@ sitting nogap 61 10
 out=$(payload "$TP2" nogap "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 has 'a 10 min gap leaves the clock running' '⏱ sitting 1h00' "$(msg "$out")"
 has 'the clock line carries the context'    'context 1k'     "$(msg "$out")"
+has 'and one hour says stand up'            'stand up'       "$(msg "$out")"
 
 out=$(payload "$TP2" nogap "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 t 'the 60 min line does not repeat' '' "$(msg "$out")"
+
+sitting twohours 121 10
+out=$(payload "$TP2" twohours "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+has 'two hours names the exit' 'sitting 2h00 .* stop here, run /wrapup' "$(msg "$out")"
+
+# --- 2b. the clock belongs to the prompt -------------------------------------
+# $SCRATCH is not a git repo, so archivable() refuses and the Stop nag stays
+# out of the way; what is under test here is only the clock.
+sit_start() { jq -r '.sitting_start // 0' "$STATE/metrics/live/$1.nag.json" 2>/dev/null; }
+
+TPS="$SCRATCH/stopfirst.jsonl"; turn "$TPS" 1000
+payload "$TPS" sfirst "$SCRATCH" Stop \
+  | bash "$HOOK" stop 0 show >/dev/null 2>&1
+t 'a Stop before any prompt does not start the clock' 0 "$(sit_start sfirst)"
+
+payload "$TPS" sfirst "$SCRATCH" SubagentStop \
+  | bash "$HOOK" subagentstop 0 show >/dev/null 2>&1
+t 'nor does a SubagentStop' 0 "$(sit_start sfirst)"
+
+out=$(payload "$TPS" sfirst "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+hasnt 'so the first prompt after them is minute zero' '⏱' "$(msg "$out")"
+t 'and it is the prompt that starts the clock' yes \
+  "$( [ "$(sit_start sfirst)" -gt 0 ] && echo yes || echo no )"
+
+# An hour on the clock: a Stop must neither report it nor disturb it.
+sitting quiet 61 10
+before=$(sit_start quiet)
+out=$(payload "$TPS" quiet "$SCRATCH" Stop | bash "$HOOK" stop 0 show 2>&1)
+hasnt 'a Stop past the line says nothing about sitting' '⏱ sitting' "$(msg "$out")"
+t    'and leaves the clock exactly where it found it' "$before" "$(sit_start quiet)"
+out=$(payload "$TPS" quiet "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+has  'the next prompt is what reports it' '⏱ sitting 1h00' "$(msg "$out")"
 
 # --- 3. Stop, archivable, past the line --------------------------------------
 REPO="$SCRATCH/repo"; mkdir -p "$REPO"

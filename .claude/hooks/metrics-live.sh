@@ -41,9 +41,11 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 # nothing until the next line up -- edge-triggered, not level-triggered.
 #
 #   context   size and a verdict; "propose stopping" from CONTEXT_STOP_AT up
-#   sitting   elapsed, context, verdict -- and the clock starts over when the
-#             gap between two prompts runs past SIT_GAP_MIN, because a session
-#             picked up after dinner is a new sitting, not a nine-hour one
+#   sitting   elapsed, context, verdict -- driven entirely by prompts: it
+#             starts at the first one, restarts when the gap between two of
+#             them runs past SIT_GAP_MIN (a session picked up after dinner is
+#             a new sitting, not a nine-hour one), and is never read or moved
+#             by a Stop. 60 min says stand up, 120 says stop here and wrap up
 #   friction  corrections and rebukes inside a window of human turns; the one
 #             line that goes to the model rather than to the screen, since the
 #             standing orders' capacity rule is what it is asking for
@@ -138,57 +140,23 @@ fi
 
 mkdir -p "$LIVE" 2>/dev/null || exit 0
 
-# --------------------------------------------------------- break-time tracking
-# Store last-activity timestamp. If gap >= 25 min since last activity, auto-reset
-# break timer. Else accumulate time since last break across sessions.
-ACTIVITY_FILE="$(state_dir)/metrics/last_activity.json"
-mkdir -p "$(dirname "$ACTIVITY_FILE")" 2>/dev/null || true
+# Wall clock, read once. The sitting clock in the engine below is the only
+# thing that reads it, and only a prompt moves that clock.
+#
+# There used to be a second timer here, backed by metrics/last_activity.json:
+# every event stamped it, including every statusline render, so the readout
+# kept its own break timer alive simply by being drawn. A clock the display
+# winds is not measuring the user. It is gone, and with it break_nag in
+# lib-metrics-fmt.jq -- the sitting clock is the only sitting clock now.
 now_ts=$(date +%s)
-time_since_break_seconds=0
-
-if [ -f "$ACTIVITY_FILE" ]; then
-  last_activity_ts=$(jq -r '.last_activity_timestamp // 0' "$ACTIVITY_FILE" 2>/dev/null || echo 0)
-  last_break_ts=$(jq -r '.last_break_timestamp // 0' "$ACTIVITY_FILE" 2>/dev/null || echo 0)
-
-  # If we have a last activity time, check the gap
-  if [ "$last_activity_ts" -gt 0 ]; then
-    gap=$((now_ts - last_activity_ts))
-    # 25 minutes = 1500 seconds
-    if [ "$gap" -ge 1500 ]; then
-      # Gap is long enough to count as a break -- reset the timer
-      last_break_ts=$now_ts
-    fi
-  fi
-
-  # Calculate time since last break
-  if [ "$last_break_ts" -gt 0 ]; then
-    time_since_break_seconds=$((now_ts - last_break_ts))
-  fi
-fi
-
-# Update activity file with new timestamps. Both fields take the max of what
-# we computed and whatever is on disk now: parallel sessions on this machine
-# read and write this file independently, so between the read above and this
-# write another session may have recorded newer activity or a later break.
-# Taking the max makes concurrent writers idempotent instead of letting the
-# last one to finish drag the break timer backwards.
-cur_json=$(jq -c '{last_activity_timestamp, last_break_timestamp}' \
-  "$ACTIVITY_FILE" 2>/dev/null) || cur_json='{}'
-[ -n "$cur_json" ] || cur_json='{}'
-jq -n --argjson la "$now_ts" --argjson lb "${last_break_ts:-0}" \
-  --argjson c "$cur_json" \
-  '{last_activity_timestamp: ([$la, ($c.last_activity_timestamp // 0)] | max),
-    last_break_timestamp:    ([$lb, ($c.last_break_timestamp    // 0)] | max)}' \
-  > "$ACTIVITY_FILE.$$" 2>/dev/null \
-  && mv -f "$ACTIVITY_FILE.$$" "$ACTIVITY_FILE" 2>/dev/null || rm -f "$ACTIVITY_FILE.$$" 2>/dev/null
 
 tmp="$OUT.$$"
 printf '%s\n' "$metrics" | jq -c \
   --arg ev "$EVENT" --arg now "$now" \
   --argjson d "${dirty:-0}" --argjson u "${unpushed:-0}" --argjson c "${ncommits:-0}" \
-  --arg sha "$start_sha" --argjson tsb "$time_since_break_seconds" \
+  --arg sha "$start_sha" \
   '.session + {last_event: $ev, updated_at: $now, start_sha: $sha,
-               dirty: $d, unpushed: $u, commits: $c, time_since_break_seconds: $tsb}' > "$tmp" 2>/dev/null \
+               dirty: $d, unpushed: $u, commits: $c}' > "$tmp" 2>/dev/null \
   && mv -f "$tmp" "$OUT" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 
 # =========================================================== crossing engine
@@ -253,8 +221,11 @@ record_crossing() {
 }
 
 if [ "$run_engine" -eq 1 ]; then
-  # The sitting clock. Only a prompt moves it: the gap that matters is the one
-  # between two things the user typed, not between two tool calls.
+  # The sitting clock is wound by prompts and by nothing else -- started
+  # here, reset here, and read only under is_prompt below. A Stop or a
+  # SubagentStop leaves sitting_start exactly as it found it: those fire on
+  # the agent's schedule, not the user's, so a session whose first wired
+  # event is a Stop must not start a clock nobody has sat down at.
   if [ "$is_prompt" -eq 1 ]; then
     if [ "$last_prompt" -gt 0 ] \
        && [ $((now_ts - last_prompt)) -gt $((NAG_SIT_GAP_MIN * 60)) ]; then
@@ -262,8 +233,8 @@ if [ "$run_engine" -eq 1 ]; then
       time_line=0
     fi
     last_prompt=$now_ts
+    [ "$sit_start" -gt 0 ] || sit_start=$now_ts
   fi
-  [ "$sit_start" -gt 0 ] || sit_start=$now_ts
 
   IFS=$'\t' read -r ctx gates fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
     --argjson w "$NAG_FRICTION_TURNS" \
@@ -288,12 +259,14 @@ if [ "$run_engine" -eq 1 ]; then
     fi
   done
 
-  # sitting clock
-  if [ "$NAG_SIT_EVERY_MIN" -gt 0 ]; then
+  # sitting clock -- read on a prompt and nowhere else, so the line lands
+  # where the user is already reading, at the top of a turn.
+  if [ "$is_prompt" -eq 1 ] && [ "$NAG_SIT_EVERY_MIN" -gt 0 ] \
+     && [ "$sit_start" -gt 0 ]; then
     sit_min=$(( (now_ts - sit_start) / 60 ))
     n=$(( sit_min / NAG_SIT_EVERY_MIN * NAG_SIT_EVERY_MIN ))
     if [ "$n" -ge "$NAG_SIT_EVERY_MIN" ] && [ "$n" -gt "$time_line" ]; then
-      if [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then verdict="stop here"
+      if [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then verdict="stop here, run /wrapup"
       else verdict="stand up"; fi
       t="⏱ sitting $(hm "$n") — context $(kfmt "$ctx"): $verdict."
       add_line "$t"; record_crossing time "$n" "$t"
