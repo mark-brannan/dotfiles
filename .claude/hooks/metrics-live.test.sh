@@ -303,14 +303,15 @@ t 'a dirty tree is never archivable' '' "$(printf '%s' "$o4" | jq -r '.decision 
 FIX="$(cd "$(dirname "$0")" && pwd)/fixtures/friction-contentious.jsonl"
 if [ -f "$FIX" ]; then
   ctx=$(payload "$FIX" fric "$SCRATCH" \
-        | METRICS_FRICTION_TURNS=200 bash "$HOOK" prompt 0 2>&1 \
+        | METRICS_FRICTION_TURNS=200 METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 \
         | jq -r '.hookSpecificOutput.additionalContext // ""')
   has 'the friction line reaches the model'  'corrections or rebukes' "$ctx"
   has 'and names the capacity rule'          'capacity rule'          "$ctx"
   ctx2=$(payload "$FIX" fric "$SCRATCH" \
-         | METRICS_FRICTION_TURNS=200 bash "$HOOK" prompt 0 2>&1 \
+         | METRICS_FRICTION_TURNS=200 METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 \
          | jq -r '.hookSpecificOutput.additionalContext // ""')
-  t 'and fires once, not every turn' '' "$ctx2"
+  t 'and fires once, not every turn' '0' \
+    "$(printf '%s' "$ctx2" | grep -c 'corrections or rebukes' | tr -d ' ')"
 else
   printf 'SKIP: %s is missing\n' "$FIX"
 fi
@@ -331,26 +332,26 @@ t 'six rungs cross in one jump, in order' \
   "$(printf '100000\n150000\n200000\n250000\n300000\n350000')" \
   "$(jq -r 'select(.kind == "context") | .at' "$STATE/metrics/crossings/$SID5.jsonl" 2>/dev/null)"
 
-# --- 6. model injection only from the stop threshold up -----------------------
-# Below NAG_CONTEXT_STOP_AT (150k default) the crossing is screen-only. At or
-# above it, the first crossing offers a stopping point; every crossing after
-# that says plainly it was already raised, instead of repeating the offer.
+# --- 6. model injection rides its own context ladder -------------------------
+# Below the first NAG_MODEL_CONTEXT_LINES rung (105k default) nothing reaches
+# the model. At or above it the first prompt offers a stopping point; every
+# prompt after says plainly it was already raised, instead of repeating it.
 TP6="$SCRATCH/inject.jsonl"; SID6=inject
 turn "$TP6" 103000
 ctx6a=$(payload "$TP6" "$SID6" "$SCRATCH" \
-        | bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
-t 'below the stop threshold, nothing reaches the model' '' "$ctx6a"
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+t 'below the first model rung, nothing reaches the model' '' "$ctx6a"
 
 turn "$TP6" 152000
 ctx6b=$(payload "$TP6" "$SID6" "$SCRATCH" \
-        | bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
 has 'the first crossing at/above the stop line offers to stop' \
     'a stopping point' "$ctx6b"
 
 turn "$TP6" 260000
 ctx6c=$(payload "$TP6" "$SID6" "$SCRATCH" \
-        | bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
-has  'a later crossing says it was already raised'  'Already raised at 150k' "$ctx6c"
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+has  'a later crossing says it was already raised'  'Already raised at 125k' "$ctx6c"
 hasnt 'and does not repeat the stopping-point offer' 'a stopping point'      "$ctx6c"
 
 # A single call can cross more than one stop-eligible rung at once (a big
