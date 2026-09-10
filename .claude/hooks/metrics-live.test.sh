@@ -368,10 +368,8 @@ t 'one jump across three stop-eligible rungs still sends one line' \
   1 "$(printf '%s' "$ctx6d" | grep -c 'stopping point\|Already raised')"
 
 # --- 6b. model injection: sitting clock, mirrors section 6 --------------------
-# Same shape as the context ladder: nothing below the first rung, the first
-# crossing offers the action, a later crossing at a higher rung still names
-# the first rung it was raised at -- and a sitting-clock restart (rung back to
-# 0) clears m_sit_at so the line can fire again on the next real crossing.
+# Same shape as the context ladder, on the sitting clock; a restart of the
+# clock clears the injection with it.
 SID6e=sitmodel
 sitting "$SID6e" 40 10
 out6e=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
