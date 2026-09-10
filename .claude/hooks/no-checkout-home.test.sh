@@ -118,6 +118,23 @@ check allow '-C to a worktree, not $HOME' "$WORKTREE_CWD" "git -C $WORKTREE_CWD 
 check allow '--git-dir to a worktree, not $HOME' "/tmp" "git --git-dir=$WORKTREE_CWD/.git checkout some-branch"
 check allow 'GIT_DIR env to a worktree, not $HOME' "/tmp" "GIT_DIR=$WORKTREE_CWD/.git git checkout some-branch"
 
+# --- must allow: -C redirects away from $HOME even when cwd IS $HOME (#82) --
+# The awk segment scanner used to print an unconditional CWD line in
+# addition to whatever -C/--work-tree/--git-dir line it found, so the
+# harness's fixed session cwd ($HOME) got checked even when -C pointed
+# somewhere else entirely -- denying a checkout in a totally unrelated
+# repo just because the session happened to be sitting in $HOME.
+UNRELATED_REPO="$(mktemp -d)"
+trap 'rm -rf "$UNRELATED_REPO"' EXIT
+check allow '-C <unrelated repo> checkout -b, cwd is $HOME (issue #82 repro)' \
+  "$HOME" "git -C $UNRELATED_REPO checkout -b probe"
+check allow '-C <unrelated repo> switch, cwd is $HOME' \
+  "$HOME" "git -C $UNRELATED_REPO switch some-branch"
+# A plain checkout in $HOME, with no -C to redirect it, must still deny --
+# the CWD fallback line is gated, not removed.
+check deny 'plain checkout in $HOME, no -C (still denied post-fix)' \
+  "$HOME" 'git checkout some-branch'
+
 # --- must allow: unrelated commands -----------------------------------------
 check allow 'not a checkout at all' "$HOME" 'yadm status'
 check allow 'checkout mentioned inside echo, not run' "$HOME" "echo 'yadm checkout some-branch'"
