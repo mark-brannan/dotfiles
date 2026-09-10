@@ -698,11 +698,9 @@ if [ "$SHOW" = show ] && [ -f "$OUT" ]; then
     '[(.session.decisions.total // 0), (.session.friction.total // 0),
       (.session.blocked.total // 0), (.session.context_peak // 0)] | @tsv')"
 
-  # #140: the denominator was the last-crossed rung, which reads as
-  # over-limit the moment usage passes it. Use the top of the configured
-  # ladder instead -- small number on top, big number on bottom.
-  bl_ctx_denom=0
-  for L in $NAG_CONTEXT_LINES; do bl_ctx_denom=$L; done
+  # Denominator is a flat context-window size, not the rung -- the rung
+  # keeps driving the glyph repeats below, it just never appears as a number.
+  bl_ctx_denom=185000
   bl_out=$(printf '%s\n' "$metrics" | jq -r '.session.output_tokens // 0')
   bl_ctx_glyphs="»"; [ "${ctx_rungs:-0}" -gt 0 ] && bl_ctx_glyphs=$(glyphs "$ctx_rungs" "⛁")
   bl_ctx_cluster="$bl_ctx_glyphs $(kfmt "$bl_ctx")/$(kfmt "$bl_ctx_denom") 📤$(kfmt "$bl_out")"
