@@ -199,19 +199,20 @@ NAGF="$LIVE/$sid.nag.json"
 CROSSD="$(state_dir)/metrics/crossings"
 
 ctx_line=0; time_line=0; gate_line=0; fric_tripped=0
-sit_start=0; last_prompt=0; since_nag=0; resume_ts=0; nag_pending=0
+sit_start=0; last_prompt=0; since_nag=0; resume_ts=0; nag_pending=0; late_nagged=0
 if [ -f "$NAGF" ]; then
   IFS=$'\t' read -r ctx_line time_line gate_line fric_tripped \
-                    sit_start last_prompt since_nag resume_ts nag_pending \
+                    sit_start last_prompt since_nag resume_ts nag_pending late_nagged \
     <<<"$(jq -r '[(.context_line // 0), (.time_line // 0), (.gate_line // 0),
                   (if .friction_tripped then 1 else 0 end),
                   (.sitting_start // 0), (.last_prompt // 0),
                   (if .since_nag then 1 else 0 end),
                   (.resume_ts // 0),
-                  (if .nag_pending then 1 else 0 end)] | @tsv' "$NAGF" 2>/dev/null)"
+                  (if .nag_pending then 1 else 0 end),
+                  (if .late_nagged then 1 else 0 end)] | @tsv' "$NAGF" 2>/dev/null)"
 fi
 for v in ctx_line time_line gate_line fric_tripped sit_start last_prompt \
-         since_nag resume_ts nag_pending; do
+         since_nag resume_ts nag_pending late_nagged; do
   [ -n "${!v}" ] || eval "$v=0"
 done
 
@@ -219,9 +220,11 @@ save_nag() {
   jq -n --argjson cl "$ctx_line" --argjson tl "$time_line" --argjson gl "$gate_line" \
         --argjson ft "$fric_tripped" --argjson ss "$sit_start" --argjson lp "$last_prompt" \
         --argjson sn "$since_nag" --argjson rt "$resume_ts" --argjson np "$nag_pending" \
+        --argjson ln "$late_nagged" \
     '{context_line: $cl, time_line: $tl, gate_line: $gl,
       friction_tripped: ($ft == 1), sitting_start: $ss, last_prompt: $lp,
-      since_nag: ($sn == 1), resume_ts: $rt, nag_pending: ($np == 1)}' \
+      since_nag: ($sn == 1), resume_ts: $rt, nag_pending: ($np == 1),
+      late_nagged: ($ln == 1)}' \
     > "$NAGF.$$" 2>/dev/null \
     && mv -f "$NAGF.$$" "$NAGF" 2>/dev/null || rm -f "$NAGF.$$" 2>/dev/null
 }
@@ -348,24 +351,49 @@ archivable() {
   return 1
 }
 
+# The resume block is a `## Resume` heading in this session's checkpoint
+# (stop-continuity.sh names it <date>-<repo>-<sid8>.md; dotfiles#110 defines
+# the block). The hook never assumes the block was written because it asked
+# for it: it looks, and says what it found either way.
+resume_ckpt() {
+  grep -lE '^## Resume[[:space:]]*$' \
+    "$(state_dir)/log/auto/"*"-${sid:0:8}.md" 2>/dev/null | head -1
+}
+
 if [ "$hook_name" = Stop ]; then
   if [ "$nag_pending" -eq 1 ]; then
-    # The block above has been answered; the resume block exists now.
-    resume_ts=$now_ts; nag_pending=0; since_nag=0; save_nag
-    add_line "Archivable. Resume block written $(hhmm "$resume_ts"). Next time: \`/resume\`."
+    # The block above has been answered. Whether the resume block exists is a
+    # fact on disk, not an inference from having asked. Either way the nag is
+    # spent: a missing block is reported once, never re-blocked on, or this
+    # would be the level-triggered nag again.
+    nag_pending=0; since_nag=0
+    found=$(resume_ckpt)
+    if [ -n "$found" ]; then
+      resume_ts=$now_ts
+      add_line "Archivable. Resume block written $(hhmm "$resume_ts") in $(basename "$found"). Next time: \`/resume\`."
+    else
+      add_line "Archivable, but no \`## Resume\` block in $(state_dir)/log/auto/*-${sid:0:8}.md. Not asking again this session."
+    fi
+    save_nag
   elif archivable; then
     local_hour=$(date +%H); local_hour=${local_hour#0}
     late=0
     [ "${local_hour:-0}" -ge "$NAG_STOP_HOUR" ] && late=1
     # since_nag is armed by a context or time crossing and by the friction
-    # counter tripping, and disarmed by the nag. The hour arms it only while
-    # no resume block exists yet -- otherwise every Stop after 22:00 would
-    # block again, which is the level-triggered nag this replaced.
+    # counter tripping, and disarmed by the nag. The hour arms it once per
+    # session -- otherwise every Stop after 22:00 would block again, which is
+    # the level-triggered nag this replaced.
     if [ "$since_nag" -eq 1 ] \
-       || { [ "$late" -eq 1 ] && [ "$resume_ts" -eq 0 ]; }; then
+       || { [ "$late" -eq 1 ] && [ "$late_nagged" -eq 0 ]; }; then
+      [ "$late" -eq 1 ] && late_nagged=1
       nag_pending=1; save_nag
-      printf '{"decision":"block","reason":%s}\n' \
-        "$(json_str "Write the resume block.")"
+      # The crossing lines that armed this Stop have already been persisted
+      # as consumed, so this reason is their only chance to be seen. They go
+      # in front of the instruction rather than being dropped.
+      reason="Write the resume block: append a \`## Resume\` block (next, link, model, effort) to this session's checkpoint in $(state_dir)/log/auto/."
+      [ -z "$sys_lines" ] || reason="$sys_lines
+$reason"
+      printf '{"decision":"block","reason":%s}\n' "$(json_str "$reason")"
       exit 0
     fi
     # Nothing new to say. Later Stops carry the block's age and nothing else.

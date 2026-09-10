@@ -128,19 +128,42 @@ S() { payload "$TP3" stop1 "$REPO" Stop \
 
 o1=$(S)
 t   'the first Stop blocks'  block "$(printf '%s' "$o1" | jq -r '.decision // ""')"
-t   'with one instruction'   'Write the resume block.' \
+has 'with one instruction'   '^Write the resume block: append a `## Resume` block' \
     "$(printf '%s' "$o1" | jq -r '.reason // ""')"
 
+# The model answers the block by writing the checkpoint's resume block. The
+# hook must find it on disk, not assume it from having asked.
+CK="$STATE/log/auto"; mkdir -p "$CK"
+printf '# ckpt\n\n## Resume\n\n- next: x\n' > "$CK/2026-09-09-repo-stop1.md"
 o2=$(S)
 t   'the second Stop does not block' '' "$(printf '%s' "$o2" | jq -r '.decision // ""')"
-has 'and reports the resume block' \
-    '^Archivable\. Resume block written [0-9]{2}:[0-9]{2}\. Next time: `/resume`\.$' \
+has 'and reports the resume block it found' \
+    '^Archivable\. Resume block written [0-9]{2}:[0-9]{2} in 2026-09-09-repo-stop1\.md\. Next time: `/resume`\.$' \
     "$(msg "$o2" | head -1)"
 
 o3=$(S)
 t     'a later Stop does not block'  '' "$(printf '%s' "$o3" | jq -r '.decision // ""')"
 has   'and carries only the age'     'Resume block 0m old' "$(msg "$o3")"
 hasnt 'not the message again'        'Next time' "$(msg "$o3")"
+
+# The block was ignored: no `## Resume` anywhere. Say so, do not claim one,
+# and do not block again -- the late-hour arm is spent for the session.
+S3() { payload "$TP3" stop3 "$REPO" Stop \
+       | METRICS_STOP_HOUR=0 bash "$HOOK" stop 0 show 2>&1; }
+o=$(S3); t 'blocks once' block "$(printf '%s' "$o" | jq -r '.decision // ""')"
+o=$(S3)
+t     'an unanswered block does not re-block' '' "$(printf '%s' "$o" | jq -r '.decision // ""')"
+has   'and reports the block as missing' 'no `## Resume` block' "$(msg "$o")"
+hasnt 'never claims it was written'      'Resume block written' "$(msg "$o")"
+o=$(S3); t 'and stays quiet after' '' "$(printf '%s' "$o" | jq -r '.decision // ""')"
+
+# A crossing that arms the Stop is consumed by it, so the block reason has to
+# carry the line -- otherwise the threshold that caused the block is never seen.
+TP4="$SCRATCH/cross.jsonl"; turn "$TP4" 103000
+o=$(payload "$TP4" stop4 "$REPO" Stop | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show 2>&1)
+t   'a context crossing at Stop blocks' block "$(printf '%s' "$o" | jq -r '.decision // ""')"
+has 'and the reason carries the crossing line' '⛁ context 103k — past 100k' \
+    "$(printf '%s' "$o" | jq -r '.reason // ""')"
 
 # A dirty tree is not archivable, so nothing blocks however late it is.
 : > "$REPO/dirty"
