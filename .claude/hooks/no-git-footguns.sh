@@ -29,9 +29,8 @@
 # so a commit message that mentions a flag mid-sentence does not trip it.
 #
 # This is a GATE, so it fails closed: no jq, no awk, no library, unreadable
-# payload -> block. `git reset --hard` has its own hook
-# (no-git-reset-hard.sh, a plain regex); it is checked structurally here too
-# so an escaped or wrapped spelling that slips the regex still stops.
+# payload -> block. `git reset --hard` is checked structurally here, so an
+# escaped or wrapped spelling still stops.
 set -uf
 
 HERE=$(dirname "$0")
