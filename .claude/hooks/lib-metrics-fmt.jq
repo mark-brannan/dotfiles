@@ -68,17 +68,15 @@ def blk:
 
 def turns: "⇢ \(.user_turns) ⚙ \(.tool_calls)";
 
-# Git state, the part that decides whether the chat is safe to kill. The empty
-# string when the tree is clean: "0c/0~/0↑" is the common case and says
-# nothing. A string, never jq's `empty` -- an empty stream would silently
-# swallow whatever it is concatenated with.
+# Git state, the part that decides whether the chat is safe to kill. Empty
+# when the tree is clean: "0c/0~/0↑" is the common case and says nothing.
 def work:
   if .commits > 0 or .dirty > 0 or .unpushed > 0
   then "⎇ " + (if .commits  > 0 then "\(.commits)c" else "" end)
            + (if .dirty    > 0 then "\(.dirty)~"  else "" end)
            + (if .unpushed > 0 then "\(.unpushed)↑unpushed" else "" end)
            + (if .unpushed > 0 then "  ← not safe to kill" else "" end)
-  else "" end;
+  else empty end;
 
 # Seconds as a glanceable duration: "45s", "24m", "1h48".
 def dur:
