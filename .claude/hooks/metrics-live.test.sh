@@ -491,5 +491,31 @@ hasnt 'and says nothing about git state' '⎇' "$(msg "$o9")"
 o9b=$(payload "$TP9" show9b "$REPO9" Stop | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show 2>&1)
 has 'a dirty tree appends git state to the same line' '⇢ [0-9]+ ⚙ [0-9]+ ⎇ 1~' "$(msg "$o9b")"
 
+# --- 10. the block survives $OUT being deleted mid-run -----------------------
+# dotfiles#152: stop-continuity.sh's Stop hook deletes $OUT concurrently, and
+# metrics-live.sh spends real time in archivable()'s `gh pr list` between
+# writing $OUT and reaching the display check. If that delete lands in the
+# window, the display must still open with the block -- it comes from
+# $metrics/$merged in memory now, not a re-read of the cache file.
+TP10="$SCRATCH/race.jsonl"; turn "$TP10" 1000
+cat > "$SCRATCH/bin/gh" <<'GH'
+#!/bin/sh
+sleep 0.3
+echo 1
+GH
+chmod +x "$SCRATCH/bin/gh"
+OUT10="$STATE/metrics/live/race.json"
+( sleep 0.1; rm -f "$OUT10" ) &
+o10=$(payload "$TP10" race "$REPO" Stop | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show 2>&1)
+wait
+has 'the block still opens with $OUT removed just before display' '^(»|⛁)' "$(msg "$o10")"
+t   '$OUT was actually gone when the hook read it' absent \
+    "$( [ -f "$OUT10" ] && echo present || echo absent )"
+cat > "$SCRATCH/bin/gh" <<'GH'
+#!/bin/sh
+echo 1
+GH
+chmod +x "$SCRATCH/bin/gh"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
