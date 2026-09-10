@@ -62,8 +62,8 @@
 # Scanning is shared with no-git-footguns.sh/no-checkout-home.sh/
 # no-rm-tree.sh: lib-shell-words.awk (read its header).
 #
-# This is a GATE, so it fails closed: no jq, no awk, no library, unreadable
-# payload -> deny.
+# This is a GATE, so it fails closed: no jq, no awk, no sed, no git, no
+# library, unreadable payload -> deny.
 set -u
 
 # Parameter expansion, not `dirname`: this hook must still emit valid JSON
@@ -93,6 +93,7 @@ Worktree hygiene is the user's call, not a session's."
 command -v jq  >/dev/null 2>&1 || deny_literal 'jq is missing, so the command cannot be inspected.'
 command -v awk >/dev/null 2>&1 || deny_literal 'awk is missing, so the command cannot be inspected.'
 command -v sed >/dev/null 2>&1 || deny_literal 'sed is missing, so the command cannot be inspected.'
+command -v git >/dev/null 2>&1 || deny_literal 'git is missing, so worktree ownership cannot be checked.'
 [ -r "$LIB" ] || deny_literal 'lib-shell-words.awk is missing from the hooks directory, so the command cannot be inspected. Run dotsync (or cloud-session-setup.sh) and retry.'
 payload=$(cat) || deny_literal 'the hook payload could not be read.'
 tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null) || deny_literal 'the hook payload is unreadable.'

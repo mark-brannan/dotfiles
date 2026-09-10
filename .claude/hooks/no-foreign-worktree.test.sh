@@ -145,5 +145,23 @@ else
   printf 'FAIL: no jq/awk on PATH must fail closed with valid JSON\n  hook output: %s\n' "$out"
 fi
 
+# jq/awk/sed present, git absent -- this is the case the header's own
+# invariant would miss if only jq/awk/sed were checked: git is what every
+# foreignness decision is asked of, so its absence must deny too, not
+# silently treat every path as non-foreign.
+no_git_dir=$(mktemp -d)
+for t in jq awk sed; do
+  p=$(command -v "$t") && ln -s "$p" "$no_git_dir/$t"
+done
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | env -i PATH="$no_git_dir" HOME="$HOME" /bin/sh "$HOOK" 2>/dev/null)
+if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1))
+  printf 'FAIL: jq/awk/sed present but no git on PATH must fail closed\n  hook output: %s\n' "$out"
+fi
+rm -rf "$no_git_dir"
+
 printf '%s\n' "no-foreign-worktree: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] || exit 1
