@@ -374,6 +374,17 @@ ctx6c=$(payload "$TP6" "$SID6" "$SCRATCH" \
 has  'a later crossing says it was already raised'  'Already raised at 150k' "$ctx6c"
 hasnt 'and does not repeat the stopping-point offer' 'a stopping point'      "$ctx6c"
 
+# A single call can cross more than one stop-eligible rung at once (a big
+# tool result landing between prompts). That must still emit exactly one
+# model line, not one per rung -- otherwise every rung but the first claims
+# a distinct earlier occasion nobody acted on, when they all just fired now.
+TP6b="$SCRATCH/inject2.jsonl"; SID6b=inject2
+turn "$TP6b" 300000
+ctx6d=$(payload "$TP6b" "$SID6b" "$SCRATCH" \
+        | bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+t 'one jump across three stop-eligible rungs still sends one line' \
+  1 "$(printf '%s' "$ctx6d" | grep -c 'stopping point\|Already raised')"
+
 # --- 7. the sitting line carries git state once #129 makes it safe to ---------
 # dotfiles#132's third deferred item, reconciled now that #129 landed: a dirty
 # or unpushed tree is exactly the fact the "stop here" verdict needs. A fresh

@@ -238,6 +238,31 @@ done
 # belongs to a sitting nobody can name, so it is spent rather than trusted.
 [ "$tl_sitting" -eq "$sit_start" ] || { time_line=0; tl_sitting=$sit_start; }
 
+# A nag file written before context_rungs/context_stop_line existed has
+# context_line but defaults both new fields to 0 -- read literally, a session
+# that already crossed 200k before the upgrade would show only the rungs it
+# crosses from here, undercounting the glyph escalation, and would re-offer
+# to stop as if for the first time. Derive both from context_line and the
+# ladder as configured now, once, rather than trust a zero that only means
+# "this field didn't exist yet".
+if [ "$ctx_rungs" -eq 0 ] && [ "$ctx_line" -gt 0 ]; then
+  for L in $NAG_CONTEXT_LINES; do
+    [ "$L" -le "$ctx_line" ] && ctx_rungs=$((ctx_rungs + 1))
+  done
+  if [ "$NAG_CONTEXT_STEP" -gt 0 ]; then
+    last_cfg=0
+    for L in $NAG_CONTEXT_LINES; do last_cfg=$L; done
+    if [ "$last_cfg" -gt 0 ]; then
+      L=$((last_cfg + NAG_CONTEXT_STEP))
+      while [ "$L" -le "$ctx_line" ]; do
+        ctx_rungs=$((ctx_rungs + 1))
+        L=$((L + NAG_CONTEXT_STEP))
+      done
+    fi
+  fi
+fi
+[ "$ctx_stop_line" -eq 0 ] && [ "$ctx_line" -ge "$NAG_CONTEXT_STOP_AT" ] && ctx_stop_line=$ctx_line
+
 save_nag() {
   jq -n --argjson cl "$ctx_line" --argjson cr "$ctx_rungs" --argjson cs "$ctx_stop_line" \
         --argjson tl "$time_line" --argjson ts "$tl_sitting" \
@@ -359,20 +384,21 @@ if [ "$run_engine" -eq 1 ]; then
       L=$((L + NAG_CONTEXT_STEP))
     done
   fi
+  # A single invocation can cross several rungs at once (a big tool result
+  # landing between prompts, or a subagent's output). Each still gets its own
+  # screen line -- "reports each in order" above -- but the model injection
+  # is once per *call*, not once per rung: stacking one "already raised" line
+  # per rung crossed in the same call would claim a separate earlier occasion
+  # for each, when they all just happened now and the model never had a turn
+  # in between to act on any of them.
+  ctx_stop_before=$ctx_stop_line
+  ctx_stop_fired=0
   for L in $ladder; do
     if [ "$ctx" -ge "$L" ] && [ "$L" -gt "$ctx_line" ]; then
       ctx_rungs=$((ctx_rungs + 1))
       if [ "$L" -ge "$NAG_CONTEXT_STOP_AT" ]; then
         verdict="propose stopping"
-        # Model injection only from the stop threshold up: the first such
-        # crossing offers a stopping point, every one after it says plainly
-        # that the offer already went out and nothing came of it, rather than
-        # repeating it verbatim rung after rung.
-        if [ "$ctx_stop_line" -eq 0 ]; then
-          add_model "Context at $(kfmt "$ctx") — a stopping point. Consider /wrapup."
-        else
-          add_model "Context at $(kfmt "$ctx"), past $(kfmt "$L"). Already raised at $(kfmt "$ctx_stop_line") and not acted on."
-        fi
+        ctx_stop_fired=1
         ctx_stop_line=$L
       else
         verdict="still room"
@@ -384,6 +410,17 @@ if [ "$run_engine" -eq 1 ]; then
       ctx_line=$L; since_nag=1
     fi
   done
+  # Model injection only from the stop threshold up, and only once per call:
+  # the first time it ever fires, offer a stopping point; every call after
+  # that says plainly the offer already went out and nothing came of it,
+  # rather than repeating it verbatim.
+  if [ "$ctx_stop_fired" -eq 1 ]; then
+    if [ "$ctx_stop_before" -eq 0 ]; then
+      add_model "Context at $(kfmt "$ctx") — a stopping point. Consider /wrapup."
+    else
+      add_model "Context at $(kfmt "$ctx"), past $(kfmt "$ctx_stop_line"). Already raised at $(kfmt "$ctx_stop_before") and not acted on."
+    fi
+  fi
 
   # sitting clock -- read on a prompt and nowhere else, so the line lands
   # where the user is already reading, at the top of a turn.
