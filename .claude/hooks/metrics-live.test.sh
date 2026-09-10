@@ -537,12 +537,18 @@ has 'a dirty tree appends git state to the same line' '⇢ [0-9]+ ⚙ [0-9]+ ⎇
 # "dirty" file from test 3 onward. archivable() short-circuits on a dirty
 # worktree before it ever shells out to `gh`, so reusing $REPO would let this
 # test pass on the timing of the script's own subprocess spawns rather than
-# on the slow `gh` mock it's actually exercising.
+# on the slow `gh` mock it's actually exercising. And it needs a pushed
+# `main` to compare against, and a commit ahead of it -- branch-home-gate.sh
+# quiet-exits on "no default branch to compare against" before it ever
+# reaches `gh` otherwise (mirrors test 8's ORIGIN8/REPO8 setup).
+ORIGIN10="$SCRATCH/origin10.git"; git init -q --bare "$ORIGIN10"
 REPO10="$SCRATCH/repo10"; mkdir -p "$REPO10"
-git -C "$REPO10" init -q -b feat/race
+git -C "$REPO10" init -q -b main
 git -C "$REPO10" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
-git init -q --bare "$SCRATCH/repo10.git"
-git -C "$REPO10" remote add origin "$SCRATCH/repo10.git"
+git -C "$REPO10" remote add origin "$ORIGIN10"
+git -C "$REPO10" push -q -u origin main
+git -C "$REPO10" checkout -q -b feat/race
+git -C "$REPO10" -c user.email=t@t -c user.name=t commit -q --allow-empty -m work
 git -C "$REPO10" push -q -u origin feat/race
 
 TP10="$SCRATCH/race.jsonl"; turn "$TP10" 1000
@@ -553,12 +559,13 @@ echo 1
 GH
 chmod +x "$SCRATCH/bin/gh"
 OUT10="$STATE/metrics/live/race.json"
-( sleep 0.1; rm -f "$OUT10" ) &
-o10=$(payload "$TP10" race "$REPO10" Stop | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show 2>&1)
-wait
-has 'the block still opens with $OUT removed just before display' '^(»|⛁)' "$(msg "$o10")"
-t   '$OUT was actually gone when the hook read it' absent \
-    "$( [ -f "$OUT10" ] && echo present || echo absent )"
+payload "$TP10" race "$REPO10" Stop \
+  | METRICS_STOP_HOUR=23 bash "$HOOK" stop 0 show > "$SCRATCH/o10.out" 2>&1 &
+hook_pid=$!
+rm -f "$OUT10"
+wait "$hook_pid"
+o10=$(cat "$SCRATCH/o10.out")
+has 'the block still opens with $OUT removed mid-run' '^(»|⛁)' "$(msg "$o10")"
 cat > "$SCRATCH/bin/gh" <<'GH'
 #!/bin/sh
 echo 1
