@@ -287,6 +287,14 @@
             "command": "h=\"$HOME/.claude/hooks/log-commit.sh\"; [ -f \"$h\" ] && bash \"$h\" 2>/dev/null || true"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" posttooluse 0 show 2>/dev/null || true"
+          }
+        ]
       }
     ],
     "SubagentStop": [

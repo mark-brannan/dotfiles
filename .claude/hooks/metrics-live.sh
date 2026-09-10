@@ -7,13 +7,14 @@
 # fire several times a second). The statusline just prints what is already on
 # disk, and recomputes only past its own staleness age.
 #
-# Three wirings, and only three: UserPromptSubmit (silent readout, may carry a
-# crossing line), Stop and SubagentStop. It used to be wired to nine events,
-# eight of them with `show`, which meant a jq pass over the transcript after
-# every single tool call and a readout that spoke often enough to be tuned
-# out. That is a level-triggered nag. What replaced it is the crossing engine
-# below: a line fires once, when a threshold is first crossed, and then says
-# nothing until the next line.
+# Four wirings: UserPromptSubmit (silent readout, may carry a crossing line),
+# Stop, SubagentStop, and PostToolUse (the pulse/coalesce block below --
+# restored 2026-09-10; #123 had cut this to three, reasoning about a compute
+# cost that doesn't bind here and treating frequent display as noise instead
+# of the live feedback loop it's actually for). The crossing engine is
+# separate from the pulse: a crossing line fires once, when a threshold is
+# first crossed, and says nothing until the next one; the pulse is a plain
+# per-step heartbeat and carries no crossing state of its own.
 #
 # One file per session, keyed by session_id: parallel sessions are normal
 # here, and per-session paths mean two of them never write the same file.
@@ -73,10 +74,16 @@ NAG_STOP_HOUR="${METRICS_STOP_HOUR:-22}"
 # One jq for all three fields: the statusline reaches this code on every
 # render, and three spawns before the staleness check was most of its cost.
 input=$(cat 2>/dev/null || echo '{}')
-IFS=$'\t' read -r tp sid cwd hook_name <<<"$(printf '%s' "$input" | jq -r \
+# \x1f (unit separator), not @tsv: tab is always in bash's IFS-whitespace
+# class, so `IFS=$'\t' read` collapses runs of it regardless of what IFS is
+# set to -- and tool_name/tool_input.command are empty on every non-tool
+# event (Stop, SubagentStop, UserPromptSubmit), which shifted hook_name into
+# the wrong variable and silently broke the Stop-block logic below.
+IFS=$'\x1f' read -r tp sid cwd tool_name tool_cmd hook_name <<<"$(printf '%s' "$input" | jq -r \
   '[(.transcript_path // ""), (.session_id // ""),
     (.cwd // .workspace.current_dir // ""),
-    (.hook_event_name // "")] | @tsv')"
+    (.tool_name // ""), (.tool_input.command // ""),
+    (.hook_event_name // "")] | join("")')"
 [ -n "$tp" ] && [ -f "$tp" ] && [ -n "$sid" ] || exit 0
 [ -n "$cwd" ] || cwd=$PWD
 
@@ -111,6 +118,98 @@ JQPROG="$HOOK_DIR/session-metrics.jq"
 
 LIVE="$(state_dir)/metrics/live"
 OUT="$LIVE/$sid.json"
+
+# ------------------------------------------------------------- pulse/coalesce
+# PostToolUse fires on EVERY tool call (settings.json matches all tools, no
+# per-tool matcher). This is the live per-step feedback loop -- restored
+# 2026-09-10 after #123 dropped it; the earlier removal reasoned about
+# compute cost that isn't a real constraint here (systemMessage never reaches
+# the model) and about display frequency being noise, when frequent display
+# is the actual point. Two jobs, both driven by a small counter file the
+# statusline never touches -- it only ever reads/writes $OUT, so this file is
+# safe to use as a debounce the 15s statusline refresh can't stomp:
+#
+#   pulse    a block every PULSE_N tool calls (default 1 -- every call) so
+#            the feedback loop stays live at each step.
+#   coalesce a git-matching call (commit/push/rebase/...) doesn't print
+#            immediately. It marks a "pending" flag and recomputes silently.
+#            The block only prints once a NON-git tool call arrives -- i.e.
+#            when the streak actually ends -- so `git add && git commit &&
+#            git push`, or a rebase's wall of checkouts, prints exactly one
+#            block reflecting the final state, not one per call.
+#
+#            Coalescing only kicks in after GIT_EARLY_N git events have
+#            already printed individually this session: the first few git
+#            actions are exactly the ones most worth seeing land in real
+#            time, so they show immediately, uncoalesced. Streaks are only
+#            worth collapsing once git activity is established as routine.
+PULSE_N="${METRICS_PULSE_N:-1}"
+GIT_EARLY_N="${METRICS_GIT_EARLY_N:-3}"
+if [ "$EVENT" = posttooluse ]; then
+  PULSE="$LIVE/$sid.pulse.json"
+  mkdir -p "$LIVE" 2>/dev/null || exit 0
+  is_git=0
+  printf '%s\n%s' "$tool_cmd" "$tool_name" \
+    | grep -qE "$(git_event_re)" \
+    && is_git=1
+
+  count=0; pending_git=0; git_seen=0
+  if [ -f "$PULSE" ]; then
+    IFS=$'\t' read -r count pending_git git_seen <<<"$(jq -r \
+      '[(.count // 0), (if .pending_git then 1 else 0 end), (.git_seen // 0)] | @tsv' "$PULSE" 2>/dev/null)"
+    [ -n "$count" ] || count=0
+    [ -n "$pending_git" ] || pending_git=0
+    [ -n "$git_seen" ] || git_seen=0
+  fi
+
+  do_print=0
+  DISPLAY_KIND=""
+  if [ "$is_git" -eq 1 ]; then
+    if [ "$git_seen" -lt "$GIT_EARLY_N" ]; then
+      # Still under the early-git quota: print this one immediately rather
+      # than folding it into a streak.
+      git_seen=$((git_seen + 1))
+      do_print=1
+      DISPLAY_KIND="git"
+      count=0
+      pending_git=0
+    else
+      # Quota spent: coalesce as before -- recompute so $OUT stays current,
+      # stay silent, the streak isn't over yet.
+      count=0
+      pending_git=1
+    fi
+  else
+    if [ "$pending_git" -eq 1 ]; then
+      # The streak just ended: flush the one block for it.
+      do_print=1
+      DISPLAY_KIND="git"
+      count=0
+      pending_git=0
+    else
+      count=$((count + 1))
+      if [ "$count" -ge "$PULSE_N" ]; then
+        do_print=1
+        DISPLAY_KIND="pulse"
+        count=0
+      fi
+    fi
+  fi
+
+  jq -n --argjson c "$count" --argjson p "$([ "$pending_git" -eq 1 ] && echo true || echo false)" \
+    --argjson g "$git_seen" \
+    '{count: $c, pending_git: $p, git_seen: $g}' > "$PULSE.$$" 2>/dev/null \
+    && mv -f "$PULSE.$$" "$PULSE" 2>/dev/null || rm -f "$PULSE.$$" 2>/dev/null
+
+  # A tool call mid-streak (git or not, below PULSE_N) needs nothing beyond
+  # the counter bookkeeping above -- no reason to pay for the full transcript
+  # slurp below on every single call. Only a print (streak-end flush, or a
+  # pulse tick) needs $OUT current, and it'll be recomputed fresh right here
+  # regardless of how stale it was, so skipping the recompute in between
+  # never shows stale numbers, only fewer silent writes.
+  [ "$do_print" -eq 1 ] || exit 0
+  EVENT="$DISPLAY_KIND"
+fi
 
 # Throttle: the statusline asks constantly, events ask rarely. An event
 # always recomputes; the statusline only does so if the cache has gone stale.
