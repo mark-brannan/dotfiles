@@ -42,6 +42,11 @@ set -uf
 HERE=$(dirname "$0")
 LIB="$HERE/lib-shell-words.awk"
 PRIVATE_REPO="mark-brannan/claude_prompts_scratch"
+# Labels a session may not apply, space separated. `churn-ok` waives the
+# churn gate (.github/workflows/churn-guard.yml): a gate whose bypass the
+# gated party can apply to its own PR is not a gate, so that label is a
+# human's to add.
+DENY_LABELS="churn-ok"
 
 deny() {
   if command -v jq >/dev/null 2>&1; then
@@ -98,7 +103,20 @@ case "$tool" in
         if (v ~ /\$\(/ || v ~ /`/) { if (v !~ /<</ && v !~ / HEREDOC /) print "OPAQUE\t" flat(v) }
         else if (v ~ /^\$[A-Za-z_{]/) { if (!fed(v)) print "OPAQUE\t" flat(v) }
       }
-      function field(v) { sub(/^[^=]*=/, "", v); if (v ~ /^@/) file(substr(v, 2)); else val(v) }
+      function lab(v,   n, a, i) {
+        n = split(v, a, ",")
+        for (i = 1; i <= n; i++) {
+          gsub(/^[[:space:]]+/, "", a[i]); gsub(/[[:space:]]+$/, "", a[i])
+          if (a[i] != "") print "L\t" flat(a[i])
+        }
+      }
+      function field(v,   key) {
+        key = v; sub(/=.*$/, "", key)
+        sub(/^[^=]*=/, "", v)
+        if (v ~ /^@/) { file(substr(v, 2)); return }
+        if (key ~ /label/) lab(v)
+        val(v)
+      }
       { buf = buf $0 "\n" }
       END {
         orig = buf
@@ -142,6 +160,9 @@ case "$tool" in
           else if (t ~ /^(--body|--title|--comment|--subject|-b|-t|-c)$/) { if (i < hi) val(wv(++i)) }
           else if (t ~ /^--(body|title|comment|subject)=/) { v = t; sub(/^[^=]*=/, "", v); val(v) }
           else if (t ~ /^-[btc]./) val(substr(t, 3))
+          else if (t ~ /^(--label|--add-label|-l)$/) { if (i < hi) lab(wv(++i)) }
+          else if (t ~ /^--(add-)?label=/) { v = t; sub(/^[^=]*=/, "", v); lab(v) }
+          else if (t ~ /^-l./) lab(substr(t, 3))
         }
         print "R\t" (repo == "" ? "-" : flat(repo))
       }
@@ -201,6 +222,18 @@ case "$tool" in
     ;;
   *) exit 0 ;;
 esac
+
+# A denied label is denied everywhere, public repo or private: the bypass it
+# waives is a human's to apply.
+# Matched case-insensitively: GitHub label names are unique that way, so
+# `CHURN-OK` reaches the same label and must not slip past.
+while IFS="$(printf '\t')" read -r kind value; do
+  [ "$kind" = L ] || continue
+  value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+  for bad in $DENY_LABELS; do
+    [ "$value" = "$bad" ] && deny "the label \`$bad\` is a human's to apply, not a session's -- it waives the churn gate, and a gate whose bypass the gated party can reach is not a gate. Split the PR instead, or say in the PR body why it has to be over budget and let the label be added by hand."
+  done
+done < "$META"
 
 # Every target must be the private repo for the text to go unscanned; one
 # unknown or public target among several means the scan runs.

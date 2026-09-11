@@ -68,6 +68,10 @@
 .claude/journal/
 .claude/session-notes/
 .claude/checkpoints/
+# state_dir() falls back to .claude/state/global when the private state
+# repo isn't cloned; without this, that fallback path is untracked and
+# unignored on machines without claude_prompts_scratch. (#130)
+.claude/state/
 boards/
 *.local.json
 *.local.yml
