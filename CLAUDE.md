@@ -86,6 +86,11 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   alternate only when a whole file genuinely differs per OS, and then use
   `##default`, never `##os.Linux` — yadm reports `WSL` under WSL2.
 - Branch work: `yadm worktree add -b <branch> ~/.claude/worktrees/<name> main`. Never `yadm checkout <branch>` in `$HOME` (enforced by `no-checkout-home.sh`). Also never `git checkout <branch>` in `~/dotfiles` — not enforced by any hook, just don't.
+- **A worktree belongs to one session.** Never work in another session's,
+  whatever route offers itself — `EnterWorktree(path=...)`, `git -C`, an edit
+  by absolute path (enforced by `no-foreign-worktree.sh`). A session that is
+  *finished* pushes, opens the PR and then releases its worktree, so the
+  branch it held is free for whoever picks the work up.
 
 ## Shell scripts here
 
