@@ -476,6 +476,8 @@ eq 'exit 0, the stale lock did not block the run' 0 "$RC"
 has 'WARN about reclaiming the stale lock' 'WARN  reclaiming stale lock on o/alpha'
 eq 'the item still ran' 1 "$(calls_claude)"
 assert 'lock directory released again after this clean exit' bash -c '! ls -d '"$S"'/state/grind/locks/*.lock >/dev/null 2>&1'
+assert 'the rename-based reclaim leaves no quarantined .stale.* dir behind' \
+  bash -c '! ls -d '"$S"'/state/grind/locks/*.stale.* >/dev/null 2>&1'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

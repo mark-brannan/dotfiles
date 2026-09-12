@@ -201,7 +201,7 @@ write_lock() {
       exit_reason: (if $reason == "" then null else $reason end)}' > "$lock_meta" 2>/dev/null || true
   if [ -f "$state_file" ] && [ -f "$lock_meta" ]; then
     jq --slurpfile lk "$lock_meta" '.lock = $lk[0]' "$state_file" > "$state_file.tmp" \
-      && mv "$state_file.tmp" "$state_file"
+      && mv "$state_file.tmp" "$state_file" || true
   fi
 }
 
@@ -216,7 +216,16 @@ if [ "$dry_run" -eq 0 ]; then
     fi
     if [ "$stale" -eq 1 ]; then
       warn "reclaiming stale lock on $repo at $lock_dir (pid $other_pid on $other_host is not running)"
-      rm -rf "$lock_dir"
+      # Quarantine the observed-stale dir by renaming it first: rename is
+      # atomic, so if a second reclaimer is racing us, only one of us wins
+      # the rename and the other falls through to the "still held" branch
+      # below instead of deleting a lock a third process just created.
+      stale_dir="$lock_dir.stale.$$"
+      if ! mv "$lock_dir" "$stale_dir" 2>/dev/null; then
+        err "lock at $lock_dir changed while reclaiming it -- another grind won the race"
+        exit 1
+      fi
+      rm -rf "$stale_dir"
       mkdir "$lock_dir" || { err "could not reclaim lock $lock_dir"; exit 1; }
     else
       printf 'grind: another grind is already running against %s\n' "$repo" >&2
@@ -225,9 +234,9 @@ if [ "$dry_run" -eq 0 ]; then
       exit 1
     fi
   fi
-  write_lock
-  # Fires on every exit path -- normal completion, a pause's `exit 0`, an
-  # error under set -e, or a signal -- so the lock never outlives this process.
+  # Trap registered before write_lock, not after: a signal landing between
+  # mkdir succeeding and the trap being installed would otherwise leave the
+  # lock directory behind with nothing left to clean it up.
   trap 'rc=$?
     case $rc in
       0) reason=clean ;;
@@ -235,8 +244,10 @@ if [ "$dry_run" -eq 0 ]; then
       143) reason=terminated ;;
       *) reason="exited(rc=$rc)" ;;
     esac
-    write_lock "" "" "$reason"
-    rm -rf "$lock_dir"' EXIT
+    write_lock "" "" "$reason" || true
+    rm -rf "$lock_dir"
+    exit "$rc"' EXIT
+  write_lock
 fi
 
 # refs (owner/repo#N) already accounted for from a prior run of this session,
