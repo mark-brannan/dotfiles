@@ -1,0 +1,1 @@
+Confirmed real -- log-commit.sh:27 reads CLAUDE_CODE_SESSION_ID, not CLAUDE_SESSION_ID, so this field is silently always empty. Fix already staged on the pr179-work branch that's replacing this session-diagnostics PR content; filing dotfiles#190 for the one remaining gap (--resume not refreshing identity). Resolving this thread as covered by that in-flight fix.
