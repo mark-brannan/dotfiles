@@ -17,23 +17,15 @@
 #     review (matched on the tool name's tail).
 # Nothing else: a body posted from `python -c`, `curl`, or a script file is
 # not inspected. The scope is Bash `gh` and the GitHub MCP tools.
-# The text judged is only what is genuinely posted: literal --body/--title/
-# --comment/--subject/--label values (a value built from `$(...)` or an
-# unfed `$VAR` is refused, not scanned around), gh api -f/-F/--field/
-# --raw-field values, every heredoc body, and the contents of --body-file/
-# --comment-file/-F/--input/-F key=@file -- never the path itself, since
-# that is read, not posted. For MCP, every string in tool_input. A `cd` (or
-# any other) path elsewhere in the command is not scanned at all: it was
-# never going to be posted. It is grepped case-insensitively, as fixed
-# substrings, against state/global/private-terms.txt in the state repo;
+# The text judged is the whole command after quote removal (so a term
+# spelled `ho\stname` or split across quotes still reads whole), every
+# heredoc body, the file named by --body-file/-F/--input/-F key=@file, and
+# for MCP every string in tool_input. The one thing cut out is the path
+# operand of those file flags: a path is read, not posted, and a scratchpad
+# under $HOME would otherwise trip a term that names the home directory. It is grepped case-insensitively, as
+# fixed substrings, against state/global/private-terms.txt in the state repo;
 # comment and blank lines in that file are ignored. The reason names the
 # term(s) that hit and nothing around them.
-#
-# A home-directory path found in that text is a sanitization job, not a
-# denial job: if this Claude Code version's PreToolUse hooks support
-# rewriting the call (`updatedInput`), the guard replaces it with `~` and
-# allows; otherwise it stays a denial, with the reason naming the
-# substitution to make by hand.
 #
 # The target repo is --repo/-R, GH_REPO=, the `gh api` path, or MCP
 # owner/repo; failing those, the origin of the payload's cwd -- unless the
@@ -43,10 +35,8 @@
 # GATE, fails closed: no jq, no awk, no library, unreadable payload, a body
 # the hook cannot see (--body-file it cannot read, `-F -` with no heredoc,
 # a body built from `$(...)` or `$VAR` that no heredoc feeds -- a heredoc
-# elsewhere in the command does not vouch for it), a gh write whose flag
-# shape isn't one this hook recognises as carrying text (so its content was
-# never extracted at all), or a missing denylist while the target is not
-# the private repo -> deny, with the fix in the reason.
+# elsewhere in the command does not vouch for it), or a missing denylist while
+# the target is not the private repo -> deny, with the fix in the reason.
 set -uf
 
 HERE=$(dirname "$0")
@@ -83,8 +73,8 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/public-issue-guard.XXXXXX") || deny 'cannot create a scratch directory'
 trap 'rm -rf "$WORK"' EXIT
 TEXT="$WORK/text"      # everything that will be posted, one candidate per line
-META="$WORK/meta"      # R repo | F file | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
-: > "$TEXT"; : > "$META"; : > "$WORK/text-cmd"; : > "$WORK/text-file"
+META="$WORK/meta"      # R repo | F file | STDIN | OPAQUE | HEREDOC | CD
+: > "$TEXT"; : > "$META"
 
 # owner/name in lower case from any of the spellings gh and git accept.
 norm_repo() {
@@ -112,13 +102,12 @@ case "$tool" in
       function val(v) {
         if (v ~ /\$\(/ || v ~ /`/) { if (v !~ /<</ && v !~ / HEREDOC /) print "OPAQUE\t" flat(v) }
         else if (v ~ /^\$[A-Za-z_{]/) { if (!fed(v)) print "OPAQUE\t" flat(v) }
-        else print "T\t" flat(v)
       }
       function lab(v,   n, a, i) {
         n = split(v, a, ",")
         for (i = 1; i <= n; i++) {
           gsub(/^[[:space:]]+/, "", a[i]); gsub(/[[:space:]]+$/, "", a[i])
-          if (a[i] != "") { print "L\t" flat(a[i]); print "T\t" flat(a[i]) }
+          if (a[i] != "") print "L\t" flat(a[i])
         }
       }
       function field(v,   key) {
@@ -133,20 +122,14 @@ case "$tool" in
         orig = buf
         stripped = strip_heredocs(buf)
         if (stripped != buf) print "HEREDOC"
-        # Heredoc bodies are genuinely-posted text (-F -, $(cat <<EOF), a
-        # $VAR fed by one) -- strip_heredocs only cared about removing them
-        # from buf for tokenising; recover the same bodies here to scan.
-        nhd = heredoc_bodies(orig, hdbody)
-        for (h = 1; h <= nhd; h++) {
-          m = split(hdbody[h], hdl, "\n")
-          for (l = 1; l <= m; l++) print "HDTXT\t" hdl[l]
-        }
         buf = stripped
         ntexts = texts_of(buf, texts, nested)
         for (x = 1; x <= ntexts; x++) {
           n = scan(texts[x], w, k, q)
           for (i = 1; i <= n; i++) {
+            if (k[i] == ";") continue
             if (k[i] == "w" && w[i] ~ /^(cd|pushd)$/) print "CD"
+            print "T\t" flat(wv(i))
           }
           a0 = 1
           for (i = 1; i <= n + 1; i++) {
@@ -167,13 +150,12 @@ case "$tool" in
         act = w[g + 2]
         if (act !~ /^(create|comment|edit|review|close|reopen|merge)$/) return
         for (i = g + 3; i <= hi; i++) {
-          t = wv(i)  # the real text: a glued flag+quoted-value token may not be kind "w"
+          t = w[i]
           if (t == "--repo" || t == "-R") { if (i < hi) repo = wv(++i) }
           else if (t ~ /^--repo=/) repo = substr(t, 8)
           else if (t ~ /^-R./) repo = substr(t, 3)
-          else if (t == "--body-file" || t == "--comment-file" || t == "-F") { if (i < hi) file(wv(++i)) }
+          else if (t == "--body-file" || t == "-F") { if (i < hi) file(wv(++i)) }
           else if (t ~ /^--body-file=/) file(substr(t, 13))
-          else if (t ~ /^--comment-file=/) file(substr(t, 16))
           else if (t ~ /^-F./) file(substr(t, 3))
           else if (t ~ /^(--body|--title|--comment|--subject|-b|-t|-c)$/) { if (i < hi) val(wv(++i)) }
           else if (t ~ /^--(body|title|comment|subject)=/) { v = t; sub(/^[^=]*=/, "", v); val(v) }
@@ -181,17 +163,13 @@ case "$tool" in
           else if (t ~ /^(--label|--add-label|-l)$/) { if (i < hi) lab(wv(++i)) }
           else if (t ~ /^--(add-)?label=/) { v = t; sub(/^[^=]*=/, "", v); lab(v) }
           else if (t ~ /^-l./) lab(substr(t, 3))
-          # An unrecognised flag whose name says it carries posted text: the
-          # value never reaches val()/file() above, so flag it instead of
-          # dropping it silently.
-          else if (t ~ /^--[A-Za-z-]*(body|comment|message)[A-Za-z-]*/) print "UNSEEN\t" flat(t)
         }
         print "R\t" (repo == "" ? "-" : flat(repo))
       }
       function api(g, hi, repo,   i, t, v, path, method, fields, p, parts, hit) {
         path = ""; method = ""; fields = 0
         for (i = g + 2; i <= hi; i++) {
-          t = wv(i)  # the real text: a glued flag+quoted-value token may not be kind "w"
+          t = w[i]
           if (t == "-X" || t == "--method") { if (i < hi) method = toupper(w[++i]) }
           else if (t ~ /^--method=/) method = toupper(substr(t, 10))
           else if (t ~ /^-X./) method = toupper(substr(t, 3))
@@ -201,7 +179,6 @@ case "$tool" in
           else if (t == "--input") { fields = 1; if (i < hi) file(wv(++i)) }
           else if (t ~ /^--input=/) { fields = 1; file(substr(t, 9)) }
           else if (t ~ /^(-H|--header|-q|--jq|-t|--template|-p|--preview|--hostname|--cache)$/) i++
-          else if (t ~ /^--[A-Za-z-]*(body|comment|message)[A-Za-z-]*/) print "UNSEEN\t" flat(t)
           else if (t ~ /^-/) continue
           else if (path == "") path = t
         }
@@ -223,10 +200,16 @@ case "$tool" in
       printf 'R\t-\n' >> "$META"
     fi
     grep -q '^R	' "$META" || exit 0
-    # T (literal --body/--title/--comment/--label values) and HDTXT
-    # (heredoc bodies) are already genuinely-posted text -- nothing here
-    # ever carries a file-flag path, so nothing needs masking.
-    sed -n 's/^T	//p; s/^HDTXT	//p' "$META" >> "$WORK/text-cmd"
+    # Mask the file-flag path operands: the file is scanned below, the path
+    # never leaves the machine. Fixed-string, every occurrence, in the raw
+    # command and in the words alike (`--body-file=/p` is one word).
+    sed -n 's/^F	//p' "$META" | grep -v '^$' > "$WORK/fpaths"
+    { printf '%s\n' "$cmd"; sed -n 's/^T	//p' "$META"; } | awk -v pf="$WORK/fpaths" '
+      FILENAME == pf { paths[++np] = $0; next }
+      { for (i = 1; i <= np; i++) { out = ""; s = $0
+          while ((j = index(s, paths[i])) > 0) { out = out substr(s, 1, j - 1) "<file>"; s = substr(s, j + length(paths[i])) }
+          $0 = out s }
+        print }' "$WORK/fpaths" - >> "$TEXT" || deny 'awk failed, cannot inspect the command'
     ;;
   mcp__*__create_issue|mcp__*__update_issue|mcp__*__issue_write|mcp__*__add_issue_comment| \
   mcp__*__create_pull_request|mcp__*__update_pull_request| \
@@ -235,7 +218,7 @@ case "$tool" in
   mcp__*__create_and_submit_pull_request_review|mcp__*__submit_pending_pull_request_review)
     repo=$(printf '%s' "$payload" | jq -r 'if (.tool_input.owner? // "") != "" and (.tool_input.repo? // "") != "" then "\(.tool_input.owner)/\(.tool_input.repo)" else "-" end' 2>/dev/null)
     printf 'R\t%s\n' "${repo:--}" >> "$META"
-    printf '%s' "$payload" | jq -r '[.tool_input | .. | strings] | join("\n")' 2>/dev/null >> "$WORK/text-cmd" || deny 'unreadable hook payload'
+    printf '%s' "$payload" | jq -r '[.tool_input | .. | strings] | join("\n")' 2>/dev/null >> "$TEXT" || deny 'unreadable hook payload'
     ;;
   *) exit 0 ;;
 esac
@@ -267,14 +250,6 @@ while IFS="$(printf '\t')" read -r kind repo; do
 done < "$META"
 [ "$all_private" = 1 ] && exit 0
 
-# An unrecognised flag that looks like it carries posted text is a hole,
-# not a pass: its value never reached val()/file() above, so refuse loudly
-# instead of posting text this hook never saw.
-if grep -q '^UNSEEN	' "$META"; then
-  unseen=$(sed -n 's/^UNSEEN	//p' "$META" | head -1)
-  deny "the flag \`$unseen\` looks like it carries text to post, but this hook doesn't recognise its shape and cannot see what it holds. Recognised: --body/--title/--comment/--subject (or -b/-t/-c), --body-file/--comment-file/-F/--input <path>, --label/--add-label, gh api -f/-F/--field/--raw-field. Use one of those, or post from the private repo instead (--repo $PRIVATE_REPO)."
-fi
-
 denylist="$(state_dir)/private-terms.txt"
 [ -r "$denylist" ] || deny "the private-terms denylist is unreadable ($denylist), so text bound for a public repo cannot be checked. Is the state repo checked out? On a real machine: clone mark-brannan/claude_prompts_scratch to one of the paths lib-state.sh searches, or set CLAUDE_STATE_REPO. In a cloud session: mcp__Claude_Code_Remote__add_repo (owner mark-brannan, repo claude_prompts_scratch, access push), clone it to /workspace/claude_prompts_scratch, retry. To post without the check, target the private repo itself: --repo $PRIVATE_REPO."
 sed -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^#/d' -e '/^$/d' "$denylist" > "$WORK/terms"
@@ -294,59 +269,11 @@ sed -n 's/^F	//p' "$META" | while IFS= read -r f; do
     *) f="$cwd/$f" ;;
   esac
   [ -r "$f" ] || { printf '%s\n' "$f" > "$WORK/badfile"; continue; }
-  cat "$f" >> "$WORK/text-file"; printf '\n' >> "$WORK/text-file"
+  cat "$f" >> "$TEXT"; printf '\n' >> "$TEXT"
 done
 [ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Create the file first, in the same command or an earlier one, then retry."
-cat "$WORK/text-cmd" "$WORK/text-file" > "$TEXT"
 
 grep -q -i -F -f "$WORK/terms" "$TEXT" || exit 0
-
-# The home directory is a sanitization job, not a denial job: the path is
-# machine-specific and belongs in posted text as `~`, never literally.
-# updatedInput lets a PreToolUse hook rewrite the call, so when stripping
-# the home path leaves no other private term, fix it and allow instead of
-# denying. A hit inside a --body-file's contents does not qualify:
-# rewriting tool_input never touches the file on disk, so the posted text
-# would still carry the real path.
-if [ -n "${HOME:-}" ] && grep -q -F -e "$HOME" -- "$TEXT" && ! grep -q -F -e "$HOME" -- "$WORK/text-file"; then
-  # A plain substring match would also fire on a longer path that merely
-  # starts with $HOME (/home/solace2, /home/solace-backup) and, since this
-  # one rewrites what actually runs, corrupt it (~2 resolves to a different
-  # user's home at execution time). Only replace where $HOME stands as a
-  # whole path component: neither neighbour is a name character.
-  sanitize() {
-    awk -v old="$HOME" -v new='~' '
-      { out = ""; s = $0
-        while ((j = index(s, old)) > 0) {
-          pre  = (j > 1) ? substr(s, j - 1, 1) : ""
-          post = substr(s, j + length(old), 1)
-          if (pre ~ /[A-Za-z0-9_]/ || post ~ /[A-Za-z0-9_]/) out = out substr(s, 1, j + length(old) - 1)
-          else out = out substr(s, 1, j - 1) new
-          s = substr(s, j + length(old))
-        }
-        print out s }'
-  }
-  sanitize < "$TEXT" > "$WORK/text.san"
-  if ! grep -q -i -F -f "$WORK/terms" "$WORK/text.san"; then
-    case "$tool" in
-      Bash)
-        newcmd=$(printf '%s\n' "$cmd" | sanitize)
-        jq -cn --arg c "$newcmd" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:{command:$c}}}'
-        ;;
-      *)
-        # jq's gsub is regex, not a literal replace: escape $HOME's regex
-        # metacharacters and require the same word-boundary neighbours as
-        # the shell path above.
-        home_re=$(printf '%s' "$HOME" | sed -e 's/[.^$*+?()\[\]{}|\\]/\\&/g')
-        newinput=$(printf '%s' "$payload" | jq -c --arg re "(?<![A-Za-z0-9_])${home_re}(?![A-Za-z0-9_])" '
-          def repl: if type == "string" then gsub($re; "~") else . end;
-          .tool_input | walk(repl)' 2>/dev/null) || deny 'unreadable hook payload'
-        jq -cn --argjson i "$newinput" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:$i}}'
-        ;;
-    esac
-    exit 0
-  fi
-fi
 
 hits=""
 while IFS= read -r term; do
