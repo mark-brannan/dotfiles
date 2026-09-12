@@ -47,8 +47,10 @@ JSON
 # `carded` one (a comment added while the worker ran). Both are queried with
 # a --jq filter, so the shim applies whatever filter grind passed to the
 # canned document rather than second-guessing it.
+# The far-future timestamp stands for "opened by the worker that just ran":
+# grind's PR check is time-bounded, so a PR must post-date the worker's start.
 cat > "$S/pr-list.json" <<'JSON'
-[{"number": 300}]
+[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
 JSON
 cat > "$S/issue-comments.json" <<'JSON'
 {"comments": []}
@@ -317,7 +319,7 @@ reply 0.50 "done" 1
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 1
 has 'a done claim with no PR is UNVERIFIED, and says why' \
-  '^UNVERIFIED: o/alpha#5 -- First item -- worker claimed success but no PR with head branch grind-5 \(\$0\.50, 150 tokens, running \$0.50 / \$100.00 -- 0%\); will retry on --resume'
+  '^UNVERIFIED: o/alpha#5 -- First item -- worker claimed success but no PR opened or pushed to on head branch grind-5 \(\$0\.50, 150 tokens, running \$0.50 / \$100.00 -- 0%\); will retry on --resume'
 lacks 'no success line for an unverified item' '^o/alpha#5: First item --'
 assert 'gh was asked for a PR whose head is the item branch' \
   grep -q -- 'pr list --repo o/alpha --head grind-5 --state all' "$GH_LOG"
@@ -327,10 +329,43 @@ sess=$(latest_session)
 eq 'recorded as unverified' unverified "$(jq -r '.items[0].status' "$sess")"
 eq 'its cost is still counted' 0.50 "$(jq -r '.items[0].cost' "$sess")"
 
-# ...and --resume retries it, reusing the branch the kept worktree holds
+# a PR left behind by an earlier attempt does not verify a fresh claim: the
+# branch name is deterministic, so a stale PR is always sitting there on a
+# retry, and without the time bound a worker that did nothing would pass.
+cat > "$S/pr-list.json" <<'JSON'
+[{"createdAt": "2001-01-01T00:00:00Z", "updatedAt": "2001-01-02T00:00:00Z", "state": "CLOSED"}]
+JSON
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+has 'a stale PR from an earlier attempt does not verify this run' \
+  '^UNVERIFIED: o/alpha#5 -- First item -- worker claimed success but no PR opened or pushed to on head branch grind-5'
+
+# an open PR the worker pushed to during the run does verify, even though it
+# was opened long before -- the case of a retry adding commits to its own PR
+cat > "$S/pr-list.json" <<'JSON'
+[{"createdAt": "2001-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
+JSON
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+has 'a pushed-to open PR verifies' '^o/alpha#5: First item -- sonnet, \$0\.50,'
+
+# ...and --resume retries an unverified item, reusing the branch the kept
+# worktree holds
+cat > "$S/pr-list.json" <<'JSON'
+[]
+JSON
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+sess=$(latest_session)
 session_id=$(basename "$sess" .json)
 cat > "$S/pr-list.json" <<'JSON'
-[{"number": 300}]
+[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
 JSON
 rm -f "$S/claude-replies"/*.json
 reply 0.50 "done" 1

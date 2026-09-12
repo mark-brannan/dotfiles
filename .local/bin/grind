@@ -249,9 +249,14 @@ build_prompt() {
 # claim is checked against GitHub rather than believed. Both checks fail
 # closed: a gh call that errors leaves the item unverified.
 
-# verify_pr <branch> -- a PR in any state whose head is this item's branch
+# verify_pr <branch> <worker start, ISO 8601>
+# A PR whose head is this item's branch, and which this run is responsible
+# for: opened since the worker started, or already open and pushed to since.
+# Branch names are deterministic (grind-<number>), so without the time bound
+# a PR left behind by an earlier attempt would validate a fresh empty claim.
 verify_pr() {
-  n=$(gh pr list --repo "$repo" --head "$1" --state all --json number --jq 'length' 2>/dev/null) || return 1
+  n=$(gh pr list --repo "$repo" --head "$1" --state all --json createdAt,updatedAt,state \
+        --jq "[.[] | select(.createdAt >= \"$2\" or (.state == \"OPEN\" and .updatedAt >= \"$2\"))] | length" 2>/dev/null) || return 1
   case "$n" in ''|*[!0-9]*) return 1 ;; esac
   [ "$n" -gt 0 ]
 }
@@ -481,8 +486,8 @@ while [ "$i" -lt "$count" ]; do
   unverified_why=""
   case "$status" in
     done)
-      if ! verify_pr "$branch"; then
-        unverified_why="no PR with head branch $branch"
+      if ! verify_pr "$branch" "$started_iso"; then
+        unverified_why="no PR opened or pushed to on head branch $branch"
         status=unverified
       fi
       ;;
