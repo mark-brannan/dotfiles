@@ -47,10 +47,9 @@
 # refs are already done or carded. `--resume <session>` re-reads it, skips
 # what is already accounted for, and keeps appending to the same file.
 #
-# One grind per repo at a time: an mkdir-based lock at
-# $XDG_STATE_HOME/grind/locks/<repo>.lock, held for the run and released on
-# any exit. A second invocation fails fast rather than fighting the first
-# over shared worktree paths and branch names.
+# Session identity (pid, host, user, cwd) and the item in progress are
+# recorded in the state file, so "is this still going, and on what" is
+# answerable from the state file alone -- see the state-file write below.
 #
 #   grind [--dry-run] [--repo owner/name] [--model <m>] [--effort <e>]
 #         [--item-budget <usd>] [--session-budget <usd>] [--pause-every <n>]
@@ -161,7 +160,12 @@ else
   if [ "$dry_run" -eq 0 ]; then
     jq -n --arg repo "$repo" --arg model "$model" --arg effort "$effort" \
           --argjson ib "$item_budget" --argjson sb "$session_budget" --argjson pe "$pause_every" \
-      '{repo:$repo, model:$model, effort:$effort, item_budget:$ib, session_budget:$sb, pause_every:$pe, items:[]}' \
+          --argjson pid "$$" --arg host "$(uname -n 2>/dev/null || echo unknown)" \
+          --arg user "${USER:-unknown}" --arg cwd "$PWD" \
+          --arg claude_session "${CLAUDE_SESSION_ID:-}" \
+      '{repo:$repo, model:$model, effort:$effort, item_budget:$ib, session_budget:$sb, pause_every:$pe,
+        pid:$pid, hostname:$host, user:$user, cwd:$cwd, claude_session_id:$claude_session,
+        current_item:null, items:[]}' \
       > "$state_file"
   fi
 fi
@@ -175,21 +179,6 @@ if [ "$dry_run" -eq 0 ]; then
   [ "$here" = "$repo" ] \
     || { printf 'grind: current directory is not a checkout of %s (found: %s); cd there first\n' \
            "$repo" "${here:-no GitHub remote}" >&2; exit 1; }
-fi
-
-# --- single-flight lock, one grind per repo -----------------------------------
-# Two grinds against the same repo would fight over the same worktree paths
-# and branch names (grind-<n>): the second's `git branch -D` can delete a
-# worktree the first still has checked out. mkdir is the mutex -- atomic,
-# no flock dependency, and the directory's own existence is the lock.
-if [ "$dry_run" -eq 0 ]; then
-  lock_dir="$state_root/locks/$(printf '%s' "$repo" | tr '/' '_').lock"
-  mkdir -p "$state_root/locks" 2>/dev/null || true
-  if ! mkdir "$lock_dir" 2>/dev/null; then
-    printf 'grind: another grind is already running against %s (%s)\n' "$repo" "$lock_dir" >&2
-    exit 1
-  fi
-  trap 'rm -rf "$lock_dir"' EXIT
 fi
 
 # refs (owner/repo#N) already accounted for from a prior run of this session,
@@ -381,6 +370,7 @@ while [ "$i" -lt "$count" ]; do
   fi
 
   info "[$i/$count] starting $ref -- $title"
+  jq --arg ref "$ref" '.current_item = $ref' "$state_file" > "$state_file.tmp" && mv "$state_file.tmp" "$state_file"
   mkdir -p "$worktree_root"
   # Remove the directory first, then prune: a worktree kept from a previous
   # unverified attempt is still registered, and git refuses to delete a
@@ -421,6 +411,9 @@ while [ "$i" -lt "$count" ]; do
     ( trap 'kill "$sp" 2>/dev/null; exit 0' TERM
       while :; do
         sleep "$heartbeat" & sp=$!; wait "$sp" || exit 0
+        # Sidecar, not the JSON state file: this subshell writing the same
+        # file the main loop rewrites at item end would race it.
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$state_root/${session_id}.heartbeat_at" 2>/dev/null || true
         elapsed_m=$(( ($(date +%s) - started) / 60 ))
         live=$(cat "$live_file" 2>/dev/null || printf '0 0 0 0')
         set -- $live
@@ -531,7 +524,7 @@ while [ "$i" -lt "$count" ]; do
   running_total=$(awk -v a="$running_total" -v b="$cost" 'BEGIN { printf "%.4f", a + b }')
   processed_this_run=$((processed_this_run + 1))
   jq --arg ref "$ref" --arg status "$status" --argjson cost "$cost" \
-     '.items += [{ref:$ref, status:$status, cost:$cost}]' "$state_file" > "$state_file.tmp" \
+     '.items += [{ref:$ref, status:$status, cost:$cost}] | .current_item = null' "$state_file" > "$state_file.tmp" \
      && mv "$state_file.tmp" "$state_file"
 
   percent=$(pct "$running_total" "$session_budget")
