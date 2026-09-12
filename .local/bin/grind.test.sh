@@ -606,5 +606,23 @@ eq 'exit 1 outside a repo without --repo' 1 "$RC"
 has 'says so' 'not in a GitHub repo'
 cd "$S/repo" || exit 1
 
+# --- session identity is captured once, at session start -------------------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 1, "title": "A", "body": "b", "url": "https://github.com/o/alpha/issues/1", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 0.10 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+eq 'exit 0 on a clean run' 0 "$RC"
+state_file=$(ls "$S/state/grind"/grind-*.json)
+assert 'state file records a positive pid (the grind process, not the test harness)' \
+  bash -c '[ "$(jq -r ".pid" "'"$state_file"'")" -gt 0 ]'
+eq 'state file records hostname' "$(uname -n)" "$(jq -r '.hostname' "$state_file")"
+eq 'current_item is cleared once the only item finishes' null "$(jq -r '.current_item' "$state_file")"
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
