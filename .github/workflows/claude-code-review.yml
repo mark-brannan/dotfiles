@@ -6,6 +6,14 @@ name: Claude PR Review
 # workflow, the gate and the argument for both; this file is only the trigger
 # and this repository's brief for it.
 #
+# The reusable workflow's own "Seed $HOME" step (seed-home input, default
+# true) clones this repo again on the runner and runs cloud-session-setup.sh,
+# so the review agent's Bash calls are gated by our fail-closed hooks instead
+# of blanket-denied by none existing. If that step ever goes missing or its
+# marker check (public-issue-guard.sh under $HOME/.claude/hooks) starts
+# failing, the review's own PR comment says so under "HOME SEEDING" -- see
+# mark-brannan/dotfiles#131 and mark-brannan/.github#22.
+#
 # Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (mint one with `claude setup-token`,
 # then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`). Until it exists the review
 # skips with a warning rather than failing every pull request.
