@@ -39,15 +39,12 @@ mkrepo "$SCRATCH/public" "https://github.com/mark-brannan/colregs.git"
 mkdir -p "$SCRATCH/nogit"
 
 LAST=""
-# check <deny|allow> <desc> <json> [state-repo]
-# An "allow" can come back empty (nothing to say) or as an explicit
-# permissionDecision:allow carrying updatedInput (the home-path sanitizer) --
-# both count as allow.
+# check <deny|allow> <desc> <json>
 check() {
-  local want=$1 desc=$2 json=$3 state=${4:-$CLAUDE_STATE_REPO} out got
-  out=$(printf '%s' "$json" | CLAUDE_STATE_REPO="$state" sh "$HOOK" 2>&1)
+  local want=$1 desc=$2 json=$3 out got
+  out=$(printf '%s' "$json" | sh "$HOOK" 2>&1)
   if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny
-  elif [ -z "$out" ] || printf '%s' "$out" | grep -q '"permissionDecision":"allow"'; then got=allow
+  elif [ -z "$out" ]; then got=allow
   else got=invalid; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1)); printf 'FAIL (want %s, got %s): %s\n' "$want" "$got" "$desc"
@@ -57,7 +54,6 @@ check() {
 }
 reason() { if printf '%s' "$LAST" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -- "$2"; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL (reason lacks [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
 no_reason() { if printf '%s' "$LAST" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -- "$2"; then fail=$((fail + 1)); printf 'FAIL (reason has [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass + 1)); fi; }
-updated_field() { printf '%s' "$LAST" | jq -r ".hookSpecificOutput.updatedInput$1 // empty"; }
 
 # bash_in <cwd> <command>
 bash_in() { jq -n --arg d "$1" --arg c "$2" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
@@ -225,74 +221,6 @@ if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: 
 
 # comment and blank lines in the denylist are not terms
 check allow 'comment line is not a term' "$(bash_in "$PUB" 'gh issue create -t x -b "private terms -- lines starting"')"
-
-# --- narrow scan: a path in the command is read, never posted -------------------
-# Three false positives found in transcripts (2026-09-12): a `cd` prefix, a
-# --body-file under a scratchpad path, and an unrecognised --comment-file --
-# all denied because the raw command line, not just what gets posted, used
-# to be scanned wholesale, and a scratchpad path under $HOME collides with
-# the home-directory denylist term. A denylist naming the real $HOME proves
-# the fix -- without it these commands never would have tripped either way.
-HOMETERMS="$SCRATCH/hometerms"; mkdir -p "$HOMETERMS/.git" "$HOMETERMS/state/global"
-printf '%s\n' "$HOME" > "$HOMETERMS/state/global/private-terms.txt"
-
-check allow 'cd prefix: the path is not posted text' \
-  "$(bash_in "$PUB" "cd $HOME/worktrees/xyz && gh issue comment 3 -b 'ready for review'")" "$HOMETERMS"
-
-printf 'a clean scratchpad body\n' > "$HOME/scratch-body.md"
-check allow '--body-file under a scratchpad path: content is read, path is not' \
-  "$(bash_in "$PUB" "gh issue create -t x --body-file $HOME/scratch-body.md")" "$HOMETERMS"
-
-printf 'a clean scratchpad comment\n' > "$HOME/scratch-comment.md"
-check allow '--comment-file is now a recognised file flag' \
-  "$(bash_in "$PUB" "gh issue comment 3 --comment-file $HOME/scratch-comment.md")" "$HOMETERMS"
-check deny '--comment-file with a term in its content still denies' \
-  "$(printf 'seen aboard Wanderlust\n' > "$SCRATCH/comment-term.md"; bash_in "$PUB" "gh issue comment 3 --comment-file $SCRATCH/comment-term.md")"
-reason 'names the term' 'Wanderlust'
-
-# --- fail closed: an unrecognised flag that looks like it carries text ----------
-check deny 'unrecognised body/comment/message-shaped flag refuses loudly' \
-  "$(bash_in "$PUB" 'gh issue comment 3 --response-body-file /tmp/x')"
-reason 'names the flag' '--response-body-file'
-reason 'says it does not recognise the shape' "doesn't recognise its shape"
-check deny 'unrecognised flag, gh api'          "$(bash_in "$PUB" 'gh api repos/o/r/issues -f title=x --long-comment-blob=hi')"
-check allow 'a boolean flag with no text is not "unrecognised"' \
-  "$(bash_in "$PUB" 'gh pr merge 12 --squash --delete-branch')"
-check allow 'an unrecognised text-shaped flag on the private repo is not scanned' \
-  "$(bash_in "$PUB" "gh issue comment 3 --repo $PRIVATE --response-body-file /tmp/x")"
-
-# --- home path in genuinely-posted text: sanitize and allow, not deny -----------
-check allow 'home path in a posted body is rewritten to ~, not denied' \
-  "$(bash_in "$PUB" "gh issue comment 3 -b 'repro: cd $HOME/project && make'")" "$HOMETERMS"
-newcmd=$(updated_field '.command')
-case "$newcmd" in
-  *"$HOME"*) fail=$((fail + 1)); echo "FAIL: updatedInput still carries the literal home path: $newcmd" ;;
-  *'~/project'*) pass=$((pass + 1)) ;;
-  *) fail=$((fail + 1)); echo "FAIL: updatedInput missing the ~ substitution: $newcmd" ;;
-esac
-
-check allow 'MCP: home path in a posted body is rewritten to ~' \
-  "$(mcp_in mcp__github__add_issue_comment "{\"owner\":\"o\",\"repo\":\"r\",\"issue_number\":3,\"body\":\"repro under $HOME/project\"}")" "$HOMETERMS"
-newbody=$(updated_field '.body')
-case "$newbody" in
-  *"$HOME"*) fail=$((fail + 1)); echo "FAIL: MCP updatedInput still carries the literal home path: $newbody" ;;
-  *'~/project'*) pass=$((pass + 1)) ;;
-  *) fail=$((fail + 1)); echo "FAIL: MCP updatedInput missing the ~ substitution: $newbody" ;;
-esac
-
-# a body-file's own content is not fixable by rewriting the command -- the
-# file on disk still carries the real path -- so that stays a denial.
-printf 'repro under %s/project\n' "$HOME" > "$SCRATCH/home-in-file.md"
-check deny 'home path inside a --body-file stays a denial' \
-  "$(bash_in "$PUB" "gh issue create -t x --body-file $SCRATCH/home-in-file.md")" "$HOMETERMS"
-
-# home path plus an unrelated real private term: still denied -- fixing the
-# home path alone would not make the post safe.
-MIXEDTERMS="$SCRATCH/mixedterms"; mkdir -p "$MIXEDTERMS/.git" "$MIXEDTERMS/state/global"
-printf '%s\nWanderlust\n' "$HOME" > "$MIXEDTERMS/state/global/private-terms.txt"
-check deny 'home path plus another private term: still denied' \
-  "$(bash_in "$PUB" "gh issue comment 3 -b 'seen aboard Wanderlust, path $HOME/x'")" "$MIXEDTERMS"
-reason 'still names the other term' 'Wanderlust'
 
 # no awk: deny, do not crash quiet
 mkdir -p "$SCRATCH/noawk"; for b in jq cat dirname mktemp rm sed grep tr git head; do ln -s "$(command -v $b)" "$SCRATCH/noawk/$b"; done

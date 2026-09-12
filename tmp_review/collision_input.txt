@@ -1,0 +1,2 @@
+see /home/testuser2/notes for details
+ls /home/testuser2/build
