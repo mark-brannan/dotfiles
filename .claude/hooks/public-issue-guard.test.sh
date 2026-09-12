@@ -286,6 +286,13 @@ printf 'repro under %s/project\n' "$HOME" > "$SCRATCH/home-in-file.md"
 check deny 'home path inside a --body-file stays a denial' \
   "$(bash_in "$PUB" "gh issue create -t x --body-file $SCRATCH/home-in-file.md")" "$HOMETERMS"
 
+# a longer path that merely starts with $HOME is not $HOME: a substring
+# replace would corrupt it (~2 resolves to a different user at execution
+# time). Scar: caught in PR review on dotfiles#184.
+check deny 'a longer path starting with $HOME is not sanitized' \
+  "$(bash_in "$PUB" "gh issue comment 3 -b 'see ${HOME}2/notes for details'")" "$HOMETERMS"
+reason 'still cites the term, unfixed -- ~2 is a different user, not $HOME' "$HOME"
+
 # home path plus an unrelated real private term: still denied -- fixing the
 # home path alone would not make the post safe.
 MIXEDTERMS="$SCRATCH/mixedterms"; mkdir -p "$MIXEDTERMS/.git" "$MIXEDTERMS/state/global"

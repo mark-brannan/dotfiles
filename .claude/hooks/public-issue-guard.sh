@@ -309,10 +309,21 @@ grep -q -i -F -f "$WORK/terms" "$TEXT" || exit 0
 # rewriting tool_input never touches the file on disk, so the posted text
 # would still carry the real path.
 if [ -n "${HOME:-}" ] && grep -q -F -e "$HOME" -- "$TEXT" && ! grep -q -F -e "$HOME" -- "$WORK/text-file"; then
+  # A plain substring match would also fire on a longer path that merely
+  # starts with $HOME (/home/solace2, /home/solace-backup) and, since this
+  # one rewrites what actually runs, corrupt it (~2 resolves to a different
+  # user's home at execution time). Only replace where $HOME stands as a
+  # whole path component: neither neighbour is a name character.
   sanitize() {
     awk -v old="$HOME" -v new='~' '
       { out = ""; s = $0
-        while ((j = index(s, old)) > 0) { out = out substr(s, 1, j - 1) new; s = substr(s, j + length(old)) }
+        while ((j = index(s, old)) > 0) {
+          pre  = (j > 1) ? substr(s, j - 1, 1) : ""
+          post = substr(s, j + length(old), 1)
+          if (pre ~ /[A-Za-z0-9_]/ || post ~ /[A-Za-z0-9_]/) out = out substr(s, 1, j + length(old) - 1)
+          else out = out substr(s, 1, j - 1) new
+          s = substr(s, j + length(old))
+        }
         print out s }'
   }
   sanitize < "$TEXT" > "$WORK/text.san"
@@ -323,8 +334,12 @@ if [ -n "${HOME:-}" ] && grep -q -F -e "$HOME" -- "$TEXT" && ! grep -q -F -e "$H
         jq -cn --arg c "$newcmd" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:{command:$c}}}'
         ;;
       *)
-        newinput=$(printf '%s' "$payload" | jq -c --arg old "$HOME" --arg new '~' '
-          def repl: if type == "string" then split($old) | join($new) else . end;
+        # jq's gsub is regex, not a literal replace: escape $HOME's regex
+        # metacharacters and require the same word-boundary neighbours as
+        # the shell path above.
+        home_re=$(printf '%s' "$HOME" | sed -e 's/[.^$*+?()\[\]{}|\\]/\\&/g')
+        newinput=$(printf '%s' "$payload" | jq -c --arg re "(?<![A-Za-z0-9_])${home_re}(?![A-Za-z0-9_])" '
+          def repl: if type == "string" then gsub($re; "~") else . end;
           .tool_input | walk(repl)' 2>/dev/null) || deny 'unreadable hook payload'
         jq -cn --argjson i "$newinput" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:$i}}'
         ;;
