@@ -320,7 +320,7 @@ if [ -n "${HOME:-}" ] && grep -q -F -e "$HOME" -- "$TEXT" && ! grep -q -F -e "$H
         while ((j = index(s, old)) > 0) {
           pre  = (j > 1) ? substr(s, j - 1, 1) : ""
           post = substr(s, j + length(old), 1)
-          if (pre ~ /[A-Za-z0-9_]/ || post ~ /[A-Za-z0-9_]/) out = out substr(s, 1, j + length(old) - 1)
+          if (pre ~ /[A-Za-z0-9_.-]/ || post ~ /[A-Za-z0-9_.-]/) out = out substr(s, 1, j + length(old) - 1)
           else out = out substr(s, 1, j - 1) new
           s = substr(s, j + length(old))
         }
@@ -338,7 +338,7 @@ if [ -n "${HOME:-}" ] && grep -q -F -e "$HOME" -- "$TEXT" && ! grep -q -F -e "$H
         # metacharacters and require the same word-boundary neighbours as
         # the shell path above.
         home_re=$(printf '%s' "$HOME" | sed -e 's/[.^$*+?()\[\]{}|\\]/\\&/g')
-        newinput=$(printf '%s' "$payload" | jq -c --arg re "(?<![A-Za-z0-9_])${home_re}(?![A-Za-z0-9_])" '
+        newinput=$(printf '%s' "$payload" | jq -c --arg re "(?<![A-Za-z0-9_.-])${home_re}(?![A-Za-z0-9_.-])" '
           def repl: if type == "string" then gsub($re; "~") else . end;
           .tool_input | walk(repl)' 2>/dev/null) || deny 'unreadable hook payload'
         jq -cn --argjson i "$newinput" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:$i}}'

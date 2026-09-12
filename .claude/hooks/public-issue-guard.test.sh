@@ -293,6 +293,13 @@ check deny 'a longer path starting with $HOME is not sanitized' \
   "$(bash_in "$PUB" "gh issue comment 3 -b 'see ${HOME}2/notes for details'")" "$HOMETERMS"
 reason 'still cites the term, unfixed -- ~2 is a different user, not $HOME' "$HOME"
 
+# same failure mode with a hyphenated sibling directory instead of a digit --
+# '-' must be in the "still part of the same name" class too, not just
+# alnum/underscore. Scar: caught in PR review on dotfiles#184, round 2.
+check deny 'a hyphenated sibling path starting with $HOME is not sanitized' \
+  "$(bash_in "$PUB" "gh issue comment 3 -b 'see ${HOME}-backup/notes for details'")" "$HOMETERMS"
+reason 'still cites the term, unfixed -- a hyphenated sibling is not $HOME' "$HOME"
+
 # home path plus an unrelated real private term: still denied -- fixing the
 # home path alone would not make the post safe.
 MIXEDTERMS="$SCRATCH/mixedterms"; mkdir -p "$MIXEDTERMS/.git" "$MIXEDTERMS/state/global"
