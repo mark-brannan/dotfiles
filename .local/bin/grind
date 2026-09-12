@@ -37,11 +37,10 @@
 # State (resume bookkeeping only, never committed): a JSON file per grind
 # session under $XDG_STATE_HOME/grind holding the options and which item
 # refs are already done or carded. `--resume <session>` re-reads it, skips
-# what is already accounted for, and keeps appending to the same file. The
-# same file's "lock" key mirrors the mkdir-based single-flight lock at
-# $XDG_STATE_HOME/grind/locks/<repo>.lock (pid, host, current item, last
-# heartbeat) so the session file alone answers "is this still running, and
-# on what" -- one grind per repo at a time; a second invocation fails fast
+# what is already accounted for, and keeps appending to the same file.
+#
+# One grind per repo at a time: an mkdir-based lock at
+# $XDG_STATE_HOME/grind/locks/<repo>.lock. A second invocation fails fast
 # unless the recorded pid is confirmed dead on this host, in which case the
 # lock is reclaimed as stale.
 #
@@ -115,14 +114,9 @@ command -v gh >/dev/null 2>&1 || { echo "grind: needs gh" >&2; exit 1; }
 state_root=${XDG_STATE_HOME:-$HOME/.local/state}/grind
 mkdir -p "$state_root" 2>/dev/null || true
 
-# Diagnostic identity, captured once regardless of dry-run: cheap, and it's
-# exactly what a human staring at a stuck lock or a stale state file needs.
+# This host's name, for the lock's stale-pid check below: a pid number only
+# means something on the host that assigned it.
 hostname_now=$(uname -n 2>/dev/null || echo unknown)
-whoami_now=$(id -un 2>/dev/null || whoami 2>/dev/null || echo unknown)
-tty_now=$(tty 2>/dev/null || echo none)
-grind_rev=$(git -C "$(dirname "$0")" rev-parse --short HEAD 2>/dev/null || echo unknown)
-invoked_cwd=$(pwd)
-claude_session=${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-none}}
 
 # --- repo scope --------------------------------------------------------------
 cwd_repo() {
@@ -174,35 +168,21 @@ fi
 # --- single-flight lock, one grind per repo -----------------------------------
 # Two grinds against the same repo would fight over the same worktree paths
 # and branch names (grind-<n>): the second's `git branch -D` can delete a
-# worktree the first still has checked out. mkdir is the mutex (atomic,
-# no flock dependency); the lock directory's meta.json -- pid, host, current
-# item, last heartbeat -- is also folded into the state file's "lock" key so
-# a session file is self-diagnostic without needing to find the lock too.
+# worktree the first still has checked out. mkdir is the mutex (atomic, no
+# flock dependency); the lock directory's meta.json records just enough --
+# pid, host, when acquired -- to tell a live lock from a stale one.
 lock_root="$state_root/locks"
 mkdir -p "$lock_root" 2>/dev/null || true
 lock_dir="$lock_root/$(printf '%s' "$repo" | tr '/' '_').lock"
 lock_meta="$lock_dir/meta.json"
 
 write_lock() {
-  # $1 = current item ref (or empty), $2 = its start unix ts (or empty),
-  # $3 = exit_reason (or empty, set only by the release trap)
-  item=${1:-}; item_started=${2:-}; reason=${3:-}
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  jq -n --argjson pid "$$" --argjson ppid "${PPID:-0}" \
-        --arg host "$hostname_now" --arg user "$whoami_now" --arg tty "$tty_now" \
-        --arg cwd "$invoked_cwd" --arg rev "$grind_rev" --arg claude_session "$claude_session" \
-        --arg lock_path "$lock_dir" --arg acquired "$lock_acquired_at" --arg hb "$now" \
-        --arg item "$item" --arg item_started "$item_started" --arg reason "$reason" \
-    '{pid:$pid, ppid:$ppid, hostname:$host, user:$user, tty:$tty, invoked_cwd:$cwd,
-      grind_rev:$rev, claude_session_id:$claude_session, lock_path:$lock_path,
-      lock_acquired_at:$acquired, last_heartbeat_at:$hb,
-      current_item: (if $item == "" then null else $item end),
-      current_item_started_at: (if $item_started == "" then null else ($item_started|tonumber) end),
+  # $1 = exit_reason (or empty, set only by the release trap)
+  reason=${1:-}
+  jq -n --argjson pid "$$" --arg host "$hostname_now" --arg acquired "$lock_acquired_at" \
+        --arg reason "$reason" \
+    '{pid:$pid, hostname:$host, lock_acquired_at:$acquired,
       exit_reason: (if $reason == "" then null else $reason end)}' > "$lock_meta" 2>/dev/null || true
-  if [ -f "$state_file" ] && [ -f "$lock_meta" ]; then
-    jq --slurpfile lk "$lock_meta" '.lock = $lk[0]' "$state_file" > "$state_file.tmp" \
-      && mv "$state_file.tmp" "$state_file" || true
-  fi
 }
 
 if [ "$dry_run" -eq 0 ]; then
@@ -244,7 +224,7 @@ if [ "$dry_run" -eq 0 ]; then
       143) reason=terminated ;;
       *) reason="exited(rc=$rc)" ;;
     esac
-    write_lock "" "" "$reason" || true
+    write_lock "$reason" || true
     rm -rf "$lock_dir"
     exit "$rc"' EXIT
   write_lock
@@ -409,7 +389,6 @@ while [ "$i" -lt "$count" ]; do
 
   prompt=$(build_prompt "$(printf '%s' "$item" | jq -r '.body')")
   started=$(date +%s)
-  write_lock "$ref" "$started"
   info "worker running: claude -p --model $model --effort $effort --max-budget-usd $item_budget --permission-mode $permission_mode (heartbeat every ${heartbeat}s)"
 
   # live_file holds "input output cache_read cache_creation" running totals,
@@ -429,7 +408,6 @@ while [ "$i" -lt "$count" ]; do
     ( trap 'kill "$sp" 2>/dev/null; exit 0' TERM
       while :; do
         sleep "$heartbeat" & sp=$!; wait "$sp" || exit 0
-        write_lock "$ref" "$started"
         elapsed_m=$(( ($(date +%s) - started) / 60 ))
         live=$(cat "$live_file" 2>/dev/null || printf '0 0 0 0')
         set -- $live
@@ -481,7 +459,6 @@ while [ "$i" -lt "$count" ]; do
 
   if [ -n "$hb_pid" ]; then kill "$hb_pid" 2>/dev/null; wait "$hb_pid" 2>/dev/null || true; fi
   info "worker exited $claude_rc after $(( $(date +%s) - started ))s"
-  write_lock
 
   git worktree remove -f "$wt_path" >/dev/null 2>&1 || true
 
