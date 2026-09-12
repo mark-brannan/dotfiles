@@ -39,6 +39,11 @@
 # refs are already done or carded. `--resume <session>` re-reads it, skips
 # what is already accounted for, and keeps appending to the same file.
 #
+# One grind per repo at a time: an mkdir-based lock at
+# $XDG_STATE_HOME/grind/locks/<repo>.lock. A second invocation fails fast
+# unless the recorded pid is confirmed dead on this host, in which case the
+# lock is reclaimed as stale.
+#
 #   grind [--dry-run] [--repo owner/name] [--model <m>] [--effort <e>]
 #         [--item-budget <usd>] [--session-budget <usd>] [--pause-every <n>]
 #         [--resume <session-id>] [--heartbeat <seconds>] [--permission-mode <mode>]
@@ -109,6 +114,10 @@ command -v gh >/dev/null 2>&1 || { echo "grind: needs gh" >&2; exit 1; }
 state_root=${XDG_STATE_HOME:-$HOME/.local/state}/grind
 mkdir -p "$state_root" 2>/dev/null || true
 
+# This host's name, for the lock's stale-pid check below: a pid number only
+# means something on the host that assigned it.
+hostname_now=$(uname -n 2>/dev/null || echo unknown)
+
 # --- repo scope --------------------------------------------------------------
 cwd_repo() {
   u=$(git remote get-url origin 2>/dev/null) || return 1
@@ -154,6 +163,71 @@ if [ "$dry_run" -eq 0 ]; then
   [ "$here" = "$repo" ] \
     || { printf 'grind: current directory is not a checkout of %s (found: %s); cd there first\n' \
            "$repo" "${here:-no GitHub remote}" >&2; exit 1; }
+fi
+
+# --- single-flight lock, one grind per repo -----------------------------------
+# Two grinds against the same repo would fight over the same worktree paths
+# and branch names (grind-<n>): the second's `git branch -D` can delete a
+# worktree the first still has checked out. mkdir is the mutex (atomic, no
+# flock dependency); the lock directory's meta.json records just enough --
+# pid, host, when acquired -- to tell a live lock from a stale one.
+lock_root="$state_root/locks"
+mkdir -p "$lock_root" 2>/dev/null || true
+lock_dir="$lock_root/$(printf '%s' "$repo" | tr '/' '_').lock"
+lock_meta="$lock_dir/meta.json"
+
+write_lock() {
+  # $1 = exit_reason (or empty, set only by the release trap)
+  reason=${1:-}
+  jq -n --argjson pid "$$" --arg host "$hostname_now" --arg acquired "$lock_acquired_at" \
+        --arg reason "$reason" \
+    '{pid:$pid, hostname:$host, lock_acquired_at:$acquired,
+      exit_reason: (if $reason == "" then null else $reason end)}' > "$lock_meta" 2>/dev/null || true
+}
+
+if [ "$dry_run" -eq 0 ]; then
+  lock_acquired_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    other_pid=$(jq -r '.pid // empty' "$lock_meta" 2>/dev/null || true)
+    other_host=$(jq -r '.hostname // empty' "$lock_meta" 2>/dev/null || true)
+    stale=0
+    if [ -n "$other_pid" ] && [ "$other_host" = "$hostname_now" ] && ! kill -0 "$other_pid" 2>/dev/null; then
+      stale=1
+    fi
+    if [ "$stale" -eq 1 ]; then
+      warn "reclaiming stale lock on $repo at $lock_dir (pid $other_pid on $other_host is not running)"
+      # Quarantine the observed-stale dir by renaming it first: rename is
+      # atomic, so if a second reclaimer is racing us, only one of us wins
+      # the rename and the other falls through to the "still held" branch
+      # below instead of deleting a lock a third process just created.
+      stale_dir="$lock_dir.stale.$$"
+      if ! mv "$lock_dir" "$stale_dir" 2>/dev/null; then
+        err "lock at $lock_dir changed while reclaiming it -- another grind won the race"
+        exit 1
+      fi
+      rm -rf "$stale_dir"
+      mkdir "$lock_dir" || { err "could not reclaim lock $lock_dir"; exit 1; }
+    else
+      printf 'grind: another grind is already running against %s\n' "$repo" >&2
+      [ -f "$lock_meta" ] && cat "$lock_meta" >&2
+      printf 'grind: if that is stale (crashed, or from a host that is no longer running), remove %s and retry\n' "$lock_dir" >&2
+      exit 1
+    fi
+  fi
+  # Trap registered before write_lock, not after: a signal landing between
+  # mkdir succeeding and the trap being installed would otherwise leave the
+  # lock directory behind with nothing left to clean it up.
+  trap 'rc=$?
+    case $rc in
+      0) reason=clean ;;
+      130) reason=interrupted ;;
+      143) reason=terminated ;;
+      *) reason="exited(rc=$rc)" ;;
+    esac
+    write_lock "$reason" || true
+    rm -rf "$lock_dir"
+    exit "$rc"' EXIT
+  write_lock
 fi
 
 # refs (owner/repo#N) already accounted for from a prior run of this session,

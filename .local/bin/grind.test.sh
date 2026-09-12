@@ -425,5 +425,82 @@ eq 'exit 1 outside a repo without --repo' 1 "$RC"
 has 'says so' 'not in a GitHub repo'
 cd "$S/repo" || exit 1
 
+# --- single-flight lock: pid/host land in the lock's own meta.json, and a
+#     clean exit releases the lock directory ---------------------------------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 1, "title": "A", "body": "b", "url": "https://github.com/o/alpha/issues/1", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+rm -rf "$S/state/grind/locks"
+rm -f "$S/claude-replies"/*.json
+reply 0.10 "done" 1
+: > "$CLAUDE_LOG"
+lock_dir="$S/state/grind/locks/o_alpha.lock"
+# The lock directory is removed on exit, so its meta.json has to be caught
+# mid-run: have the fake claude snapshot it before replying.
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+cp "$lock_dir/meta.json" "$S/lock-meta-seen.json" 2>/dev/null || true
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else
+  echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+  echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
+fi
+GH
+chmod +x "$S/bin/claude"
+run --session-budget 100 --pause-every 10
+assert 'lock records a positive pid (the grind process, not the test harness)' \
+  bash -c '[ "$(jq -r ".pid" "'"$S"'/lock-meta-seen.json")" -gt 0 ]'
+eq 'lock records hostname' "$(uname -n)" "$(jq -r '.hostname' "$S/lock-meta-seen.json")"
+assert 'lock directory released on clean exit' bash -c '! ls -d '"$S"'/state/grind/locks/*.lock >/dev/null 2>&1'
+# restore the plain shim for the rest of the suite
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+cat > /dev/null
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else
+  echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+  echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
+fi
+GH
+chmod +x "$S/bin/claude"
+
+# --- a live lock (pid still running) refuses a second grind ----------------------
+mkdir -p "$lock_dir"
+jq -n --argjson pid "$$" --arg host "$(uname -n)" \
+  '{pid:$pid, hostname:$host, lock_acquired_at:"x", exit_reason:null}' > "$lock_dir/meta.json"
+rm -f "$S/state/grind"/*.json
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+eq 'exit 1 when another grind holds the lock' 1 "$RC"
+has 'says another grind is running' 'another grind is already running against o/alpha'
+eq 'no claude invocation while locked out' 0 "$(calls_claude)"
+rm -rf "$lock_dir"
+
+# --- a stale lock (recorded pid is dead) is reclaimed, run proceeds --------------
+mkdir -p "$lock_dir"
+jq -n --arg host "$(uname -n)" \
+  '{pid:999999999, hostname:$host, lock_acquired_at:"x", exit_reason:null}' > "$lock_dir/meta.json"
+rm -f "$S/state/grind"/*.json
+rm -f "$S/claude-replies"/*.json
+reply 0.10 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+eq 'exit 0, the stale lock did not block the run' 0 "$RC"
+has 'WARN about reclaiming the stale lock' 'WARN  reclaiming stale lock on o/alpha'
+eq 'the item still ran' 1 "$(calls_claude)"
+assert 'lock directory released again after this clean exit' bash -c '! ls -d '"$S"'/state/grind/locks/*.lock >/dev/null 2>&1'
+assert 'the rename-based reclaim leaves no quarantined .stale.* dir behind' \
+  bash -c '! ls -d '"$S"'/state/grind/locks/*.stale.* >/dev/null 2>&1'
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
