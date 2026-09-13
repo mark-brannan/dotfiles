@@ -20,16 +20,36 @@
 #
 # One publish in flight per working directory. A second `npm publish`
 # detected from the same cwd while the first hasn't returned (npm is still
-# waiting on browser approval, most likely) is denied again pointing at the
-# same pid/log rather than started a second time. The lock is a pidfile;
-# dead pid or older than LOCK_STALE_SECS and it's reclaimed as stale.
+# waiting on browser approval, most likely -- that can sit for well over
+# 30 minutes with nobody at the keyboard yet) is denied again pointing at
+# the same pid/log rather than started a second time. The lock is a
+# pidfile, reclaimed only once `kill -0` on its pid actually fails -- no
+# age-based override. An age check that reclaimed a lock while the process
+# was still alive would truncate the still-running copy's own logfile out
+# from under it and start a second, concurrent, unlocked publish: the
+# exact race this lock exists to prevent, and precisely the case (a
+# long-pending browser approval) this hook is built around.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 LIB="$HERE/lib-shell-words.awk"
 STATE_DIR="${CLAUDE_NPM_PUBLISH_STATE:-$HOME/.local/state/claude-npm-publish}"
+# The PreToolUse entry for this hook in settings.json sets its own
+# execution timeout to 20s. If this poll window ever reached or exceeded
+# that, the harness would kill the hook before it reaches deny() -- and a
+# PreToolUse hook that times out without emitting a decision lets the
+# original Bash tool call proceed too, running npm publish a second,
+# unlocked time. CLAUDE_NPM_PUBLISH_POLL_SECS is documented as an operator
+# knob, so it's clamped here rather than trusted, keeping at least 5s of
+# margin under settings.json's 20s for the mkdir/jq/cksum/notify overhead
+# around the loop. Raise both together, by hand, if that margin is ever
+# not enough.
 POLL_SECS="${CLAUDE_NPM_PUBLISH_POLL_SECS:-12}"
-LOCK_STALE_SECS="${CLAUDE_NPM_PUBLISH_STALE_SECS:-1800}"
+MAX_POLL_SECS=15
+case "$POLL_SECS" in
+  ''|*[!0-9]*) POLL_SECS=12 ;;
+esac
+[ "$POLL_SECS" -gt "$MAX_POLL_SECS" ] && POLL_SECS=$MAX_POLL_SECS
 
 command -v jq  >/dev/null 2>&1 || exit 0
 command -v awk >/dev/null 2>&1 || exit 0
@@ -95,12 +115,9 @@ logfile="$STATE_DIR/$key.log"
 
 running_pid() {
   [ -f "$pidfile" ] || return 1
-  local p age mtime
+  local p
   p=$(cat "$pidfile" 2>/dev/null) || return 1
-  [ -n "$p" ] && kill -0 "$p" 2>/dev/null || return 1
-  mtime=$(stat -c %Y "$pidfile" 2>/dev/null || stat -f %m "$pidfile" 2>/dev/null || echo 0)
-  age=$(( $(date +%s) - mtime ))
-  [ "$age" -le "$LOCK_STALE_SECS" ]
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null
 }
 
 if running_pid; then
@@ -131,8 +148,15 @@ done
 notify() {
   local msg=$1
   command -v notify-send >/dev/null 2>&1 && notify-send "npm publish" "$msg" 2>/dev/null
+  # $msg carries a URL npm printed to its own stdout -- reachable, in
+  # principle, by a compromised transitive dependency's lifecycle script.
+  # Pass it as an argv element, not string-built into the AppleScript
+  # source, so nothing in it (a stray `"` breaking out of the literal)
+  # is ever interpreted as script.
   command -v osascript >/dev/null 2>&1 &&
-    osascript -e "display notification \"$msg\" with title \"npm publish\"" >/dev/null 2>&1
+    osascript -e 'on run argv' \
+              -e 'display notification (item 1 of argv) with title "npm publish"' \
+              -e 'end run' "$msg" >/dev/null 2>&1
   { printf '\n\a[npm publish] %s\n' "$msg" >/dev/tty; } 2>/dev/null
   true
 }
