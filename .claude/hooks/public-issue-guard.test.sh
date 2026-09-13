@@ -206,6 +206,47 @@ check deny 'missing --body-file'     "$(bash_in "$PUB" "gh issue create -t x -F 
 reason 'names the file'              'absent.md'
 check allow 'missing --body-file, private repo' "$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -F $SCRATCH/absent.md")"
 
+# A file the same command writes from a heredoc does not exist yet, but its
+# text does: the heredoc body is in the command the gate scanned. Denying it
+# forced every session to split the write and the post into two Bash calls.
+check allow 'heredoc writes the --body-file it posts' "$(bash_in "$PUB" "cat > $SCRATCH/later.md <<'EOF'
+all public here
+EOF
+gh api -X POST repos/mark-brannan/dotfiles/pulls/1/comments -F body=@$SCRATCH/later.md")"
+check deny  'heredoc-written --body-file still scanned' "$(bash_in "$PUB" "cat > $SCRATCH/later2.md <<'EOF'
+hello from Wanderlust
+EOF
+gh api -X POST repos/mark-brannan/dotfiles/pulls/1/comments -F body=@$SCRATCH/later2.md")"
+reason 'names the term'              'Wanderlust'
+check allow 'heredoc tees the --body-file it posts' "$(bash_in "$PUB" "tee $SCRATCH/later3.md <<'EOF' >/dev/null
+all public here
+EOF
+gh issue create -t x --body-file $SCRATCH/later3.md")"
+check deny  'heredoc writes some other path' "$(bash_in "$PUB" "cat > $SCRATCH/other.md <<'EOF'
+all public here
+EOF
+gh issue create -t x --body-file $SCRATCH/absent.md")"
+reason 'names the file'              'absent.md'
+
+# The exemption is the gate's weakest point: it says "that file will hold the
+# heredoc body I read". Two ways that stops being true, both denied.
+# 1. `<<` inside a heredoc BODY is body text, not a redirect: content the
+#    command merely quotes must never be able to name a path as vouched for.
+check deny 'decoy <<  inside a heredoc body' "$(bash_in "$PUB" "cat > $SCRATCH/dummy.txt <<'EOF'
+noop > $SCRATCH/payload.md <<X
+EOF
+printf 'aboard Wanderlust' > $SCRATCH/payload.md
+gh issue create -t test --body-file $SCRATCH/payload.md")"
+reason 'names the file'              'payload.md'
+# 2. A genuine heredoc write, then mutated again before the post: the gate
+#    read the body, not the append.
+check deny 'heredoc write then appended to' "$(bash_in "$PUB" "cat > $SCRATCH/mut.md <<'EOF'
+public safe text
+EOF
+echo 'seen on Wanderlust' >> $SCRATCH/mut.md
+gh pr comment 5 --body-file $SCRATCH/mut.md")"
+reason 'names the file'              'mut.md'
+
 # denylist missing: a state repo with no private-terms.txt, and no repo at all
 EMPTY="$SCRATCH/empty"; mkdir -p "$EMPTY/.git" "$EMPTY/state/global"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1); LAST=$out
