@@ -52,6 +52,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Session state went to `~/.claude/state/global`](#session-state-went-to-claudestateglobal)
 - [A hook didn't fire in a cloud session](#a-hook-didnt-fire-in-a-cloud-session)
 - [A deleted hook keeps running](#a-deleted-hook-keeps-running)
+- [A grind session keeps printing after it should be done](#a-grind-session-keeps-printing-after-it-should-be-done)
 - [Nothing decrypts on a new machine](#nothing-decrypts-on-a-new-machine)
 - [PR checks fail immediately with an empty credential](#pr-checks-fail-immediately-with-an-empty-credential)
 - [The security-review workflow cannot use an OAuth token](#the-security-review-workflow-cannot-use-an-oauth-token)
@@ -749,6 +750,31 @@ If the symlink target is stale (points at a release dir other than
 `CLOUD_SESSION=1 sh ~/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh`.
 If the hook's directory isn't in `OWNED_DIRS` at all, add it there — that's the
 structural fix, not a one-off `rm`.
+
+## A grind session keeps printing after it should be done
+
+A worker's own child process (an MCP server it started, most often) can
+outlive it and hold grind's output pipe open, so the heartbeat keeps saying
+"still working" long after the actual work is finished. Find and stop it:
+
+```bash
+ps -ef | grep '[.]local/bin/grind'                    # the grind pid
+ps --ppid <grind pid>                                 # its live children, if any
+kill -TERM <grind pid>                                # graceful: releases the lock too
+```
+
+`kill -TERM` is enough on a current checkout: the lock's cleanup trap fires
+on TERM as well as on normal exit. If the process ignores it, `kill -KILL`
+and then remove the lock by hand:
+
+```bash
+rmdir "${XDG_STATE_HOME:-$HOME/.local/state}/grind/locks/$(printf '%s' owner/repo | tr '/' '_').lock"
+```
+
+Verify: `ps -p <grind pid>` reports no such process, and
+`ls ~/.local/state/grind/locks/` no longer lists that repo's lock — a
+`grind --resume <session-id>` on the same repo should then start rather
+than refuse with "another grind is already running."
 
 ## Nothing decrypts on a new machine
 
