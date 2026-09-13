@@ -31,7 +31,7 @@ Read the verdict line at the top of this session's auto-checkpoint
 If the session's only remaining need is "the next session should start here",
 that is a resume block (`/pickup`, four lines), not a wrap-up.
 
-## 2. Narrative log
+## 1. Narrative log
 
 Write `log/YYYY-MM-DD-<slug>.md` under the state directory
 (`~/claude_prompts_scratch/state/global/`). The auto-checkpoint records what
@@ -43,21 +43,21 @@ machine one is evidence, not a substitute. Put in it:
   the PR), including calls that reversed or narrowed an earlier one. The log
   holds the link, not a copy;
 - what was tried and abandoned, so the next session doesn't retry it;
-- what comes next: the hand-off prompt from step 4, verbatim;
+- what comes next: the hand-off prompt from step 3, verbatim;
 - stamp the memos that argued a question when it's ruled — a dated
   one-line annotation under the memo's H1 naming what settled it, per
   `/reconcile`'s convention. Bodies stay as evidence, never reworded;
-- the `/sweep --dry-run` output from step 3;
+- the `/sweep --dry-run` output from step 2;
 - observations worth keeping. They go here, silently — never as an aside in
   chat.
 
-## 3. Board sweep
+## 2. Board sweep
 
 Run `/sweep --dry-run` and put its output in the log. Nothing else — no
 board edits, no issue listing, no checking what merged. `worklist` reads
 GitHub live; a wrap-up that copies it is a second copy.
 
-## 4. Hand-off prompt
+## 3. Hand-off prompt
 
 **Look for the home first.** Before writing anything, find the PR or issue
 that already carries this work — the PR on the branch, the issue the session
@@ -96,3 +96,10 @@ When you do write one, it must:
 
 Put it in the narrative log as well as the chat. The log survives; the chat
 does not.
+
+## 4. The closing message
+
+The closing message holds exactly two things: the hand-off prompt, and links
+to the `## Needs ruling` and `## Solace's` cards this session wrote. Nothing
+else. If nothing hit a one-way door, that half is simply absent — a question
+you worked around is reported in the PR body, not here.
