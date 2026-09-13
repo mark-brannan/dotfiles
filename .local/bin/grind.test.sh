@@ -606,5 +606,31 @@ eq 'exit 1 outside a repo without --repo' 1 "$RC"
 has 'says so' 'not in a GitHub repo'
 cd "$S/repo" || exit 1
 
+# --- single-flight lock: acquired, released on clean exit -------------------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 1, "title": "A", "body": "b", "url": "https://github.com/o/alpha/issues/1", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+rm -rf "$S/state/grind/locks"
+rm -f "$S/claude-replies"/*.json
+reply 0.10 "done" 1
+: > "$CLAUDE_LOG"
+lock_dir="$S/state/grind/locks/o_alpha.lock"
+run --session-budget 100 --pause-every 10
+eq 'run succeeds' 0 "$RC"
+assert 'lock directory released on clean exit' bash -c '[ ! -d "'"$lock_dir"'" ]'
+
+# --- another grind refuses while the lock is held ----------------------------
+mkdir -p "$lock_dir"
+rm -f "$S/state/grind"/*.json
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+eq 'exit 1 when another grind holds the lock' 1 "$RC"
+has 'says another grind is running' 'another grind is already running against o/alpha'
+eq 'no claude invocation while locked out' 0 "$(calls_claude)"
+rmdir "$lock_dir"
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
