@@ -1,0 +1,1 @@
+Condensed comments in write_lock to stay within the 30-line churn budget (was 33/30); no behavior change.
