@@ -322,6 +322,12 @@ public" section.
 - **npm publish: no OTP.** My npm account uses browser 2FA with a passkey.
   Run plain `npm publish` and let it open (or print) the auth URL; I approve
   in my browser. Don't ask me for authenticator codes or pass `--otp`.
+  `~/.claude/hooks/npm-publish-auth.sh` intercepts the Bash call, runs it in
+  the background, and pushes the auth URL to me directly (notification or
+  terminal) instead of you seeing it -- the harness redacts it from your
+  tool result either way. Don't try to print or relay the URL yourself; if
+  the hook denies the call, that's it working, not a failure to route
+  around.
 - **A new package's first publish is mine, from the CLI.** Trusted-publisher
   CI can't create a name that doesn't exist yet, and npm reports that as
   E404 on the `PUT`, not 403. Don't edit the workflow; run `/npm-first-publish`
