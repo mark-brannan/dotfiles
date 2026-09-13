@@ -1,0 +1,1 @@
+Reverted the header-comment rewording to stay within the churn budget (was 24/20 lines); the code change (stale-pid reclaim) is unchanged.
