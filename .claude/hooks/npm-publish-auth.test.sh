@@ -17,7 +17,6 @@ STUBBIN="$WORK/bin"
 mkdir -p "$STUBBIN"
 export PATH="$STUBBIN:$PATH"
 export CLAUDE_NPM_PUBLISH_POLL_SECS=2
-export CLAUDE_NPM_PUBLISH_STALE_SECS=1800
 
 stub_npm() {  # stub_npm <url-or-empty>
   local url=${1:-}
@@ -133,6 +132,42 @@ else
 fi
 # clean up the long-sleeping stub so it doesn't outlive the test run
 pkill -f 'npm publish' 2>/dev/null || true
+
+# --- an old pidfile is only reclaimed once its process is actually dead ---
+stub_npm 'https://www.npmjs.com/auth/cli/reclaimed'
+d3="$WORK/proj-11"
+export CLAUDE_NPM_PUBLISH_STATE="$WORK/state-stale-alive"
+mkdir -p "$CLAUDE_NPM_PUBLISH_STATE"
+key3=$(printf '%s' "$d3" | cksum | cut -d' ' -f1)
+sleep 30 &
+still_alive=$!
+disown
+echo "$still_alive" >"$CLAUDE_NPM_PUBLISH_STATE/$key3.pid"
+touch -t 202001010000 "$CLAUDE_NPM_PUBLISH_STATE/$key3.pid"  # decades old
+out=$(bash_input 'npm publish' "$d3" | bash "$HOOK" 2>&1)
+if [ "$(decision "$out")" = deny ] && printf '%s' "$(reason "$out")" | grep -qi 'already running'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1))
+  printf 'FAIL: an old pidfile whose process is still alive was reclaimed instead of respected\n  reason: %s\n' "$(reason "$out")"
+fi
+kill "$still_alive" 2>/dev/null || true
+
+d4="$WORK/proj-12"
+export CLAUDE_NPM_PUBLISH_STATE="$WORK/state-stale-dead"
+mkdir -p "$CLAUDE_NPM_PUBLISH_STATE"
+key4=$(printf '%s' "$d4" | cksum | cut -d' ' -f1)
+( sleep 0.1 & echo $! ) >"$CLAUDE_NPM_PUBLISH_STATE/$key4.pid"  # exits almost immediately
+sleep 0.3
+touch -t 202001010000 "$CLAUDE_NPM_PUBLISH_STATE/$key4.pid"
+out=$(bash_input 'npm publish' "$d4" | bash "$HOOK" 2>&1)
+if [ "$(decision "$out")" = deny ] && printf '%s' "$(reason "$out")" | grep -qi 'running in the background' &&
+   ! printf '%s' "$(reason "$out")" | grep -qi 'already running'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1))
+  printf 'FAIL: a dead old pidfile was not reclaimed\n  reason: %s\n' "$(reason "$out")"
+fi
 
 echo "npm-publish-auth: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
