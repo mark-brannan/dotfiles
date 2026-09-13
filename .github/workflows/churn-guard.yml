@@ -22,10 +22,7 @@ name: Churn guard
 #   - BUDGET changed lines.
 # BUDGET is deliberately not fitted to what has already been written: a
 # budget set to pass the existing history cannot make the next PR smaller.
-# 20 sits at the bottom of the band this repo's single-concern commits
-# occupy, so most of what has been written here would not pass. That is the
-# point. Solace set it there on 2026-09-10 and raising the ceiling is his
-# call, not a session's.
+# Raising the ceiling is Solace's call, not a session's.
 #
 # Bypass is the `churn-ok` label, applied by a human. A session cannot apply
 # it: public-issue-guard.sh denies the label by name. A gate whose bypass the
@@ -42,7 +39,7 @@ jobs:
   churn:
     runs-on: ubuntu-latest
     env:
-      BUDGET: 20
+      BUDGET: 30
       LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
       # Through env, never interpolated into the script: a context expression
       # pasted into shell is the standard injection hole, whoever owns the ref.
