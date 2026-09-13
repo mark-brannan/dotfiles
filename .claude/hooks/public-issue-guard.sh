@@ -109,7 +109,8 @@ case "$tool" in
       }
       # strip_heredocs has already turned an inline `$(cat <<EOF ...)` into
       # `$(cat  HEREDOC  )`; either spelling means a heredoc feeds the value.
-      function val(v) {
+      function val(v, live) {
+        if (!live) { print "T\t" flat(v); return }   # single-quoted: posted verbatim
         if (v ~ /\$\(/ || v ~ /`/) { if (v !~ /<</ && v !~ / HEREDOC /) print "OPAQUE\t" flat(v) }
         else if (v ~ /^\$[A-Za-z_{]/) { if (!fed(v)) print "OPAQUE\t" flat(v) }
         else print "T\t" flat(v)
@@ -121,12 +122,12 @@ case "$tool" in
           if (a[i] != "") { print "L\t" flat(a[i]); print "T\t" flat(a[i]) }
         }
       }
-      function field(v,   key) {
+      function field(v, live,   key) {
         key = v; sub(/=.*$/, "", key)
         sub(/^[^=]*=/, "", v)
         if (v ~ /^@/) { file(substr(v, 2)); return }
         if (key ~ /label/) lab(v)
-        val(v)
+        val(v, live)
       }
       { buf = buf $0 "\n" }
       END {
@@ -175,9 +176,9 @@ case "$tool" in
           else if (t ~ /^--body-file=/) file(substr(t, 13))
           else if (t ~ /^--comment-file=/) file(substr(t, 16))
           else if (t ~ /^-F./) file(substr(t, 3))
-          else if (t ~ /^(--body|--title|--comment|--subject|-b|-t|-c)$/) { if (i < hi) val(wv(++i)) }
-          else if (t ~ /^--(body|title|comment|subject)=/) { v = t; sub(/^[^=]*=/, "", v); val(v) }
-          else if (t ~ /^-[btc]./) val(substr(t, 3))
+          else if (t ~ /^(--body|--title|--comment|--subject|-b|-t|-c)$/) { if (i < hi) { i++; val(wv(i), SW_live[i]) } }
+          else if (t ~ /^--(body|title|comment|subject)=/) { v = t; sub(/^[^=]*=/, "", v); val(v, SW_live[i]) }
+          else if (t ~ /^-[btc]./) val(substr(t, 3), SW_live[i])
           else if (t ~ /^(--label|--add-label|-l)$/) { if (i < hi) lab(wv(++i)) }
           else if (t ~ /^--(add-)?label=/) { v = t; sub(/^[^=]*=/, "", v); lab(v) }
           else if (t ~ /^-l./) lab(substr(t, 3))
@@ -195,9 +196,9 @@ case "$tool" in
           if (t == "-X" || t == "--method") { if (i < hi) method = toupper(w[++i]) }
           else if (t ~ /^--method=/) method = toupper(substr(t, 10))
           else if (t ~ /^-X./) method = toupper(substr(t, 3))
-          else if (t ~ /^(-f|-F|--field|--raw-field)$/) { fields = 1; if (i < hi) field(wv(++i)) }
-          else if (t ~ /^-[fF]./) { fields = 1; field(substr(t, 3)) }
-          else if (t ~ /^--(field|raw-field)=/) { fields = 1; v = t; sub(/^[^=]*=/, "", v); field(v) }
+          else if (t ~ /^(-f|-F|--field|--raw-field)$/) { fields = 1; if (i < hi) { i++; field(wv(i), SW_live[i]) } }
+          else if (t ~ /^-[fF]./) { fields = 1; field(substr(t, 3), SW_live[i]) }
+          else if (t ~ /^--(field|raw-field)=/) { fields = 1; v = t; sub(/^[^=]*=/, "", v); field(v, SW_live[i]) }
           else if (t == "--input") { fields = 1; if (i < hi) file(wv(++i)) }
           else if (t ~ /^--input=/) { fields = 1; file(substr(t, 9)) }
           else if (t ~ /^(-H|--header|-q|--jq|-t|--template|-p|--preview|--hostname|--cache)$/) i++
