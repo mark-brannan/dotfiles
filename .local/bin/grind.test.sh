@@ -621,6 +621,10 @@ lock_dir="$S/state/grind/locks/o_alpha.lock"
 run --session-budget 100 --pause-every 10
 eq 'exit 0 on a clean run' 0 "$RC"
 assert 'lock directory released on clean exit' bash -c '! ls -d '"$S"'/state/grind/locks/*.lock >/dev/null 2>&1'
+sess=$(latest_session)
+assert 'state file mirrors the lock: positive pid' bash -c '[ "$(jq -r ".lock.pid" "'"$sess"'")" -gt 0 ]'
+eq 'state file mirrors the lock: hostname' "$(uname -n)" "$(jq -r '.lock.hostname' "$sess")"
+eq 'state file mirrors the lock: current_item cleared after the item finished' null "$(jq -r '.lock.current_item' "$sess")"
 
 # --- a held lock refuses a second grind, no work done -----------------------
 mkdir -p "$lock_dir"
@@ -634,8 +638,10 @@ rm -rf "$lock_dir"
 
 # --- a live lock (pid still running) refuses, with its meta in the message -
 mkdir -p "$lock_dir"
-jq -n --argjson pid "$$" --arg host "$(uname -n)" \
-  '{pid:$pid, hostname:$host, lock_acquired_at:"x"}' > "$lock_dir/meta.json"
+jq -n --argjson pid "$$" --argjson ppid 0 --arg host "$(uname -n)" \
+  '{pid:$pid, ppid:$ppid, hostname:$host, user:"t", tty:"none", invoked_cwd:"/", grind_rev:"x",
+    claude_session_id:"none", lock_acquired_at:"x", last_heartbeat_at:"x",
+    current_item:null, current_item_started_at:null}' > "$lock_dir/meta.json"
 rm -f "$S/state/grind"/*.json
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 10
@@ -646,7 +652,9 @@ rm -rf "$lock_dir"
 # --- a stale lock (recorded pid is dead) is reclaimed, run proceeds --------------
 mkdir -p "$lock_dir"
 jq -n --arg host "$(uname -n)" \
-  '{pid:999999999, hostname:$host, lock_acquired_at:"x"}' > "$lock_dir/meta.json"
+  '{pid:999999999, ppid:0, hostname:$host, user:"t", tty:"none", invoked_cwd:"/", grind_rev:"x",
+    claude_session_id:"none", lock_acquired_at:"x", last_heartbeat_at:"x",
+    current_item:null, current_item_started_at:null}' > "$lock_dir/meta.json"
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
 reply 0.10 "done" 1
