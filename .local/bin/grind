@@ -129,8 +129,7 @@ command -v gh >/dev/null 2>&1 || { echo "grind: needs gh" >&2; exit 1; }
 
 state_root=${XDG_STATE_HOME:-$HOME/.local/state}/grind
 mkdir -p "$state_root" 2>/dev/null || true
-# Diagnostic identity, captured once: cheap, and exactly what a human
-# staring at a stuck lock or a stale state file needs.
+# Diagnostic identity, captured once -- cheap, and what's needed to read a stuck lock.
 hostname_now=$(uname -n 2>/dev/null || echo unknown)
 whoami_now=$(id -un 2>/dev/null || whoami 2>/dev/null || echo unknown)
 if tty_dev=$(tty 2>/dev/null); then tty_now=$tty_dev; else tty_now=none; fi
@@ -189,10 +188,8 @@ fi
 # and branch names (grind-<n>): the second's `git branch -D` can delete a
 # worktree the first still has checked out. mkdir is the mutex -- atomic,
 # no flock dependency, and the directory's own existence is the lock.
-write_lock() {
-  # $1 = current item ref (or empty), $2 = its start unix ts (or empty)
-  item=${1:-}; item_started=${2:-}
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+write_lock() {  # $1 = current item ref (or empty), $2 = its start unix ts (or empty)
+  item=${1:-}; item_started=${2:-}; now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq -n --argjson pid "$$" --argjson ppid "${PPID:-0}" --arg host "$hostname_now" \
         --arg user "$whoami_now" --arg tty "$tty_now" --arg cwd "$invoked_cwd" \
         --arg rev "$grind_rev" --arg claude_session "$claude_session" \
