@@ -275,62 +275,6 @@ sc_salvage() {
   if ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
     sc_note "refused: no origin remote"; return 0
   fi
-  # Never from CI. The shared PR reviewer runs Claude Code inside GitHub
-  # Actions with these very hooks seeded from main, on a checkout whose
-  # .claude/ paths claude-code-action has restored to the base branch's
-  # versions (the PR's copies are moved to .claude-pr/). That checkout is
-  # dirty by construction, on a claude/ branch, with an app token that can
-  # push: every one of the "wip: session ... at Stop" commits by claude[bot]
-  # that reverted a PR's .claude/ changes (dotfiles#196, and PR #198 landing
-  # as an empty squash) came from here. A bot's Stop has nothing to salvage.
-  if [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${CI:-}" ]; then
-    sc_note "refused: running under CI (GITHUB_ACTIONS/CI set); a bot's checkout is not a session's work"; return 0
-  fi
-  # Never on top of a stale base. If the remote has moved since this checkout
-  # last synced (a re-push by hand, another session, anything), the push
-  # below would be rejected as non-fast-forward and the note would tell a
-  # reader to "push by hand" -- and the obvious hand push of a stale base is
-  # a force-push over the newer work. Fetch and check first.
-  if timeout 60 git -C "$work_root" fetch -q origin "$work_branch" >/dev/null 2>&1 \
-     && git -C "$work_root" rev-parse -q --verify "refs/remotes/origin/$work_branch" \
-          >/dev/null 2>&1; then
-    behind=$(git -C "$work_root" rev-list --count \
-                HEAD.."origin/$work_branch" 2>/dev/null)
-    if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
-      sc_note "refused: \`$work_branch\` is $behind commit(s) behind \`origin/$work_branch\`; not committing on a stale base"
-      return 0
-    fi
-  fi
-  # Never a revert of the branch's own work. The tree can be "dirty" because
-  # something put the base branch's version of a file back over the branch's
-  # -- claude-code-action's restore above, a tool writing from a stale copy
-  # -- and committing that publishes a reversion the push cannot detect: it
-  # is a fast-forward. So for every modified tracked file, if the branch had
-  # changed it and the working copy now matches the base branch byte for
-  # byte, refuse and name the files. A session that really wants a file back
-  # at main's content commits that by hand; the false positive costs a note,
-  # the false negative costs the branch.
-  base=$(git -C "$work_root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
-  base="${base:-origin/main}"
-  git -C "$work_root" rev-parse -q --verify "$base" >/dev/null 2>&1 || base=origin/master
-  if git -C "$work_root" rev-parse -q --verify "$base" >/dev/null 2>&1; then
-    reverted=""
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      # The branch changed this file relative to base ...
-      git -C "$work_root" diff --quiet "$base" HEAD -- "$f" 2>/dev/null && continue
-      # ... and the working copy is now identical to base's version.
-      if git -C "$work_root" diff --quiet "$base" -- "$f" 2>/dev/null; then
-        reverted="$reverted $f"
-      fi
-    done <<EOF
-$(git -C "$work_root" diff --name-only HEAD -- . 2>/dev/null)
-EOF
-    if [ -n "$reverted" ]; then
-      sc_note "refused: the working tree puts \`$base\`'s version back over this branch's changes to:$reverted -- that is a revert, not new work; not committing"
-      return 0
-    fi
-  fi
 
   # --- the commit: repo hooks and signing run as configured ----------------
   if ! git -C "$work_root" add -A >/dev/null 2>&1 \

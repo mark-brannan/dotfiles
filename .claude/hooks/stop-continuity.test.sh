@@ -9,10 +9,8 @@
 # because the hook rewrites the whole checkpoint and eating the hand-off the
 # model was told to write would be silent and total.
 #
-# The salvage commit's refusals (dotfiles#196: CI, stale base, revert of the
-# branch's own work) are covered near the bottom, in a throwaway repo of
-# their own. The rest of the hook -- metrics shape, the state-repo push -- is
-# not covered here.
+# The rest of the hook (metrics shape, the salvage commit, the state-repo
+# push) is not covered here.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 
@@ -146,101 +144,6 @@ assert 'the block did not swallow the rest of the file' grep -q '^## Commits thi
 sed -i 's/^- effort: high$/&\n- consumed: session abcd1234 at 2026-09-09T13:00:00Z/' "$CKPT"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 has 'consumed marker survives' '^- consumed: session abcd1234' "$CKPT"
-
-# =============================================================================
-# sc_salvage: the auto-commit at Stop (dotfiles#196)
-# =============================================================================
-# Everything above ran with CLAUDE_STOP_COMMIT=off. These use a throwaway repo
-# of their own, pushed to a bare origin, so a commit made here can't leak into
-# the verdict fixtures above. `hookpath` is the branch's own work: base has
-# it one way, the branch changed it, and the failure mode under test is the
-# base version coming back over it.
-SORIGIN="$S/salvage-origin.git"; SWORK="$S/salvage-work"
-git init -q --bare "$SORIGIN"
-git init -q -b main "$SWORK"
-git -C "$SWORK" config user.name t; git -C "$SWORK" config user.email t@example.invalid
-git -C "$SWORK" config commit.gpgsign false
-gitq "$SWORK" remote add origin "$SORIGIN"
-echo base > "$SWORK/f"; echo 'guard: no' > "$SWORK/hookpath"
-gitq "$SWORK" add f hookpath; gitq "$SWORK" commit -m base
-gitq "$SWORK" push -u origin main
-gitq "$SWORK" remote set-head origin main
-gitq "$SWORK" checkout -b claude/salvage
-echo work >> "$SWORK/f"; echo 'guard: yes' > "$SWORK/hookpath"
-gitq "$SWORK" add f hookpath; gitq "$SWORK" commit -m work
-gitq "$SWORK" push -u origin claude/salvage
-
-stop_salvage() {  # stop_salvage -- run the hook with the salvage commit on
-  printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$SID" "$SWORK" \
-    | CLAUDE_STOP_COMMIT=on bash "$HOOK" >/dev/null 2>&1
-  CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
-}
-snapshot() { before_local=$(git -C "$SWORK" rev-parse HEAD); before_origin=$(git -C "$SORIGIN" rev-parse claude/salvage); }
-untouched() {  # untouched <label> <expected porcelain> -- nothing committed or pushed
-  eq "$1: local HEAD untouched" "$before_local" "$(git -C "$SWORK" rev-parse HEAD)"
-  eq "$1: origin untouched" "$before_origin" "$(git -C "$SORIGIN" rev-parse claude/salvage)"
-  eq "$1: the edit is still sitting there, uncommitted" "$2" "$(git -C "$SWORK" status --porcelain)"
-}
-
-# --- happy path: dirty tree, HEAD even with @{u} -> commits and pushes -----------
-echo dirty >> "$SWORK/f"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'salvage happy path: committed and pushed' \
-  'committed and pushed to .claude/salvage.' "$CKPT"
-eq 'the dirty change is no longer showing' '' "$(git -C "$SWORK" status --porcelain)"
-eq 'origin now has the pushed commit' \
-  "$(git -C "$SWORK" rev-parse HEAD)" "$(git -C "$SORIGIN" rev-parse claude/salvage)"
-
-# --- under CI: refused before anything else is looked at --------------------------
-# The shared PR reviewer is Claude Code inside GitHub Actions with these hooks
-# seeded; its checkout is dirty by construction. Nothing a bot has is ours.
-snapshot; echo ci-edit >> "$SWORK/f"
-GITHUB_ACTIONS=true GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'GITHUB_ACTIONS: refused' 'refused: running under CI' "$CKPT"
-untouched 'GITHUB_ACTIONS' ' M f'
-CI=1 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'CI: refused' 'refused: running under CI' "$CKPT"
-untouched 'CI' ' M f'
-gitq "$SWORK" checkout -- f
-
-# --- a revert of the branch's own work: refused, files named ---------------------
-# claude-code-action's restore, or a tool writing from a stale copy: the
-# branch changed hookpath, and now base's version is back over it.
-snapshot; git -C "$SWORK" show origin/main:hookpath > "$SWORK/hookpath"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'revert to base: refused and the file is named' \
-  'refused: the working tree puts .origin/main..s version back over this branch.s changes to: hookpath' "$CKPT"
-untouched 'revert to base' ' M hookpath'
-# ... even when a real edit rides along with it: the revert still wins.
-echo more >> "$SWORK/f"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'revert plus a real edit: still refused' 'that is a revert, not new work' "$CKPT"
-untouched 'revert plus a real edit' $' M f\n M hookpath'
-gitq "$SWORK" checkout -- f hookpath
-# A file the branch never changed, put back to base's content, is not a
-# revert of anything -- it is simply unchanged, and the tree is not dirty.
-# A file the branch changed, edited to something that is neither version,
-# is new work and commits.
-echo 'guard: yes, differently' > "$SWORK/hookpath"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'a real edit to a branch-changed file: committed' 'committed and pushed to .claude/salvage.' "$CKPT"
-eq 'and nothing is left dirty' '' "$(git -C "$SWORK" status --porcelain)"
-
-# --- HEAD behind @{u}: refused, not committed, not pushed (dotfiles#196) ---------
-# Simulate the remote moving on without this checkout -- a hand re-push, a
-# second session, anything -- by pushing a new commit straight to origin from
-# a scratch clone.
-CLONE="$S/salvage-clone"
-git clone -q "$SORIGIN" "$CLONE" >/dev/null 2>&1
-gitq "$CLONE" checkout claude/salvage
-echo newer >> "$CLONE/f"; gitq "$CLONE" add f; gitq "$CLONE" commit -m newer-upstream
-gitq "$CLONE" push origin claude/salvage
-
-snapshot; echo stale-edit >> "$SWORK/f"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'behind @{u}: refused' \
-  'refused: .claude/salvage. is 1 commit\(s\) behind .origin/claude/salvage.' "$CKPT"
-untouched 'behind @{u}' ' M f'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
