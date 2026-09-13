@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Tests for no-delete-stacked-base.sh. Run:
+#   bash .claude/hooks/no-delete-stacked-base.test.sh
+# Set AWK_PATH to a directory whose `awk` is another implementation (mawk,
+# nawk, busybox) to check portability; CI runs it under Ubuntu's mawk.
+#
+# `gh` is stubbed on PATH throughout -- no test here reaches the network, and
+# a test that did would pass or fail on whatever PRs happened to be open.
+set -uo pipefail
+
+HOOK="$(cd "$(dirname "$0")" && pwd)/no-delete-stacked-base.sh"
+[ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
+CWD="$(cd "$(dirname "$0")/../.." && pwd)"
+pass=0
+fail=0
+
+STUB_DIR="$(mktemp -d)"
+trap 'rm -rf "$STUB_DIR"' EXIT
+
+# Open PRs the stub reports: #1 is stacked on claude/base-branch, which is
+# itself the head of #2. claude/lonely is the head of #3 and the base of
+# nothing.
+cat > "$STUB_DIR/gh" <<'STUB'
+#!/bin/sh
+[ -n "${GH_FAIL:-}" ] && exit 1
+cat <<'JSON'
+[
+ {"number":1,"title":"stacked change","baseRefName":"claude/base-branch","headRefName":"claude/stacked-one"},
+ {"number":2,"title":"the base change","baseRefName":"main","headRefName":"claude/base-branch"},
+ {"number":3,"title":"unrelated","baseRefName":"main","headRefName":"claude/lonely"}
+]
+JSON
+STUB
+chmod +x "$STUB_DIR/gh"
+
+# check <deny|ask|allow> <description> <command> [env assignment...]
+check() {
+  local want=$1 desc=$2 cmd=$3; shift 3
+  local out got json
+  json=$(jq -n --arg c "$cmd" --arg d "$CWD" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')
+  out=$(printf '%s' "$json" | env "$@" PATH="$STUB_DIR:$PATH" bash "$HOOK" 2>&1)
+  case "$out" in
+    *'"permissionDecision":"deny"'*) got=deny ;;
+    *'"permissionDecision":"ask"'*)  got=ask ;;
+    *) got=allow ;;
+  esac
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf 'FAIL (want %s, got %s): %s\n' "$want" "$got" "$desc"
+    [ -n "$out" ] && printf '  hook output: %s\n' "$out"
+  fi
+}
+
+# --- must deny: deleting a branch an open PR is stacked on -----------------
+check deny 'push --delete of a base branch'      'git push origin --delete claude/base-branch'
+check deny 'push -d of a base branch'            'git push -d origin claude/base-branch'
+check deny 'colon refspec delete of a base'      'git push origin :claude/base-branch'
+check deny 'colon refspec, fully qualified'      'git push origin :refs/heads/claude/base-branch'
+check deny 'refs/heads/ prefix stripped'         'git push origin --delete refs/heads/claude/base-branch'
+check deny '--delete before the remote'          'git push --delete origin claude/base-branch'
+check deny 'one of several refs is a base'       'git push origin --delete claude/spare claude/base-branch'
+check deny 'yadm spelling'                       'yadm push origin --delete claude/base-branch'
+
+# --- must deny: deleting the head branch of an open PR ---------------------
+check deny 'push --delete of an open PR head'    'git push origin --delete claude/stacked-one'
+check deny 'push --delete of a base that is also a head' 'git push origin --delete claude/lonely'
+
+# --- must deny: the REST spelling ------------------------------------------
+check deny 'gh api -X DELETE'          'gh api -X DELETE repos/o/r/git/refs/heads/claude/base-branch'
+check deny 'gh api --method DELETE'    'gh api --method DELETE repos/o/r/git/refs/heads/claude/base-branch'
+check deny 'gh api -XDELETE'           'gh api -XDELETE repos/o/r/git/refs/heads/claude/base-branch'
+check deny 'gh api --method=DELETE'    'gh api --method=DELETE repos/o/r/git/refs/heads/claude/base-branch'
+
+# --- must deny: the bypasses the shared scanner exists to close ------------
+check deny 'nested in sh -c'            "sh -c 'git push origin --delete claude/base-branch'"
+check deny 'trailing shell comment'     'git push origin --delete claude/base-branch # harmless'
+check deny 'absolute-path invocation'   '/usr/bin/git push origin --delete claude/base-branch'
+check deny 'after a compound separator' 'echo hi && git push origin --delete claude/base-branch'
+check deny 'unusual whitespace'         'git   push   origin   --delete   claude/base-branch'
+
+# --- must ask: the branch or the PR list can't be resolved -----------------
+check ask 'branch named by a variable' 'git push origin --delete "$b"'
+check ask 'branch named by a glob'     'git push origin --delete claude/old-*'
+check ask 'gh cannot answer'           'git push origin --delete claude/base-branch' GH_FAIL=1
+
+# --- must allow: the safe deletions and the non-deletions ------------------
+check allow 'delete of a branch no open PR names' 'git push origin --delete claude/already-merged'
+check allow 'ordinary push'                       'git push origin main'
+check allow 'ordinary push with a refspec'        'git push origin HEAD:main'
+check allow 'force-push of a stacked branch'      'git push --force-with-lease origin claude/stacked-one'
+check allow 'local delete takes nothing from a PR' 'git branch -D claude/base-branch'
+check allow 'local delete, lowercase'             'git branch -d claude/base-branch'
+check allow 'gh pr merge --delete-branch'         'gh pr merge 2 --delete-branch'
+check allow 'gh pr merge -d'                      'gh pr merge 2 -d'
+check allow 'merge and delete in one segment'     'gh pr merge 2 --delete-branch && echo done'
+check allow 'unrelated command'                   'git status'
+check allow 'gh api GET on a ref'                 'gh api repos/o/r/git/refs/heads/claude/base-branch'
+check allow 'a delete quoted into prose'          "echo 'git push origin --delete claude/base-branch'"
+
+if [ "$fail" -eq 0 ]; then
+  printf 'no-delete-stacked-base: %d/%d passed\n' "$pass" "$pass"
+else
+  printf 'no-delete-stacked-base: %d passed, %d FAILED\n' "$pass" "$fail"
+  exit 1
+fi
