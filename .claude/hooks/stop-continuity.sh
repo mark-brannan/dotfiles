@@ -275,39 +275,6 @@ sc_salvage() {
   if ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
     sc_note "refused: no origin remote"; return 0
   fi
-  # Never commit on top of a stale base. If the remote has moved since this
-  # checkout last synced (a re-push by hand, another session, anything), a
-  # local `git add -A && commit && push` here would fast-forward right over
-  # that newer work — this is dotfiles#196. Fetch and check before touching
-  # anything.
-  if timeout 30 git -C "$work_root" fetch -q origin "$work_branch" >/dev/null 2>&1 \
-     && git -C "$work_root" rev-parse -q --verify "refs/remotes/origin/$work_branch" \
-          >/dev/null 2>&1; then
-    behind=$(git -C "$work_root" rev-list --count \
-                HEAD.."origin/$work_branch" 2>/dev/null)
-    if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
-      sc_note "refused: \`$work_branch\` is $behind commit(s) behind \`origin/$work_branch\`; not committing on a stale base"
-      return 0
-    fi
-    # A same-length-behind check alone won't catch every case: HEAD can be
-    # even with (or ahead of) the remote while the working tree itself has
-    # been reverted by some other means. If publishing the current tree
-    # would remove content relative to origin's tip and add nothing back,
-    # treat that as a revert and refuse rather than guess.
-    added=0; removed=0
-    while read -r a d _; do
-      case "$a" in ''|-) continue ;; esac
-      case "$a" in *[!0-9]*) continue ;; esac
-      case "$d" in *[!0-9]*) continue ;; esac
-      added=$((added + a)); removed=$((removed + d))
-    done <<EOF
-$(git -C "$work_root" diff --numstat "origin/$work_branch" -- . 2>/dev/null)
-EOF
-    if [ "$removed" -gt 0 ] && [ "$added" -eq 0 ]; then
-      sc_note "refused: publishing this tree would only remove content relative to \`origin/$work_branch\` (looks like a revert); not committing"
-      return 0
-    fi
-  fi
 
   # --- the commit: repo hooks and signing run as configured ----------------
   if ! git -C "$work_root" add -A >/dev/null 2>&1 \

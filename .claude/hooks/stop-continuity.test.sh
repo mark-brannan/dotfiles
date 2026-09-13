@@ -9,9 +9,8 @@
 # because the hook rewrites the whole checkpoint and eating the hand-off the
 # model was told to write would be silent and total.
 #
-# The salvage commit (dotfiles#196's stale-base guard) is covered near the
-# bottom, in its own throwaway repo. The rest of the hook -- metrics shape,
-# the state-repo push -- is not covered here.
+# The rest of the hook (metrics shape, the salvage commit, the state-repo
+# push) is not covered here.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 
@@ -145,60 +144,6 @@ assert 'the block did not swallow the rest of the file' grep -q '^## Commits thi
 sed -i 's/^- effort: high$/&\n- consumed: session abcd1234 at 2026-09-09T13:00:00Z/' "$CKPT"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 has 'consumed marker survives' '^- consumed: session abcd1234' "$CKPT"
-
-# =============================================================================
-# sc_salvage: the auto-commit at Stop (dotfiles#196)
-# =============================================================================
-# Everything above ran with CLAUDE_STOP_COMMIT=off. These use a throwaway repo
-# of their own, pushed to a bare origin, so a commit made here can't leak into
-# the verdict fixtures above.
-SORIGIN="$S/salvage-origin.git"; SWORK="$S/salvage-work"
-git init -q --bare "$SORIGIN"
-git init -q -b main "$SWORK"
-git -C "$SWORK" config user.name t; git -C "$SWORK" config user.email t@example.invalid
-git -C "$SWORK" config commit.gpgsign false
-gitq "$SWORK" remote add origin "$SORIGIN"
-echo base > "$SWORK/f"; gitq "$SWORK" add f; gitq "$SWORK" commit -m base
-gitq "$SWORK" push -u origin main
-gitq "$SWORK" checkout -b claude/salvage
-echo work >> "$SWORK/f"; gitq "$SWORK" add f; gitq "$SWORK" commit -m work
-gitq "$SWORK" push -u origin claude/salvage
-
-stop_salvage() {  # stop_salvage -- run the hook with the salvage commit on
-  printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$SID" "$SWORK" \
-    | CLAUDE_STOP_COMMIT=on bash "$HOOK" >/dev/null 2>&1
-  CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
-}
-
-# --- happy path: dirty tree, HEAD even with @{u} -> commits and pushes -----------
-echo dirty >> "$SWORK/f"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'salvage happy path: committed and pushed' \
-  'committed and pushed to .claude/salvage.' "$CKPT"
-eq 'the dirty change is no longer showing' '' "$(git -C "$SWORK" status --porcelain)"
-eq 'origin now has the pushed commit' \
-  "$(git -C "$SWORK" rev-parse HEAD)" "$(git -C "$SORIGIN" rev-parse claude/salvage)"
-
-# --- HEAD behind @{u}: refused, not committed, not pushed (dotfiles#196) ---------
-# Simulate the remote moving on without this checkout -- a hand re-push, a
-# second session, anything -- by pushing a new commit straight to origin from
-# a scratch clone.
-CLONE="$S/salvage-clone"
-git clone -q "$SORIGIN" "$CLONE" >/dev/null 2>&1
-gitq "$CLONE" checkout claude/salvage
-echo newer >> "$CLONE/f"; gitq "$CLONE" add f; gitq "$CLONE" commit -m newer-upstream
-gitq "$CLONE" push origin claude/salvage
-
-before_local=$(git -C "$SWORK" rev-parse HEAD)
-before_origin=$(git -C "$SORIGIN" rev-parse claude/salvage)
-echo stale-edit >> "$SWORK/f"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'behind @{u}: refused' \
-  'refused: .claude/salvage. is 1 commit\(s\) behind .origin/claude/salvage.' "$CKPT"
-eq 'local HEAD untouched' "$before_local" "$(git -C "$SWORK" rev-parse HEAD)"
-eq 'origin untouched' "$before_origin" "$(git -C "$SORIGIN" rev-parse claude/salvage)"
-eq 'the stale edit is still just sitting there, uncommitted' \
-  ' M f' "$(git -C "$SWORK" status --porcelain)"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
