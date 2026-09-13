@@ -195,6 +195,13 @@ check deny '$VAR from a file, heredoc elsewhere' "$(bash_in "$PUB" 'body=$(cat n
 hi
 EOF
 gh pr comment 3 --body "$body"')"
+# Single quotes make $ and ` ordinary characters: a body with markdown code
+# spans or a literal $(...) is text the gate read, not a value it cannot see.
+check allow 'backticks in a single-quoted body'  "$(bash_in "$PUB" "gh pr comment 3 -b 'Fixed in \`abc123\`, see \`prose-budget\`.'")"
+check allow 'literal $(...) single-quoted'       "$(bash_in "$PUB" "gh issue create -t x -b 'run \$(date) yourself'")"
+check deny  'backticks in a double-quoted body'  "$(bash_in "$PUB" 'gh pr comment 3 -b "Fixed in `git rev-parse HEAD`"')"
+check deny  'term inside a single-quoted body'   "$(bash_in "$PUB" "gh pr comment 3 -b 'Fixed on \`Wanderlust\`.'")"
+
 check deny 'missing --body-file'     "$(bash_in "$PUB" "gh issue create -t x -F $SCRATCH/absent.md")"
 reason 'names the file'              'absent.md'
 check allow 'missing --body-file, private repo' "$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -F $SCRATCH/absent.md")"
