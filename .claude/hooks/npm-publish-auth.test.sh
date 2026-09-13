@@ -123,7 +123,7 @@ EOF
 chmod +x "$STUBBIN/npm"
 d2="$WORK/proj-10"
 export CLAUDE_NPM_PUBLISH_STATE="$WORK/state-lock"
-out1=$(bash_input 'npm publish' "$d2" | bash "$HOOK" 2>&1)
+bash_input 'npm publish' "$d2" | bash "$HOOK" >/dev/null 2>&1
 out2=$(bash_input 'npm publish' "$d2" | bash "$HOOK" 2>&1)
 if [ "$(decision "$out2")" = deny ] && printf '%s' "$(reason "$out2")" | grep -qi 'already running'; then
   pass=$((pass + 1))
