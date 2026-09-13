@@ -133,8 +133,8 @@ mkdir -p "$state_root" 2>/dev/null || true
 # staring at a stuck lock or a stale state file needs.
 hostname_now=$(uname -n 2>/dev/null || echo unknown)
 whoami_now=$(id -un 2>/dev/null || whoami 2>/dev/null || echo unknown)
-tty_now=$(tty 2>/dev/null || echo none)
-grind_rev=$(git -C "$(dirname "$0")" rev-parse --short HEAD 2>/dev/null || echo unknown)
+if tty_dev=$(tty 2>/dev/null); then tty_now=$tty_dev; else tty_now=none; fi
+grind_rev=$(yadm rev-parse --short HEAD 2>/dev/null || echo unknown)
 claude_session=${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-none}}
 
 # --- repo scope --------------------------------------------------------------
