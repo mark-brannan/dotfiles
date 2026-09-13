@@ -275,30 +275,6 @@ sc_salvage() {
   if ! git -C "$work_root" remote get-url origin >/dev/null 2>&1; then
     sc_note "refused: no origin remote"; return 0
   fi
-  # Never commit on top of a stale base (dotfiles#196): fetch first and
-  # refuse if HEAD is behind @{u}, or if publishing would only remove
-  # content relative to origin (a revert without falling behind in count).
-  if timeout 30 git -C "$work_root" fetch -q origin "$work_branch" >/dev/null 2>&1 \
-     && git -C "$work_root" rev-parse -q --verify "refs/remotes/origin/$work_branch" \
-          >/dev/null 2>&1; then
-    behind=$(git -C "$work_root" rev-list --count HEAD.."origin/$work_branch" 2>/dev/null)
-    if [ -n "$behind" ] && [ "$behind" -gt 0 ] 2>/dev/null; then
-      sc_note "refused: \`$work_branch\` is $behind commit(s) behind \`origin/$work_branch\`; not committing on a stale base"
-      return 0
-    fi
-    added=0; removed=0
-    while read -r a d _; do
-      case "$a" in ''|-|*[!0-9]*) continue ;; esac
-      case "$d" in *[!0-9]*) continue ;; esac
-      added=$((added + a)); removed=$((removed + d))
-    done <<EOF
-$(git -C "$work_root" diff --numstat "origin/$work_branch" -- . 2>/dev/null)
-EOF
-    if [ "$removed" -gt 0 ] && [ "$added" -eq 0 ]; then
-      sc_note "refused: publishing this tree would only remove content relative to \`origin/$work_branch\` (looks like a revert); not committing"
-      return 0
-    fi
-  fi
 
   # --- the commit: repo hooks and signing run as configured ----------------
   if ! git -C "$work_root" add -A >/dev/null 2>&1 \
