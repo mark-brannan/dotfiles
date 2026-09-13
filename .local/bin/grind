@@ -195,6 +195,18 @@ if [ "$dry_run" -eq 0 ]; then
       warn "reclaiming stale lock on $repo at $lock_dir (pid $other_pid on $other_host is not running)"
       stale_dir="$lock_dir.stale.$$"  # rename first: atomic, so a losing racer's mkdir below just fails
       mv "$lock_dir" "$stale_dir" 2>/dev/null || { err "lock at $lock_dir changed while reclaiming it -- another grind won the race"; exit 1; }
+      # The mv is atomic on the path, not on what it moved: a second racer
+      # can win this same mv against a lock a third process already
+      # recreated and started running. Re-check identity before deleting --
+      # if it no longer matches what was inspected above, someone else's
+      # live lock got swept up; put it back and lose the race instead.
+      moved_pid=$(jq -r '.pid // empty' "$stale_dir/meta.json" 2>/dev/null || true)
+      moved_host=$(jq -r '.hostname // empty' "$stale_dir/meta.json" 2>/dev/null || true)
+      if [ "$moved_pid" != "$other_pid" ] || [ "$moved_host" != "$other_host" ]; then
+        mv "$stale_dir" "$lock_dir" 2>/dev/null || rm -rf "$stale_dir"
+        err "lock at $lock_dir changed while reclaiming it -- another grind won the race"
+        exit 1
+      fi
       rm -rf "$stale_dir"
       mkdir "$lock_dir" || { err "could not reclaim lock $lock_dir"; exit 1; }
     else
