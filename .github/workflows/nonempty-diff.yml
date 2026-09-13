@@ -16,4 +16,6 @@ on: pull_request
 
 jobs:
   nonempty:
+    permissions:
+      contents: read
     uses: mark-brannan/.github/.github/workflows/nonempty-diff.yml@main
