@@ -31,22 +31,12 @@ Read the verdict line at the top of this session's auto-checkpoint
 If the session's only remaining need is "the next session should start here",
 that is a resume block (`/pickup`, four lines), not a wrap-up.
 
-## 1. Where state lands
-
-Session state lives in the private repo `~/claude_prompts_scratch`, under
-`state/global/kanban.md` and `state/global/log/`, for every project. Work on
-`main` there; `git pull --rebase` before pushing. No project repo carries a
-board or a session log; a public repo never carries session notes, because
-they name boats, hosts and services. Symphony's human-facing
-`maintenance/log.md` and `priorities.md` get only finished, high-level
-results.
-
 ## 2. Narrative log
 
-Write `log/YYYY-MM-DD-<slug>.md` under the state directory above. The
-auto-checkpoint records what happened; only you can record what it meant
-and what should happen next. The machine one is evidence, not a substitute.
-Put in it:
+Write `log/YYYY-MM-DD-<slug>.md` under the state directory
+(`~/claude_prompts_scratch/state/global/`). The auto-checkpoint records what
+happened; only you can record what it meant and what should happen next. The
+machine one is evidence, not a substitute. Put in it:
 
 - what was decided, and why — as a link to where each decision landed (the
   Q-nn footnote, the ADR, the `docs/decisions.md` line, the closed issue,
@@ -61,13 +51,11 @@ Put in it:
 - observations worth keeping. They go here, silently — never as an aside in
   chat.
 
-## 3. Issues and the board
+## 3. Board sweep
 
-List the issues this session opened or labelled: one line each, with its
-link. Then run `/sweep --dry-run` and put its output in the log. Nothing
-else — no board edits, no checking what merged. State lives on GitHub and
-`worklist` reads it; a wrap-up that edits it is a second copy. Routing and
-format: `/card-write`.
+Run `/sweep --dry-run` and put its output in the log. Nothing else — no
+board edits, no issue listing, no checking what merged. `worklist` reads
+GitHub live; a wrap-up that copies it is a second copy.
 
 ## 4. Hand-off prompt
 
@@ -108,13 +96,3 @@ When you do write one, it must:
 
 Put it in the narrative log as well as the chat. The log survives; the chat
 does not.
-
-## 5. The closing message
-
-End with a prompt, not a status bullet or observation. A closing that reads
-"the vague thing is borked, your call" costs a read and returns nothing
-actionable. The closing message holds exactly two things: the hand-off
-prompt, and links to the `## Needs ruling` and `## Solace's` cards this
-session wrote. Nothing else goes in it. If nothing hit a one-way door, that
-half is simply absent — a question you worked around is reported in the PR
-body, not here.
