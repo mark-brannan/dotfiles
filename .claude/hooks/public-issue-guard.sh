@@ -83,7 +83,7 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/public-issue-guard.XXXXXX") || deny 'cannot create a scratch directory'
 trap 'rm -rf "$WORK"' EXIT
 TEXT="$WORK/text"      # everything that will be posted, one candidate per line
-META="$WORK/meta"      # R repo | F file | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
+META="$WORK/meta"      # R repo | F file | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
 : > "$TEXT"; : > "$META"; : > "$WORK/text-cmd"; : > "$WORK/text-file"
 
 # owner/name in lower case from any of the spellings gh and git accept.
@@ -132,6 +132,12 @@ case "$tool" in
       { buf = buf $0 "\n" }
       END {
         orig = buf
+        # A path is vouched for by a heredoc only when that heredoc is the
+        # ONE write to it: `> f <<EOF ... EOF; echo private >> f` writes
+        # twice and the gate has read only the first.
+        nh = sw_writes(buf, hdt, 1); nw = sw_writes(buf, wrt, 0)
+        for (i = 1; i <= nw; i++) nwrites[wrt[i]]++
+        for (i = 1; i <= nh; i++) if (nwrites[hdt[i]] == 1) print "HFED\t" hdt[i]
         stripped = strip_heredocs(buf)
         if (stripped != buf) print "HEREDOC"
         # Heredoc bodies are genuinely-posted text (-F -, $(cat <<EOF), a
@@ -288,16 +294,16 @@ opaque=$(sed -n 's/^OPAQUE	//p' "$META" | head -1)
 if ! grep -q '^HEREDOC$' "$META"; then
   grep -q '^STDIN$' "$META" && deny "the body comes from stdin (-F - / --input -) and there is no heredoc in the command, so it cannot be checked. Put the text in a heredoc in the same command, or in a file and pass --body-file <path>."
 fi
+abspath() { case "$1" in '~'/*) printf '%s' "$HOME${1#\~}" ;; /*) printf '%s' "$1" ;; *) printf '%s' "$cwd/$1" ;; esac; }
+sed -n 's/^HFED	//p' "$META" | grep -v '^$' | while IFS= read -r h; do abspath "$h"; printf '\n'; done > "$WORK/hfed"
 sed -n 's/^F	//p' "$META" | while IFS= read -r f; do
-  case "$f" in
-    '~'/*) f="$HOME${f#\~}" ;;
-    /*) ;;
-    *) f="$cwd/$f" ;;
-  esac
-  [ -r "$f" ] || { printf '%s\n' "$f" > "$WORK/badfile"; continue; }
+  f=$(abspath "$f")
+  # A file this command writes from a heredoc need not exist yet: its text is
+  # already in the scanned command, so the gate has read what it will hold.
+  [ -r "$f" ] || { grep -qxF -- "$f" "$WORK/hfed" || printf '%s\n' "$f" > "$WORK/badfile"; continue; }
   cat "$f" >> "$WORK/text-file"; printf '\n' >> "$WORK/text-file"
 done
-[ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Create the file first, in the same command or an earlier one, then retry."
+[ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Write it to that same path from a heredoc in this same command (cat > PATH <<EOF ... EOF, or tee PATH <<EOF) -- the gate reads the heredoc body directly, so the file need not exist yet. Otherwise create the file in an earlier command and retry."
 cat "$WORK/text-cmd" "$WORK/text-file" > "$TEXT"
 
 grep -q -i -F -f "$WORK/terms" "$TEXT" || exit 0
