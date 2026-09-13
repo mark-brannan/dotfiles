@@ -280,7 +280,7 @@ sc_salvage() {
   # local `git add -A && commit && push` here would fast-forward right over
   # that newer work — this is dotfiles#196. Fetch and check before touching
   # anything.
-  if git -C "$work_root" fetch -q origin "$work_branch" >/dev/null 2>&1 \
+  if timeout 30 git -C "$work_root" fetch -q origin "$work_branch" >/dev/null 2>&1 \
      && git -C "$work_root" rev-parse -q --verify "refs/remotes/origin/$work_branch" \
           >/dev/null 2>&1; then
     behind=$(git -C "$work_root" rev-list --count \
