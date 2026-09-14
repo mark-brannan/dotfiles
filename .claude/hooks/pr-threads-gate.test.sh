@@ -28,6 +28,8 @@ case "${GH_MODE:-}" in
   conflicting) printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewThreads":{"nodes":[]}}}}}' ;;
   behind)   printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BEHIND","reviewThreads":{"nodes":[]}}}}}' ;;
   unknown)  printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewThreads":{"nodes":[]}}}}}' ;;
+  mergeable_unknown_mstate) printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"UNKNOWN","reviewThreads":{"nodes":[]}}}}}' ;;
+  unknown_mergeable_mstate_clean) printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","mergeable":"UNKNOWN","mergeStateStatus":"CLEAN","reviewThreads":{"nodes":[]}}}}}' ;;
   missing)  printf '{"data":{"repository":{"pullRequest":null}}}' ;;
   fail)     echo "gh: HTTP 401: Bad credentials" >&2; exit 1 ;;
   hang)     sleep 30 ;;
@@ -112,6 +114,12 @@ check block 'still UNKNOWN after the re-ask -> unverified' unknown "$(stop_input
 reason 'reported as unverified'        'merge state still UNKNOWN'
 record m4 "$(printf 'repo\to/r\t25')"
 check silent 'merged PR: merge state ignored too' merged "$(stop_input m4)"
+record m5 "$(printf 'repo\to/r\t25')"
+check block 'mergeable resolved, mergeStateStatus still UNKNOWN -> unverified, not silently clean' mergeable_unknown_mstate "$(stop_input m5)"
+reason 'reported as unverified'        'merge state still UNKNOWN'
+record m6 "$(printf 'repo\to/r\t25')"
+check block 'mergeable UNKNOWN, mergeStateStatus resolved clean -> unverified, not silently clean' unknown_mergeable_mstate_clean "$(stop_input m6)"
+reason 'reported as unverified'        'merge state still UNKNOWN'
 
 # --- cannot verify is loud ---------------------------------------------------
 record s6 "$(printf 'repo\to/r\t25')"

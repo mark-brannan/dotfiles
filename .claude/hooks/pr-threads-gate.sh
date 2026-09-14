@@ -109,7 +109,7 @@ while [ "$i" -lt "$n" ]; do
   # GitHub computes mergeability lazily, and a push seconds earlier is the
   # normal case here, so UNKNOWN means "ask again", not "cannot merge". One
   # re-ask; still UNKNOWN is reported as unverified rather than assumed fine.
-  if [ "$mergeable" = UNKNOWN ]; then
+  if [ "$mergeable" = UNKNOWN ] || [ "$mstate" = UNKNOWN ]; then
     sleep "${PR_THREADS_GATE_RECHECK_SLEEP:-2}"
     owner=${repo%%/*}; name=${repo#*/}
     # shellcheck disable=SC2016  # GraphQL variables, not shell ones
@@ -122,14 +122,19 @@ while [ "$i" -lt "$n" ]; do
       mstate=$(printf '%s' "$again" | jq -r '.data.repository.pullRequest.mergeStateStatus // "UNKNOWN"')
     }
   fi
-  case "$mergeable$mstate" in
-    CONFLICTING*) stale="$stale
-- $repo#$num conflicts with its base branch (mergeable=CONFLICTING)" ;;
-    *BEHIND) stale="$stale
-- $repo#$num is behind its base branch (mergeStateStatus=BEHIND)" ;;
-    UNKNOWN*) failed="$failed
-- $repo#$num: merge state still UNKNOWN (GitHub had not finished computing it)" ;;
-  esac
+  # Checked independently, never concatenated: mergeable and mergeStateStatus
+  # are two separate GitHub-computed fields and don't resolve in lockstep, so
+  # "$mergeable$mstate" can land on a string neither case arm matches.
+  if [ "$mergeable" = CONFLICTING ]; then
+    stale="$stale
+- $repo#$num conflicts with its base branch (mergeable=CONFLICTING)"
+  elif [ "$mstate" = BEHIND ]; then
+    stale="$stale
+- $repo#$num is behind its base branch (mergeStateStatus=BEHIND)"
+  elif [ "$mergeable" = UNKNOWN ] || [ "$mstate" = UNKNOWN ]; then
+    failed="$failed
+- $repo#$num: merge state still UNKNOWN (GitHub had not finished computing it)"
+  fi
   [ -n "$threads" ] && open="$open
 - $repo#$num has $(printf '%s\n' "$threads" | wc -l | tr -d ' ') unresolved review thread(s):
 $threads"
