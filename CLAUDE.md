@@ -91,6 +91,18 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   by absolute path (enforced by `no-foreign-worktree.sh`). A session that is
   *finished* pushes, opens the PR and then releases its worktree, so the
   branch it held is free for whoever picks the work up.
+- **Stack only on a real dependency, and never delete a base branch by hand.**
+  Several small changes in flight are not a stack: branch each from `main`,
+  keep them touching disjoint files, open them in parallel, and they merge in
+  any order. Stack only when the second PR genuinely cannot stand without the
+  first — then base it on the first branch, name the dependency in the body
+  (`Depends-On: #<n>`, which Mergify enforces), and merge bottom-up, letting
+  the merge delete the base. GitHub retargets a stacked PR only when its base
+  disappears *because the base PR merged*; a base branch deleted any other way
+  closes every PR pointing at it, and the recovery is a reopen-and-retarget,
+  one PR at a time (enforced by `no-delete-stacked-base.sh`). If the base needs
+  rework, rebase the stacked branch onto it and force-push — never recreate the
+  base under a new name.
 
 ## Shell scripts here
 
