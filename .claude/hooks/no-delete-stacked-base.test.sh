@@ -84,6 +84,8 @@ check deny 'unusual whitespace'         'git   push   origin   --delete   claude
 check ask 'branch named by a variable' 'git push origin --delete "$b"'
 check ask 'branch named by a glob'     'git push origin --delete claude/old-*'
 check ask 'gh cannot answer'           'git push origin --delete claude/base-branch' GH_FAIL=1
+check deny 'merge_exempt is not fooled by bare pr/merge/-d words tacked onto a real delete' \
+                                        'git push origin --delete claude/base-branch pr merge -d'
 
 # --- must allow: the safe deletions and the non-deletions ------------------
 check allow 'delete of a branch no open PR names' 'git push origin --delete claude/already-merged'
