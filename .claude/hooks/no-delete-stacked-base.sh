@@ -129,16 +129,21 @@ function gh_api(a, b, nested,   g, i, is_api, is_del, wv, m) {
   }
 }
 
-# `gh pr merge --delete-branch` is the deletion GitHub retargets around.
-# Its presence anywhere in the segment exempts the whole segment.
-function merge_exempt(a, b,   i, has_merge, has_pr, has_del) {
-  for (i = a; i <= b; i++) {
-    if (k[i] != "w") continue
-    if (w[i] == "pr") has_pr = 1
-    if (w[i] == "merge") has_merge = 1
-    if (w[i] == "--delete-branch" || w[i] == "-d") has_del = 1
-  }
-  return (has_pr && has_merge && has_del)
+# `gh pr merge --delete-branch` is the deletion GitHub retargets around,
+# and only that exact invocation is exempt: a `gh`/`glab` binary, followed
+# immediately by the subcommand words `pr merge`, followed somewhere after
+# by the delete flag. Anything looser (the flag or the words scattered
+# elsewhere in the segment, no gh/glab binary at all) is not exempt --
+# those bare words could belong to trailing refspecs on a real deletion.
+function merge_exempt(a, b, nested,   g, i, del) {
+  g = cmd_index(w, k, a, b, "(^|/)(gh|glab)$", nested, "")
+  if (!g) return 0
+  if (!(g + 1 <= b && k[g + 1] == "w" && w[g + 1] == "pr")) return 0
+  if (!(g + 2 <= b && k[g + 2] == "w" && w[g + 2] == "merge")) return 0
+  del = 0
+  for (i = g + 3; i <= b; i++)
+    if (k[i] == "w" && (w[i] == "--delete-branch" || w[i] == "-d")) { del = 1; break }
+  return del
 }
 
 { buf = buf $0 "\n" }
@@ -150,7 +155,7 @@ END {
     a = 1
     for (i = 1; i <= n + 1; i++) {
       if (i <= n && k[i] != ";") continue
-      if (a < i && !merge_exempt(a, i - 1)) {
+      if (a < i && !merge_exempt(a, i - 1, nested[x])) {
         git_push(a, i - 1, nested[x])
         gh_api(a, i - 1, nested[x])
       }
