@@ -648,6 +648,27 @@ If the same path trips it repeatedly, fix the policy rather than the commit:
 
 ---
 
+## Waive the churn gate on a PR
+
+`churn-ok` is a human-applied label — `public-issue-guard.sh` blocks a
+session from adding it, so this is a step you run yourself, not Claude.
+
+```bash
+~/dotfiles/.local/bin/mark-as-churn-ok.sh <PR#>
+```
+
+Verify: `gh pr view <PR#> --json labels -q '.labels[].name'` lists
+`churn-ok`.
+
+If it fails with `'churn-ok' not found`, the label doesn't exist on the
+repo yet — create it once:
+
+```bash
+gh label create churn-ok --repo mark-brannan/dotfiles --color FBCA04 --description "Waives the churn-diff gate (human-applied only)"
+```
+
+---
+
 ## `yadm status` shows a permanent typechange
 
 The generated alternate target is tracked as a real file as well. yadm relinks
