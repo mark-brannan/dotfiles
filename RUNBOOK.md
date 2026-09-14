@@ -547,14 +547,17 @@ resign-branch.sh <branch>
 ```
 
 It resets local `<branch>` to `origin/<branch>`, rebases onto the tip of the
-default branch with `-S` (which re-signs every commit and drops any "Update
+PR's base branch with `-S` (which re-signs every commit and drops any "Update
 branch" merge commits), verifies each one locally, and force-pushes with
-lease. It also runs when the branch is merely behind the default branch, so
-it doubles as a signed, linear "Update branch". Running it on a branch that
-already verifies and is up to date does nothing. It refuses
-if you have local commits on the branch that are not on origin, if the rebase
-conflicts, or if linearizing would drop content from a hand-resolved merge
-commit — in every case the branch is left as it was. Your working tree is
+lease. The base comes from GitHub, so a stacked PR stays on its parent; with
+no open PR it uses the default branch, and `RESIGN_BASE=<branch>` names the
+base by hand when `gh` can't answer. It also runs when the branch is merely
+behind its base, so it doubles as a signed, linear "Update branch". Running
+it on a branch that already verifies and is up to date does nothing. It
+refuses if any clone of the repo on this machine — `~/dotfiles` and yadm's
+both count — has local commits on the branch that are not on origin, if
+the rebase conflicts, or if linearizing would drop content from a
+hand-resolved merge commit — in every case the branch is left as it was. Your working tree is
 never touched, dirty or not: all the rewriting happens in a throwaway
 worktree, so there is nothing to stash first.
 
