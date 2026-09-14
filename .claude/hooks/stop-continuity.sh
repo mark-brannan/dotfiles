@@ -336,7 +336,7 @@ EOF
   # closed -- the commit is refused and the files are left for a machine that
   # can sign.
   if ! git -C "$work_root" add -A >/dev/null 2>&1 \
-     || ! git -C "$work_root" -c commit.gpgsign=true commit -q \
+     || ! timeout 30 git -C "$work_root" -c commit.gpgsign=true commit -q \
           -m "wip: session ${sid:0:8} at Stop ($today)" \
           -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
     git -C "$work_root" reset -q >/dev/null 2>&1
