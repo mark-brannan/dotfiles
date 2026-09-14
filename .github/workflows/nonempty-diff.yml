@@ -2,33 +2,20 @@ name: Non-empty diff
 
 # A pull request whose tree is identical to its base merges cleanly and
 # changes nothing. That is how PR #198 "landed" its fix for dotfiles#196: a
-# stray Stop-commit had reverted the branch to main's content, the squash was
-# empty, and the issue was closed as done. Nothing in the pipeline read the
-# merged tree against the PR's intent. This check is the cheap half of that:
-# it cannot know the intent, but it can refuse to call an empty PR green.
+# stray Stop-commit had reverted the branch to main's content, the squash
+# was empty, and the issue was closed as done. Nothing in the pipeline read
+# the merged tree against the PR's intent. This check is the cheap half of
+# that: it cannot know the intent, but it can refuse to call an empty PR
+# green.
+#
+# Thin caller onto the reusable version (mark-brannan/.github#25), ported
+# from this file's own original inline copy so every repo shares one job
+# to fix.
 
-on:
-  pull_request:
-
-permissions:
-  contents: read
+on: pull_request
 
 jobs:
   nonempty:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: The PR changes something relative to its base
-        env:
-          BASE: ${{ github.event.pull_request.base.ref }}
-        run: |
-          set -euo pipefail
-          git fetch -q origin "$BASE"
-          if git diff --quiet "$(git merge-base "origin/$BASE" HEAD)" HEAD; then
-            echo "::error::this pull request's tree is identical to $BASE at the merge base: nothing would land. Its commits were reverted -- see dotfiles#196 -- or it is finished and should be closed."
-            exit 1
-          fi
-          echo "ok: $(git diff --shortstat "$(git merge-base "origin/$BASE" HEAD)" HEAD)"
+    permissions:
+      contents: read
+    uses: mark-brannan/.github/.github/workflows/nonempty-diff.yml@main
