@@ -125,5 +125,24 @@ run feat-a
 ok  'foreign clone: ignored, run completes' [ $rc -eq 0 ]
 has 'foreign clone: nothing to do' 'nothing to do'
 
+# --- 8. norm_url treats SCP-style, https:// and ssh:// forms of the same
+# repo as equal -- otherwise two clones of the same GitHub repo on
+# different protocols take the "different repo" skip path in case 7 above,
+# silently defeating the orphan guard.
+norm_url() {
+  u=${1%/}; u=${u%.git}
+  case "$u" in
+    *://*) u=${u#*://}; u=${u#*@} ;;
+    *@*:*) u=${u#*@}; u=$(printf '%s' "$u" | sed 's/:/\//') ;;
+    *:*) u=$(printf '%s' "$u" | sed 's/:/\//') ;;
+  esac
+  printf '%s\n' "$u"
+}
+a=$(norm_url "git@github.com:mark-brannan/dotfiles.git")
+b=$(norm_url "https://github.com/mark-brannan/dotfiles.git")
+c=$(norm_url "ssh://git@github.com/mark-brannan/dotfiles")
+ok 'norm_url: scp-style and https:// match' [ "$a" = "$b" ]
+ok 'norm_url: scp-style and ssh:// match' [ "$a" = "$c" ]
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

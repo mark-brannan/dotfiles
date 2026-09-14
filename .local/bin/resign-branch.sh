@@ -120,7 +120,20 @@ git rev-parse --verify -q "$target" >/dev/null || die "$remote has no branch $ba
 # yadm repo -- and they count only when they are clones of the same remote.
 # A candidate that matches but can't be read is a hard stop, because from
 # here "not checked" and "nothing there" look identical.
-norm_url() { u=${1%/}; u=${u%.git}; printf '%s\n' "$u"; }
+# Same repo, different remote form: git@host:owner/repo(.git) (SCP-style)
+# and scheme://[user@]host/owner/repo(.git) (ssh://, https://, git://) must
+# compare equal, or two clones of the same GitHub repo on different
+# protocols take the same silent-skip path as "not a clone of this repo" --
+# the exact failure finding 2 exists to close.
+norm_url() {
+  u=${1%/}; u=${u%.git}
+  case "$u" in
+    *://*) u=${u#*://}; u=${u#*@} ;;                               # scheme://[user@]host/path -> host/path
+    *@*:*) u=${u#*@}; u=$(printf '%s' "$u" | sed 's/:/\//') ;;      # user@host:path -> host/path
+    *:*) u=$(printf '%s' "$u" | sed 's/:/\//') ;;                   # host:path -> host/path
+  esac
+  printf '%s\n' "$u"
+}
 gitdir=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
 gitdirs=$gitdir
 candidates="$HOME/dotfiles/.git"
