@@ -186,6 +186,17 @@
         "hooks": [
           {
             "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/npm-publish-auth.sh\"; [ -f \"$h\" ] && bash \"$h\" || true",
+            "timeout": 20,
+            "statusMessage": "Running npm publish in the background and surfacing the auth URL directly"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "h=\"$HOME/.claude/hooks/prose-budget-commit.sh\"; [ -f \"$h\" ] && bash \"$h\" || true",
             "statusMessage": "Checking staged prose against the repo's budgets"
           }
