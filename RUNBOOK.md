@@ -654,9 +654,11 @@ If the same path trips it repeatedly, fix the policy rather than the commit:
 
 ## Find all PRs awaiting human review
 
-https://github.com/pulls/search?q=is%3Apr+is%3Aopen+label%3Aawaiting-human
+https://github.com/pulls?q=is%3Apr+state%3Aopen+archived%3Afalse+sort%3Aupdated-desc+label%3Aawaiting-human+user%3Amark-brannan
 
-Across every repo that uses the `awaiting-human` label. Not all repos do.
+Across your own repos that use the `awaiting-human` label. Not all repos do.
+Without `user:mark-brannan`, the search spans every public repo on GitHub,
+not just yours.
 
 ---
 
