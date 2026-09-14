@@ -46,6 +46,10 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Rotate a secret](#rotate-a-secret)
 - [Clear a pre-commit false positive](#clear-a-pre-commit-false-positive)
 
+**PRs**
+- [Find all PRs awaiting human review](#find-all-prs-awaiting-human-review)
+- [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
+
 **Troubleshooting**
 - [`yadm status` shows a permanent typechange](#yadm-status-shows-a-permanent-typechange)
 - [A pull refuses: local changes would be overwritten](#a-pull-refuses-local-changes-would-be-overwritten)
@@ -645,6 +649,35 @@ YADM_ALLOW_SECRET=1 yadm commit -m "..."
 If the same path trips it repeatedly, fix the policy rather than the commit:
 `.gitignore`, the `NEVER` class in `.local/bin/dotfiles-triage.sh`, and the
 `pre_commit` hook mirror each other and should be edited together.
+
+---
+
+## Find all PRs awaiting human review
+
+https://github.com/pulls/search?q=is%3Apr+is%3Aopen+label%3Aawaiting-human
+
+Across every repo that uses the `awaiting-human` label. Not all repos do.
+
+---
+
+## Waive the churn gate on a PR
+
+`churn-ok` is a human-applied label — `public-issue-guard.sh` blocks a
+session from adding it, so this is a step you run yourself, not Claude.
+
+```bash
+~/dotfiles/.local/bin/mark-as-churn-ok.sh <PR#>
+```
+
+Verify: `gh pr view <PR#> --json labels -q '.labels[].name'` lists
+`churn-ok`.
+
+If it fails with `'churn-ok' not found`, the label doesn't exist on the
+repo yet — create it once:
+
+```bash
+gh label create churn-ok --repo mark-brannan/dotfiles --color FBCA04 --description "Waives the churn-diff gate (human-applied only)"
+```
 
 ---
 
