@@ -20,12 +20,17 @@ trap 'rm -rf "$STUB_DIR"' EXIT
 # Open PRs the stub reports: #1 is stacked on claude/base-branch, which is
 # itself the head of #2. claude/lonely is the head of #3 and the base of
 # nothing.
+# It records its arguments in $STUB_DIR/calls, ignores the filters (the
+# hook's own jq select is what the tests exercise), and with GH_TAB set puts
+# a literal tab in a title -- the character the decision JSON must survive.
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/bin/sh
+printf '%s\n' "$*" >> "${GH_CALLS:?}"
 [ -n "${GH_FAIL:-}" ] && exit 1
-cat <<'JSON'
+t="stacked change"; [ -n "${GH_TAB:-}" ] && t="stacked\\tchange"
+cat <<JSON
 [
- {"number":1,"title":"stacked change","baseRefName":"claude/base-branch","headRefName":"claude/stacked-one"},
+ {"number":1,"title":"$t","baseRefName":"claude/base-branch","headRefName":"claude/stacked-one"},
  {"number":2,"title":"the base change","baseRefName":"main","headRefName":"claude/base-branch"},
  {"number":3,"title":"unrelated","baseRefName":"main","headRefName":"claude/lonely"}
 ]
@@ -38,7 +43,9 @@ check() {
   local want=$1 desc=$2 cmd=$3; shift 3
   local out got json
   json=$(jq -n --arg c "$cmd" --arg d "$CWD" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')
-  out=$(printf '%s' "$json" | env "$@" PATH="$STUB_DIR:$PATH" bash "$HOOK" 2>&1)
+  : > "$STUB_DIR/calls"
+  out=$(printf '%s' "$json" | env "$@" GH_CALLS="$STUB_DIR/calls" PATH="$STUB_DIR:$PATH" sh "$HOOK" 2>&1)
+  LAST_OUT=$out
   case "$out" in
     *'"permissionDecision":"deny"'*) got=deny ;;
     *'"permissionDecision":"ask"'*)  got=ask ;;
@@ -65,7 +72,7 @@ check deny 'yadm spelling'                       'yadm push origin --delete clau
 
 # --- must deny: deleting the head branch of an open PR ---------------------
 check deny 'push --delete of an open PR head'    'git push origin --delete claude/stacked-one'
-check deny 'push --delete of a base that is also a head' 'git push origin --delete claude/lonely'
+check deny 'push --delete of a head that is nothing'\''s base' 'git push origin --delete claude/lonely'
 
 # --- must deny: the REST spelling ------------------------------------------
 check deny 'gh api -X DELETE'          'gh api -X DELETE repos/o/r/git/refs/heads/claude/base-branch'
@@ -84,10 +91,29 @@ check deny 'unusual whitespace'         'git   push   origin   --delete   claude
 check ask 'branch named by a variable' 'git push origin --delete "$b"'
 check ask 'branch named by a glob'     'git push origin --delete claude/old-*'
 check ask 'gh cannot answer'           'git push origin --delete claude/base-branch' GH_FAIL=1
-check deny 'merge_exempt is not fooled by bare pr/merge/-d words tacked onto a real delete' \
+check deny 'bare pr/merge/-d words after a real delete do not excuse it' \
                                         'git push origin --delete claude/base-branch pr merge -d'
 
+# --- must ask: git pointed at a repository that is not the cwd -------------
+check ask 'git -C another repo'        'git -C /elsewhere push origin --delete claude/base-branch'
+check ask 'git --git-dir'              'git --git-dir=/elsewhere/.git push origin --delete claude/base-branch'
+check ask 'GIT_DIR in the environment' 'GIT_DIR=/elsewhere/.git git push origin --delete claude/base-branch'
+check deny 'git -C is not the ask when the delete itself is unrelated' 'git -C /elsewhere status && git push origin --delete claude/base-branch'
+
+# --- the REST endpoint names the repository the PR list is read from ------
+check deny 'gh api endpoint repo is queried' 'gh api -X DELETE repos/o/r/git/refs/heads/claude/base-branch'
+grep -q -- '-R o/r' "$STUB_DIR/calls" || { fail=$((fail + 1)); printf 'FAIL: gh api endpoint repo o/r was not passed to gh pr list -R\n'; }
+check deny 'gh api {owner}/{repo} placeholder is the cwd' 'gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/claude/base-branch'
+grep -q -- '-R' "$STUB_DIR/calls" && { fail=$((fail + 1)); printf 'FAIL: {owner}/{repo} endpoint should query the cwd, not -R\n'; }
+check ask 'gh api endpoint repo unresolvable' 'gh api -X DELETE "repos/$OWNER/r/git/refs/heads/claude/base-branch"'
+
+# --- the decision is JSON whatever the PR title holds ----------------------
+check deny 'a tab in a PR title still denies' 'git push origin --delete claude/base-branch' GH_TAB=1
+printf '%s' "$LAST_OUT" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1 \
+  || { fail=$((fail + 1)); printf 'FAIL: decision with a tab in the title is not valid JSON:\n  %s\n' "$LAST_OUT"; }
+
 # --- must allow: the safe deletions and the non-deletions ------------------
+# `gh pr merge` names no branch; it never reaches the scanner at all.
 check allow 'delete of a branch no open PR names' 'git push origin --delete claude/already-merged'
 check allow 'ordinary push'                       'git push origin main'
 check allow 'ordinary push with a refspec'        'git push origin HEAD:main'
