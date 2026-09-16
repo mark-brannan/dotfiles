@@ -144,6 +144,40 @@ jobs:
           fi
           echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
 
+  # The PreToolUse gates (.claude/hooks/no-*.sh) each ship a *.test.sh next
+  # to them. They run here under Ubuntu's default awk (mawk) and again under
+  # gawk and original-awk, because the hooks are POSIX awk by contract and
+  # macOS ships a third implementation: a gawk-ism that passes locally is a
+  # hook that fails closed on every Bash call on the Mac, or -- worse --
+  # parses differently.
+  hook-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install awk implementations
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q mawk gawk original-awk jq
+      - name: prose-budget engine tests
+        run: python3 .local/bin/prose-budget.test.py
+      - name: Run every hook test under each awk
+        run: |
+          set -euo pipefail
+          status=0
+          for impl in mawk gawk original-awk; do
+            d=$(mktemp -d)
+            ln -s "$(command -v $impl)" "$d/awk"
+            for t in .claude/hooks/*.test.sh .local/bin/*.test.sh; do
+              echo "::group::$t under $impl"
+              if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
+              echo "::endgroup::"
+            done
+          done
+          exit $status
+
   # Refuses to call an empty PR green: a branch whose tree equals its base
   # at the merge base (a stray Stop-commit reverted it, which is how PR #198
   # "landed" nothing for #196) merges cleanly and lands nothing. On a push to
@@ -162,7 +196,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, secret-scan, shellcheck, seeded, nonempty]
+    needs: [secrets-encrypted, secret-scan, shellcheck, seeded, hook-tests, nonempty]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}
