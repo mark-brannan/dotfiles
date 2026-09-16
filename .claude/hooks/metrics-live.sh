@@ -85,7 +85,7 @@ NAG_CONTEXT_LINES="${METRICS_CONTEXT_LINES:-60000 90000 120000 150000 185000}"
 NAG_CONTEXT_STOP_AT="${METRICS_CONTEXT_STOP_AT:-150000}"
 NAG_CONTEXT_STEP="${METRICS_CONTEXT_STEP:-35000}"
 NAG_SIT_EVERY_MIN="${METRICS_SIT_EVERY_MIN:-60}"
-NAG_SIT_GAP_MIN="${METRICS_SIT_GAP_MIN:-30}"
+NAG_SIT_GAP_MIN="${METRICS_SIT_GAP_MIN:-15}"
 NAG_FRICTION_N="${METRICS_FRICTION_N:-3}"
 NAG_FRICTION_TURNS="${METRICS_FRICTION_TURNS:-20}"
 NAG_GATE_EVERY="${METRICS_GATE_EVERY:-5}"
@@ -544,7 +544,15 @@ if [ "$run_engine" -eq 1 ]; then
       # the chair for five minutes and come back to the same session; making
       # it demand a resume block turned the one-hour mark into a wrap-up
       # every hour. Two hours is the sitting clock's actual verdict.
-      if [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then
+      #
+      # Work in flight (dirty tree / unpushed / open PR -- in_flight()) never
+      # gets a stop-or-stand verdict: landing unfinished work is not "stop
+      # here" advice, it is the same instruction the model-directed line
+      # already gives. Reassure instead of advise -- name the time, promise
+      # the session keeps going to the next checkpoint, nothing to act on.
+      if in_flight; then
+        verdict="still landing it -- will stop cleanly at the next checkpoint"
+      elif [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then
         verdict="stop here, run /wrapup"; since_nag=1
       else verdict="stand up"; fi
       t="⏱ sitting $(hm "$n") — context $(kfmt "$ctx"): $verdict."
