@@ -1,0 +1,171 @@
+name: CI
+
+# Every gating check in one workflow, fanned into a single `ci-gate` job, so
+# the branch ruleset requires exactly one context: `ci-gate / gate`. Before
+# this file the ruleset pinned six job names across four workflows, and
+# nothing enforced that a job id and its ruleset string agreed: when #217
+# moved nonempty into the reusable workflow its context became
+# "nonempty / nonempty", the ruleset still wanted bare "nonempty", and every
+# PR sat BLOCKED behind a required check that never arrived -- with a full
+# green board and no visible failure (#230). Under this layout, moving or
+# renaming a job changes a line in `needs:` and touches no ruleset.
+#
+# Same pattern as every other vended repo (mark-brannan/.github's ci-gate.yml
+# has the contract). Non-gating workflows -- churn guard, hook tests, Claude
+# review -- stay in their own files.
+#
+# Runs on pull requests and on push to main. The push-to-main run is the
+# post-merge scan of what is now public history; the weekly re-scan of
+# unchanged history stays in secret-scan.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A session that pushes four times in two minutes only needs the newest
+# commit checked; superseded PR runs are cancelled. A push to main is never
+# cancelled -- that run is the record of what landed.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Asserts every file .sops.yaml says should be encrypted actually is, in
+  # what git has committed -- not what's on disk locally. Needs no age key:
+  # it works on ciphertext (or its absence) by design.
+  secrets-encrypted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: bash .github/scripts/verify_encrypted.sh
+
+  # gitleaks (full history) + trufflehog (verified-live only), shared via
+  # mark-brannan/.github -- see that repo's secret-scan.yml for what each
+  # job does and why. This repo's worktree is $HOME on every machine and
+  # it's public: a leaked credential here is a bigger incident than in any
+  # single project repo. The local pre_commit hook is the fast check and
+  # can be skipped with YADM_ALLOW_SECRET=1 or --no-verify; this cannot be
+  # skipped from a laptop.
+  #
+  # @main, deliberately -- same-owner trust, matching every other caller
+  # of a mark-brannan/.github workflow. CodeRabbit flagged this as
+  # unpinned (2026-09-05, zizmor's unpinned-uses); considered and
+  # reverted (2026-09-05): the threat that lint guards against is a
+  # compromised upstream *maintainer*, which doesn't apply when the
+  # upstream is your own repo. Pinning would only buy protection
+  # against mistakes in the shared workflow, at the cost of a manual
+  # pin-bump PR per caller for every future fix.
+  secret-scan:
+    permissions:
+      contents: read
+    uses: mark-brannan/.github/.github/workflows/secret-scan.yml@main
+    with:
+      gitleaks-config: .gitleaks.toml
+
+  # Syntax/correctness lint for every tracked shell script. The scripts
+  # here are exactly the ones CLAUDE.md flags for extra scrutiny --
+  # .claude/hooks/*, .config/yadm/hooks/*, .config/yadm/bootstrap -- all
+  # execute automatically (session start/stop, git commit, machine
+  # bootstrap). A shellcheck-caught bug in one of those runs unattended on
+  # every session or every commit, on every machine, at the next dotsync.
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          command -v shellcheck || (sudo apt-get update && sudo apt-get install -y shellcheck)
+          # --severity=warning: at the point this job was added, the
+          # existing scripts already carried ~20 info/style-level notes
+          # (SC1091 unfollowed sources, SC2015 A&&B||C, SC2012/13/16) and
+          # nothing at warning or above. Failing on those would make this
+          # job red on day one over pre-existing style, not a bug it
+          # caught -- exactly the "gate that cries wolf" failure mode.
+          # Tightening to catch style too is a deliberate later choice, not
+          # a default.
+          #
+          # POSIX sh scripts (see CLAUDE.md: bootstrap, pre_commit run where
+          # bash may not be what /bin/sh points at) get -s sh; everything
+          # else here is bash-shebanged and checked as such.
+          shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit
+          shellcheck --severity=warning .claude/hooks/*.sh .claude/cloud-setup.sh .local/bin/*.sh
+
+  # Every hook settings.json references must also be seeded by
+  # cloud-session-setup.sh. If it isn't, the hook silently no-ops in every
+  # cloud session -- and a no-op is indistinguishable from a hook that ran
+  # and passed. This invariant was prose in CLAUDE.md and got broken anyway
+  # (no-late-pr-subscribe.sh, PR #24), so it is a check now.
+  seeded:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Every settings.json hook is in the INSTALL list
+        run: |
+          set -euo pipefail
+          # Hooks named in settings.json, plus every library a hook loads
+          # from its own directory (lib-*.awk, *.jq): a hook that runs but
+          # cannot find its library fails closed on every call.
+          { grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' .claude/settings.json
+            grep -ho 'lib-[A-Za-z0-9._-]*\.\(awk\|sh\|jq\)' .claude/hooks/*.sh \
+              | sed 's|^|.claude/hooks/|'
+          } | sort -u > /tmp/referenced
+          # The INSTALL heredoc-style list ends at the closing quote.
+          sed -n '/^INSTALL="/,/^"/p' .local/bin/cloud-session-setup.sh \
+            | grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.\(sh\|awk\|jq\)' \
+            | sort -u > /tmp/installed
+          missing=$(comm -23 /tmp/referenced /tmp/installed)
+          if [ -n "$missing" ]; then
+            echo "::error::settings.json references hooks that cloud-session-setup.sh never seeds:"
+            echo "$missing"
+            echo "Add them to INSTALL in .local/bin/cloud-session-setup.sh."
+            exit 1
+          fi
+          echo "ok: all $(wc -l < /tmp/referenced) referenced hooks are seeded"
+      - name: settings.json hooks run from \$HOME only
+        run: |
+          set -euo pipefail
+          if grep -q 'CLAUDE_PROJECT_DIR/.claude/hooks' .claude/settings.json; then
+            echo "::error::settings.json falls back to \$CLAUDE_PROJECT_DIR for a hook."
+            echo "In a cloud session on a third-party repo that executes THAT repo's"
+            echo "hooks under user-scope trust. Seed the hook to \$HOME instead."
+            exit 1
+          fi
+          echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
+
+  # Refuses to call an empty PR green: a branch whose tree equals its base
+  # at the merge base (a stray Stop-commit reverted it, which is how PR #198
+  # "landed" nothing for #196) merges cleanly and lands nothing. On a push to
+  # main there is no base and it passes with a note.
+  nonempty:
+    permissions:
+      contents: read
+    uses: mark-brannan/.github/.github/workflows/nonempty-diff.yml@main
+
+  # The single required status check, shared across repositories: the
+  # `gate` job of mark-brannan/.github's reusable ci-gate workflow, which
+  # fails unless every result in `needs` is green. The reported context is
+  # "ci-gate / gate" -- GitHub names a reusable workflow's checks
+  # "<caller job> / <called job>" -- and that is what the ruleset requires,
+  # so this job's id is part of the contract. `always()` is what lets the
+  # gate evaluate when a dependency failed or was skipped, so it reports an
+  # explicit pass or fail of its own rather than inheriting the skip.
+  ci-gate:
+    needs: [secrets-encrypted, secret-scan, shellcheck, seeded, nonempty]
+    if: always()
+    # It reads nothing and writes nothing; the results go in as an input.
+    permissions: {}
+    uses: mark-brannan/.github/.github/workflows/ci-gate.yml@main
+    with:
+      results: ${{ toJSON(needs) }}
