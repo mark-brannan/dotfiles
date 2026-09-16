@@ -33,17 +33,18 @@ or `/card-write` first to give it a typed shape.
 
 ## Running a session
 
-1. Before pulling candidates, check difficulty against the session model.
-   Each card carries two difficulty scores — Solace's and a high-stakes
-   agent's, low/medium/high. Read them for every candidate card and find
-   the hardest `agent` score in the batch. If the running session's model
-   is weaker than that score calls for (e.g. Sonnet sitting on a `high`
-   card, which wants Opus or Fable), print one line offering either a
-   model switch for the session or an `Agent` tool call with a `model`
-   override scoped to that card — then continue; don't block on an answer
-   unless Solace asks.
-2. Pull the candidates: `## Needs ruling`, any card `/reconcile` flagged as
+1. Pull the candidates: `## Needs ruling`, any card `/reconcile` flagged as
    an implicit "Pending:" tail, anything Solace names directly.
+2. Before working any of them, check difficulty against the session model.
+   Ruling cards carry no difficulty field of their own — rate each
+   candidate twice from its `default:`/`risk:` text, same convention as a
+   triage table: Solace's difficulty and a high-stakes agent's, each
+   low/medium/high. Find the hardest `agent` rating in the batch. If the
+   running session's model is weaker than that rating calls for (e.g.
+   Sonnet against a `high` card, which wants Opus or Fable), print one
+   line offering either a model switch for the session or an `Agent` tool
+   call with a `model` override scoped to that card — then continue;
+   don't block on an answer unless Solace asks.
 3. One card at a time. State the input question as written; if it's not
    already typed, type it now and confirm the rewrite before asking it.
 4. Bring a recommendation, not a menu, per standing orders — your pick and
