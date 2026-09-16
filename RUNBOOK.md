@@ -690,11 +690,12 @@ work waiting". Run the audit to tell them apart.
 Read-only — it reports, it never labels, pushes or merges. Override the
 account with `PR_LABEL_AUDIT_OWNER=<owner>`.
 
-It prints up to five diagnostic sections, each with its own fix, and then
+It prints up to six diagnostic sections, each with its own fix, and then
 `## Your turn` with the pull requests that really are yours:
 
 | Section | What to do |
 | --- | --- |
+| Repositories whose labels could not be read | The lookup failed — neither confirmed missing nor present. Re-run; if it persists, `gh auth status`, or the repo was renamed/archived. Do **not** create the label on the strength of this |
 | Repositories that do not define the label | `gh label create awaiting-human -R mark-brannan/<repo> -d "Green and thread-free: it is your turn"` — the command is in the output |
 | No `ci-gate / gate` check | Adopt the reusable ci-gate workflow, or accept that those PRs are manual |
 | Gated, unlabelled | Hand each to a session to finish; nothing updates them meanwhile |
@@ -712,6 +713,11 @@ audit completed and found nothing wrong — not that it failed. A run that
 prints nothing, or exits non-zero with `the GitHub query failed`, is a
 credential or rate-limit problem: check `gh auth status`. An empty section is
 omitted rather than printed empty, so the heading count varies by day.
+
+The audit refuses rather than under-reports: it follows the search cursor, and
+if the account ever exceeds GitHub search's 1000-result ceiling it exits
+non-zero with `more than 1000 open pull requests` instead of printing a
+truncated report that looks complete.
 
 ---
 

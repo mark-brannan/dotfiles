@@ -31,8 +31,9 @@ done
 # repositories when this was written, and the audit is worth nothing if it
 # only sometimes completes.
 query='
-query($q: String!) {
-  search(query: $q, type: ISSUE, first: 100) {
+query($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $after) {
+    pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
         number
@@ -67,19 +68,57 @@ query($q: String!) {
 # That is one of the two ways the label silently never appears (the other is a
 # missing gate check), and the two need different fixes, so the audit asks each
 # repository whether the label exists rather than guessing from the symptom.
-raw=$(gh api graphql -f query="$query" -f q="is:pr is:open archived:false user:$OWNER") || {
-  echo "pr-label-audit: the GitHub query failed" >&2; exit 1; }
+search_page() {  # search_page [cursor]
+  if [ -n "${1:-}" ]
+  then gh api graphql -f query="$query" -f q="$SEARCH" -f after="$1"
+  else gh api graphql -f query="$query" -f q="$SEARCH"
+  fi
+}
 
+# `first: 100` is the page, not the answer. An unpaginated search truncates
+# silently at 100 open pull requests and a truncated report looks exactly like
+# a complete one -- the same "only sometimes completes, and nothing says so"
+# failure the REST route had. So: follow the cursor, and when the cursor runs
+# past GitHub search's own 1000-result ceiling, fail rather than under-report.
+SEARCH="is:pr is:open archived:false user:$OWNER"
+pages=''
+cursor=''
+page_count=0
+while :; do
+  page=$(search_page "$cursor") || {
+    echo "pr-label-audit: the GitHub query failed" >&2; exit 1; }
+  pages="$pages$page"
+  page_count=$((page_count + 1))
+  if [ "$page_count" -ge 10 ]; then
+    echo "pr-label-audit: more than 1000 open pull requests -- GitHub search" >&2
+    echo "  cannot return them all, so this report would be incomplete." >&2
+    echo "  Narrow it with PR_LABEL_AUDIT_OWNER, or split the query by repo." >&2
+    exit 1
+  fi
+  cursor=$(printf '%s' "$page" |
+    jq -r '.data.search.pageInfo | if .hasNextPage then .endCursor else empty end')
+  [ -n "$cursor" ] || break
+done
+raw=$(printf '%s' "$pages" | jq -s '{data: {search: {nodes: map(.data.search.nodes[]?)}}}') || {
+  echo "pr-label-audit: the GitHub query returned something unreadable" >&2; exit 1; }
+
+# Three outcomes, not two. `2>/dev/null` on its own would fold a transient
+# failure, a permission hiccup and a repo renamed out from under the search
+# into "this repo lacks the label" -- and then print `gh label create` as the
+# fix, which is wrong advice for all three. A lookup that did not complete is
+# reported as not checked, so the reader knows the difference.
 repos=$(printf '%s' "$raw" | jq -r '[.data.search.nodes[]?.repository.name] | unique[]')
 defines=""
+unchecked=""
 for repo in $repos; do
-  if gh api "repos/$OWNER/$repo/labels" --paginate -q '.[].name' 2>/dev/null \
-     | grep -qx "$LABEL"; then
-    defines="$defines $repo"
+  if labels=$(gh api "repos/$OWNER/$repo/labels" --paginate -q '.[].name' 2>/dev/null); then
+    printf '%s\n' "$labels" | grep -qx "$LABEL" && defines="$defines $repo"
+  else
+    unchecked="$unchecked $repo"
   fi
 done
 
-printf '%s' "$raw" | jq -r --arg defines "$defines" --arg label "$LABEL" --arg gate "$GATE" --arg owner "$OWNER" '
+printf '%s' "$raw" | jq -r --arg defines "$defines" --arg unchecked "$unchecked" --arg label "$LABEL" --arg gate "$GATE" --arg owner "$OWNER" '
   def checks: [.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
                | {name: (.name // .context), result: (.conclusion // .state)}];
   def gate_result: (first(checks[] | select(.name == $gate) | .result) // "absent");
@@ -94,6 +133,7 @@ printf '%s' "$raw" | jq -r --arg defines "$defines" --arg label "$LABEL" --arg g
   def vline: "\(.repo)#\(.number) [\(.verdict)] \(.title[0:58])\n    \(.url)";
 
   ( ($defines | split(" ") | map(select(. != ""))) ) as $defines_label
+  | ( ($unchecked | split(" ") | map(select(. != ""))) ) as $unchecked_label
   | ( [ .data.search.nodes[]
       | select(.isDraft | not)
       | .repository.name as $repo
@@ -101,7 +141,8 @@ printf '%s' "$raw" | jq -r --arg defines "$defines" --arg label "$LABEL" --arg g
           gate: gate_result, unresolved: unresolved,
           labelled: (([.labels.nodes[].name] | index($label)) != null),
           mergeable: .mergeable,
-          defines_label: (($defines_label | index($repo)) != null) } ]
+          defines_label: (($defines_label | index($repo)) != null),
+          unchecked_label: (($unchecked_label | index($repo)) != null) } ]
     | unique_by("\(.repo)#\(.number)")
     | map(. + { verdict:
         (if .gate == "absent" then "no-gate"
@@ -111,9 +152,14 @@ printf '%s' "$raw" | jq -r --arg defines "$defines" --arg label "$LABEL" --arg g
          else "green" end) }) ) as $prs
 
   | ( section(
+        "Repositories whose labels could not be read";
+        "The label lookup failed, so these are neither confirmed missing nor\nconfirmed present -- do NOT create the label here on the strength of this\nreport. Re-run; if it persists, check `gh auth status` and whether the\nrepository was renamed, archived or lost its permission.";
+        [$prs[] | select(.unchecked_label) | .repo] | unique)
+
+    + section(
         "Repositories that do not define the `\($label)` label";
         "Mergify matches its rule and then does nothing: its label action will not\ncreate a label the repository is missing, and it reports no error. Fix with\n  gh label create \($label) -R \($owner)/<repo> -d \"Green and thread-free: it is your turn\"";
-        [$prs[] | select(.defines_label | not) | .repo] | unique)
+        [$prs[] | select((.defines_label | not) and (.unchecked_label | not)) | .repo] | unique)
 
     + section(
         "No `\($gate)` check -- the label can never apply";
