@@ -11,8 +11,8 @@ name: CI
 # renaming a job changes a line in `needs:` and touches no ruleset.
 #
 # Same pattern as every other vended repo (mark-brannan/.github's ci-gate.yml
-# has the contract). Non-gating workflows -- churn guard, hook tests, Claude
-# review -- stay in their own files.
+# has the contract). Non-gating workflows -- churn guard, Claude review --
+# stay in their own files.
 #
 # Runs on pull requests and on push to main. The push-to-main run is the
 # post-merge scan of what is now public history; the weekly re-scan of
