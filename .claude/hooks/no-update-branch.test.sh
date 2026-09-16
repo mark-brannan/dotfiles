@@ -42,6 +42,13 @@ check deny 'absolute path invocation' "$(bash_input '/usr/bin/gh pr update-branc
 check deny 'MCP tool form' \
   "$(jq -n '{tool_name:"mcp__github__update_pull_request_branch",tool_input:{pullNumber:226}}')"
 
+# --- must deny: command substitution and subshells --------------------------
+# An agent capturing output is the realistic shape here, not an attacker.
+check deny 'command substitution' \
+  "$(bash_input 'out=$(gh pr update-branch 226 --rebase 2>&1); echo "$out"')"
+check deny 'subshell' "$(bash_input '(gh pr update-branch 226 --rebase)')"
+check deny 'backtick substitution' "$(bash_input 'out=`gh pr update-branch 226`')"
+
 # --- must allow: the documentation trap ------------------------------------
 check allow 'mentioned in a commit message' \
   "$(bash_input 'git commit -m "never use gh pr update-branch --rebase here"')"

@@ -100,6 +100,19 @@ tokenize() {
         while [ "$i" -lt "$n" ] && [ "${s:i:1}" = "$c" ]; do i=$((i + 1)); done
         TOKENS+=(';')
         ;;
+      # Command substitution and subshells. Without these in the separator
+      # set they fall through to the catch-all below, so `$(gh` becomes one
+      # token and never matches the bare `gh` this hook looks for --
+      # `out=$(gh pr update-branch 226 --rebase)`, an entirely ordinary way
+      # to capture output, would walk straight through the deny. Splitting
+      # here leaves the three words adjacent inside the wrapper, which is
+      # all updates_branch() needs. `eval "gh pr update-branch ..."` stays
+      # exempt: a quoted region is deliberately one token, and that is what
+      # keeps this hook from denying its own RUNBOOK prose.
+      '('|')'|'`')
+        if [ "$have" = 1 ]; then TOKENS+=("$cur"); cur=''; have=0; fi
+        TOKENS+=(';')
+        ;;
       *) cur+=$c; have=1 ;;
     esac
   done
