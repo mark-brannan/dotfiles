@@ -48,6 +48,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 
 **PRs**
 - [Find all PRs awaiting human review](#find-all-prs-awaiting-human-review)
+- [Audit the `awaiting-human` label](#audit-the-awaiting-human-label)
 - [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
 
 **Troubleshooting**
@@ -671,6 +672,46 @@ https://github.com/pulls?q=is%3Apr+state%3Aopen+archived%3Afalse+sort%3Aupdated-
 Across your own repos that use the `awaiting-human` label. Not all repos do.
 Without `user:mark-brannan`, the search spans every public repo on GitHub,
 not just yours.
+
+---
+
+## Audit the `awaiting-human` label
+
+The search above only finds pull requests the label *reached*. Two silent
+failures keep it away: a repository that never defined the label (Mergify's
+label action is then a no-op and reports nothing), and a repository with no
+`ci-gate / gate` check (the rule never matches). Both look exactly like "no
+work waiting". Run the audit to tell them apart.
+
+```bash
+~/dotfiles/.local/bin/pr-label-audit
+```
+
+Read-only — it reports, it never labels, pushes or merges. Override the
+account with `PR_LABEL_AUDIT_OWNER=<owner>`.
+
+It prints up to five diagnostic sections, each with its own fix, and then
+`## Your turn` with the pull requests that really are yours:
+
+| Section | What to do |
+| --- | --- |
+| Repositories that do not define the label | `gh label create awaiting-human -R mark-brannan/<repo> -d "Green and thread-free: it is your turn"` — the command is in the output |
+| No `ci-gate / gate` check | Adopt the reusable ci-gate workflow, or accept that those PRs are manual |
+| Gated, unlabelled | Hand each to a session to finish; nothing updates them meanwhile |
+| Green and thread-free but NOT labelled | The Mergify rule itself is broken — read `mark-brannan/.github`'s `.mergify.yml` before anything else |
+| Labelled but no longer green | The toggle hasn't caught up; re-check before treating it as your turn |
+
+Verify:
+
+```bash
+~/dotfiles/.local/bin/pr-label-audit | grep '^## '
+```
+
+Every run ends with a `## Your turn (N)` line, so that line alone means the
+audit completed and found nothing wrong — not that it failed. A run that
+prints nothing, or exits non-zero with `the GitHub query failed`, is a
+credential or rate-limit problem: check `gh auth status`. An empty section is
+omitted rather than printed empty, so the heading count varies by day.
 
 ---
 
