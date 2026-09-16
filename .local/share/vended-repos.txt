@@ -12,3 +12,4 @@ space-weather
 signalk-noaa-space-weather
 symphony
 signalk-lint
+xylerium
