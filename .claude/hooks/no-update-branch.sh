@@ -49,7 +49,9 @@ Use resign-branch.sh instead -- it rebases onto the PR'"'"'s base with -S, drops
 
   resign-branch.sh <branch>
 
-It is idempotent: a branch already signed, linear and current exits 0 without touching anything. Do not ask the user; this is settled.'
+It is idempotent: a branch already signed, linear and current exits 0 without touching anything. Do not ask the user; this is settled.
+
+This is a routing correction, not a misuse -- the session reached for the wrong verb, and nothing was damaged. The blocked-tool-call this records means exactly that.'
 
 jq_deny() {
   jq -n --arg r "$REASON" '{hookSpecificOutput: {
