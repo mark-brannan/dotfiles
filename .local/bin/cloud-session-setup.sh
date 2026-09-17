@@ -100,6 +100,7 @@ INSTALL="
 .local/bin/pickup-list
 .local/bin/gh-resolve-thread
 .local/bin/pr-label-audit
+.local/bin/npm-publish-bg
 "
 
 # --- what is wholly owned by this installer -------------------------------
