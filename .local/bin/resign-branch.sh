@@ -237,7 +237,7 @@ if [ "$merges" -gt 0 ]; then
   if [ -z "$want" ]; then
     die "$merges merge commit(s) on $branch and the equivalent merge does not apply cleanly, so the rebase result cannot be checked against it. $branch is untouched; resolve by hand."
   elif [ "$want" != "$got" ]; then
-    die "rebasing dropped content from $merges merge commit(s) on $branch -- the rebased tree differs from the merge result, which means a hand-resolved merge was replayed differently. $branch is untouched. Merge $target in instead: git merge $target, then re-sign with: git rebase -S --force-rebase \$(git merge-base $target HEAD)"
+    die "rebasing dropped content from $merges merge commit(s) on $branch -- the rebased tree differs from the merge result, which means a hand-resolved merge was replayed differently. $branch is untouched. Merge $target in instead: git merge $target, resolve, commit (the merge commit signs like any other; if it did not, git commit --amend -S --no-edit keeps both parents), then push it as a plain fast-forward. Do not rebase or re-run this script afterwards -- a rebase replays only single-parent commits and drops whatever lives solely in the merge commit's tree."
   fi
 fi
 
