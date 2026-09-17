@@ -14,9 +14,11 @@ name: CI
 # has the contract). Non-gating workflows -- churn guard, Claude review --
 # stay in their own files.
 #
-# Runs on pull requests and on push to main. The push-to-main run is the
-# post-merge scan of what is now public history; the weekly re-scan of
-# unchanged history stays in secret-scan.yml.
+# Runs on pull requests and on push to main. The secret scanners are not
+# here: like every other vended repo they run in secret-scan.yml on every
+# push, and the ruleset requires their two contexts directly, next to
+# `ci-gate / gate`. Code correctness and credential exposure are different
+# kinds of red, and a push to a branch with no PR open is still scanned.
 
 on:
   pull_request:
@@ -45,29 +47,6 @@ jobs:
         with:
           persist-credentials: false
       - run: bash .github/scripts/verify_encrypted.sh
-
-  # gitleaks (full history) + trufflehog (verified-live only), shared via
-  # mark-brannan/.github -- see that repo's secret-scan.yml for what each
-  # job does and why. This repo's worktree is $HOME on every machine and
-  # it's public: a leaked credential here is a bigger incident than in any
-  # single project repo. The local pre_commit hook is the fast check and
-  # can be skipped with YADM_ALLOW_SECRET=1 or --no-verify; this cannot be
-  # skipped from a laptop.
-  #
-  # @main, deliberately -- same-owner trust, matching every other caller
-  # of a mark-brannan/.github workflow. CodeRabbit flagged this as
-  # unpinned (2026-09-05, zizmor's unpinned-uses); considered and
-  # reverted (2026-09-05): the threat that lint guards against is a
-  # compromised upstream *maintainer*, which doesn't apply when the
-  # upstream is your own repo. Pinning would only buy protection
-  # against mistakes in the shared workflow, at the cost of a manual
-  # pin-bump PR per caller for every future fix.
-  secret-scan:
-    permissions:
-      contents: read
-    uses: mark-brannan/.github/.github/workflows/secret-scan.yml@main
-    with:
-      gitleaks-config: .gitleaks.toml
 
   # Syntax/correctness lint for every tracked shell script. The scripts
   # here are exactly the ones CLAUDE.md flags for extra scrutiny --
@@ -196,7 +175,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, secret-scan, shellcheck, seeded, hook-tests, nonempty]
+    needs: [secrets-encrypted, shellcheck, seeded, hook-tests, nonempty]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}
