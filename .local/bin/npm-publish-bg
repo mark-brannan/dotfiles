@@ -1,0 +1,136 @@
+#!/bin/sh
+# Run `npm publish` in the background and hand the browser-2FA approval URL
+# to the human directly -- desktop notification, and the controlling terminal
+# -- instead of returning it on stdout.
+#
+# Why this exists: this npm account uses browser passkey 2FA (see
+# ~/.claude/rules/code.md, "Publishing"). `npm publish` prints the approval
+# URL mid-run, and that URL is one of the strings an agent harness redacts
+# from a tool result before the agent sees it -- so an agent running plain
+# `npm publish` can neither read the URL nor pass it on, and the publish
+# stalls waiting for an approval nobody was told about.
+#
+# So this wrapper never prints the URL at all. It goes out of band, on the
+# one channel that does not pass back through the agent. What comes back on
+# stdout is only the pid and the logfile.
+#
+# Returns as soon as npm has had a chance to print the URL; the upload and
+# the approval itself continue in the background. A zero exit means the
+# publish was *started*, not that it succeeded -- read the log for that.
+#
+# Usage: npm-publish-bg [args passed through to `npm publish`]
+set -u
+
+STATE_DIR="${NPM_PUBLISH_BG_STATE:-$HOME/.local/state/npm-publish-bg}"
+
+# How long to wait for npm to print an auth URL before returning. Only the
+# "does this need browser approval" part of the publish happens inside this
+# window; everything else proceeds after we return.
+WAIT="${NPM_PUBLISH_BG_WAIT:-12}"
+case "$WAIT" in ''|*[!0-9]*) WAIT=12 ;; esac
+[ "$WAIT" -gt 60 ] && WAIT=60
+
+die() { printf 'npm-publish-bg: %s\n' "$1" >&2; exit 1; }
+
+command -v npm >/dev/null 2>&1 || die "npm is not on PATH"
+mkdir -p "$STATE_DIR" || die "cannot create $STATE_DIR"
+
+# One publish in flight per working directory. Keyed on the directory, not
+# on the argument list: two differently-worded publishes from the same
+# package still contend for the same account's single browser 2FA prompt,
+# and running both at once serves nobody.
+#
+# The lock is reclaimed only once `kill -0` on its pid actually fails. There
+# is deliberately no age-based override: npm can sit waiting on a browser
+# approval for well over an hour with nobody at the keyboard, and reclaiming
+# the lock then would truncate the live copy's logfile out from under it and
+# start a second, concurrent, unlocked publish -- the exact race this lock
+# exists to prevent.
+key=$(pwd | cksum | cut -d' ' -f1)
+pidfile="$STATE_DIR/$key.pid"
+logfile="$STATE_DIR/$key.log"
+
+if [ -f "$pidfile" ]; then
+  prev=$(cat "$pidfile" 2>/dev/null || true)
+  if [ -n "${prev:-}" ] && kill -0 "$prev" 2>/dev/null; then
+    printf 'npm publish is already running here (pid %s, log %s).\n' "$prev" "$logfile" >&2
+    printf 'Tail that log; do not start a second one.\n' >&2
+    exit 1
+  fi
+fi
+
+# Best effort on every channel available: a desktop notifier if one exists,
+# and -- because it is the one channel guaranteed not to be redacted or
+# routed back through an agent -- the controlling terminal directly. Silently
+# a no-op on a headless session with neither; that is fine, browser passkey
+# 2FA implies a human at a machine to begin with.
+notify() {
+  msg=$1
+  command -v notify-send >/dev/null 2>&1 && notify-send "npm publish" "$msg" 2>/dev/null
+  # Pass $msg as an argv element rather than building it into the AppleScript
+  # source: it carries text npm wrote to its own stdout, reachable in
+  # principle by a compromised transitive dependency's lifecycle script, and
+  # a stray quote must not break out of a string literal into script.
+  command -v osascript >/dev/null 2>&1 && osascript \
+    -e 'on run argv' \
+    -e 'display notification (item 1 of argv) with title "npm publish"' \
+    -e 'end run' "$msg" >/dev/null 2>&1
+  { printf '\n\a[npm publish] %s\n' "$msg" >/dev/tty; } 2>/dev/null
+  return 0
+}
+
+: >"$logfile" || die "cannot write $logfile"
+
+# Detach into its own session where setsid exists. A browser approval can
+# outlive the caller by a long way -- and if the caller is an agent's shell
+# tool, it will kill its whole process group when its own timeout expires,
+# taking a still-pending publish with it. The child writes its own pid (it
+# `exec`s, so that pid *is* npm's) rather than relying on `$!`, which under
+# setsid is setsid's.
+rm -f "$pidfile"
+if command -v setsid >/dev/null 2>&1; then
+  # shellcheck disable=SC2016  # the child shell expands these, not this one
+  setsid sh -c 'p=$1; shift; echo $$ >"$p"; exec npm publish "$@"' \
+    sh "$pidfile" "$@" >"$logfile" 2>&1 </dev/null &
+  pid=""
+  n=0
+  while [ -z "$pid" ] && [ "$n" -lt 40 ]; do
+    pid=$(cat "$pidfile" 2>/dev/null || true)
+    [ -n "$pid" ] && break
+    n=$((n + 1))
+    sleep 0.1
+  done
+  [ -n "$pid" ] || die "publish did not start (see $logfile)"
+else
+  nohup npm publish "$@" >"$logfile" 2>&1 </dev/null &
+  pid=$!
+  echo "$pid" >"$pidfile"
+fi
+
+# Prefer a URL on npm's own domain -- npm's notice banner also prints
+# registry and docs links, and the first https:// in the log is often one of
+# those. Fall back to any URL rather than miss an approval prompt whose
+# wording changed.
+auth_url() {
+  grep -Eom1 'https://[^[:space:]]*npmjs\.com/[^[:space:]]*' "$logfile" 2>/dev/null && return 0
+  grep -Eom1 'https://[^[:space:]]+' "$logfile" 2>/dev/null
+}
+
+url=""
+end=$(( $(date +%s) + WAIT ))
+while [ "$(date +%s)" -lt "$end" ]; do
+  url=$(auth_url)
+  [ -n "$url" ] && break
+  kill -0 "$pid" 2>/dev/null || { url=$(auth_url); break; }
+  sleep 0.5
+done
+
+if [ -n "$url" ]; then
+  notify "Approve at: $url"
+  printf 'npm publish running in the background (pid %s, log %s).\n' "$pid" "$logfile"
+  printf 'An approval URL was sent to the terminal/notifications -- approve it there.\n'
+else
+  notify "publish started, no auth URL seen in ${WAIT}s -- check $logfile"
+  printf 'npm publish running in the background (pid %s, log %s).\n' "$pid" "$logfile"
+  printf 'No approval URL appeared within %ss; it may not need one. Tail the log.\n' "$WAIT"
+fi
