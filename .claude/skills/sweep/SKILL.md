@@ -37,10 +37,19 @@ is yours to work, not to tidy.
 A sweep finds proof that a question was answered or dissolved. It never
 answers the question itself.
 
+## Branches
+
+Run `prune-branches` (dry run) once, before the dialog. Its "would delete"
+lines are one more proposed item: local branches older than 14 days that the
+remote already holds, or whose PR merged and GitHub dropped. Its "keep" lines
+are not shown unless a card points at one of those branches. On a tick, run
+`prune-branches --delete` and quote its summary line; on `--dry-run`, or an
+untouched tick, quote the preview's summary line and leave it.
+
 ## The dialog
 
-Show the list: proposed deletions, each with its proof, then the reranked
-survivors. Then one multi-select (AskUserQuestion): tick the cards to act on.
+Show the list: proposed deletions, each with its proof, the branch prune's
+summary line, then the reranked survivors. Then one multi-select (AskUserQuestion): tick the cards to act on.
 Every ticked card gets exactly one explicit action, chosen at tick time —
 Solace has caught wrong deletions before; nothing leaves the board, or
 changes, on a bare tick with no action attached:

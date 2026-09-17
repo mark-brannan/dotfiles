@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# prune-branches -- delete local branches that are old and hold nothing the
+# remote does not already have. Dry run unless --delete is given.
+#
+#   prune-branches [--delete] [--days N] [--no-fetch] [--repo DIR]... [--list FILE]
+#
+# Repo set: every name in ~/.local/share/vended-repos.txt (as ~/<name>), plus
+# ~/dotfiles and the yadm repo when they exist. --repo DIR replaces the set;
+# --list FILE replaces the list file. Each repo is fetched with --prune first
+# so "gone" means gone on GitHub today, not at the last fetch; --no-fetch
+# skips that and trusts the local remote refs.
+#
+# A branch is a candidate when all of these hold:
+#   1. its tip commit is older than --days (default 14);
+#   2. no remote ref of the same name exists (it is not on the remote);
+#   3. either its configured upstream has been deleted on the remote (the PR
+#      merged or closed -- squash merges leave nothing to contain), or every
+#      commit on it is reachable from some remote ref.
+# A branch that fails 3 is reported as kept with the number of commits that
+# exist nowhere but here. main/master and the branch checked out in the
+# primary worktree are never candidates.
+#
+# A candidate checked out in a linked worktree has the worktree removed first
+# when it is clean; a dirty worktree keeps its branch and is reported.
+#
+# Every deletion prints the tip sha, so the undo is
+#   git -C <repo> branch <name> <sha>
+# until the next `git gc` expires the unreachable commit.
+#
+# Exit 0 when every repo was inspected, 1 when a repo could not be (so a
+# caller cannot mistake "looked and found nothing" for "could not look").
+set -uo pipefail
+
+days=14 delete=0 fetch=1 list="$HOME/.local/share/vended-repos.txt"
+repos=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --delete)   delete=1 ;;
+    --dry-run)  delete=0 ;;
+    --days)     days=$2; shift ;;
+    --days=*)   days=${1#--days=} ;;
+    --no-fetch) fetch=0 ;;
+    --repo)     repos+=("$2"); shift ;;
+    --list)     list=$2; shift ;;
+    -h|--help)  sed -n '2,/^set -uo/{/^set -uo/!s/^# \{0,1\}//p}' "$0"; exit 0 ;;
+    *) echo "prune-branches: unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+case "$days" in ''|*[!0-9]*) echo "prune-branches: --days wants a number" >&2; exit 2 ;; esac
+
+# Each repo is a "how to address it" string: a directory for a normal clone,
+# or gitdir=<path> for a bare-style repo whose worktree is $HOME (yadm).
+if [ ${#repos[@]} -eq 0 ]; then
+  [ -r "$list" ] && while IFS= read -r name; do
+    name=${name%%#*}; name=${name// /}
+    [ -n "$name" ] && [ -d "$HOME/$name/.git" ] && repos+=("$HOME/$name")
+  done < "$list"
+  [ -d "$HOME/dotfiles/.git" ] && repos+=("$HOME/dotfiles")
+  yadm_dir="${YADM_REPO:-$HOME/.local/share/yadm/repo.git}"
+  [ -d "$yadm_dir" ] && repos+=("gitdir=$yadm_dir")
+fi
+
+cutoff=$(( $(date +%s) - days * 86400 ))
+verb='would delete'; [ "$delete" = 1 ] && verb='deleted'
+status=0 n_cand=0 n_kept=0
+
+for repo in "${repos[@]}"; do
+  case "$repo" in
+    gitdir=*) g=(git --git-dir="${repo#gitdir=}" --work-tree="$HOME"); label="yadm" ;;
+    *)        g=(git -C "$repo"); label=${repo#"$HOME/"} ;;
+  esac
+
+  if ! "${g[@]}" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "$label: not a git repository -- skipped" >&2; status=1; continue
+  fi
+  if [ "$fetch" = 1 ] && ! "${g[@]}" fetch --prune --quiet 2>/dev/null; then
+    echo "$label: fetch failed -- skipped (--no-fetch to inspect anyway)" >&2; status=1; continue
+  fi
+
+  primary=$("${g[@]}" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  primary_branch=$("${g[@]}" symbolic-ref -q --short HEAD 2>/dev/null || true)
+
+  while IFS='|' read -r branch tip date upstream track wt; do
+    case "$branch" in main|master|"$primary_branch") continue ;; esac
+    [ "$date" -ge "$cutoff" ] && continue
+    [ "$wt" = "$primary" ] && [ -n "$wt" ] && continue
+
+    # 2. Not on the remote: no remote ref carries this branch's name.
+    [ -n "$("${g[@]}" for-each-ref --format='%(refname)' "refs/remotes/*/$branch" 2>/dev/null)" ] && continue
+
+    # 3. Safe: upstream gone, or contained in some remote ref.
+    reason=''
+    if [ -n "$upstream" ] && [ "$track" = '[gone]' ]; then
+      reason="upstream $upstream gone"
+    else
+      base=$("${g[@]}" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)
+      holder=$("${g[@]}" for-each-ref --format='%(refname)' --contains "$tip" refs/remotes 2>/dev/null \
+                 | grep -v '/HEAD$' | sed 's|^refs/remotes/||' | grep -x -F "$base" -m1 || true)
+      [ -n "$holder" ] || holder=$("${g[@]}" for-each-ref --format='%(refname)' --contains "$tip" refs/remotes 2>/dev/null \
+                 | grep -v '/HEAD$' | sed 's|^refs/remotes/||' | head -1)
+      if [ -n "$holder" ]; then
+        reason="contained in $holder"
+      else
+        unique=$("${g[@]}" rev-list --count "$base..$branch" 2>/dev/null || echo '?')
+        echo "$label: keep $branch -- $unique commit(s) not on any remote"
+        n_kept=$((n_kept + 1)); continue
+      fi
+    fi
+
+    age=$(( ( $(date +%s) - date ) / 86400 ))
+    if [ -n "$wt" ]; then
+      if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
+        echo "$label: keep $branch -- worktree dirty: $wt"
+        n_kept=$((n_kept + 1)); continue
+      fi
+      if [ "$delete" = 1 ] && ! "${g[@]}" worktree remove "$wt" >/dev/null 2>&1; then
+        echo "$label: keep $branch -- could not remove worktree $wt" >&2
+        n_kept=$((n_kept + 1)); status=1; continue
+      fi
+    fi
+    if [ "$delete" = 1 ] && ! "${g[@]}" branch -D "$branch" >/dev/null 2>&1; then
+      echo "$label: keep $branch -- git branch -D failed" >&2
+      n_kept=$((n_kept + 1)); status=1; continue
+    fi
+    echo "$label: $verb $branch ($age d, $reason)${wt:+ +worktree}  undo: git branch $branch ${tip:0:12}"
+    n_cand=$((n_cand + 1))
+  done < <("${g[@]}" for-each-ref refs/heads \
+             --format='%(refname:short)|%(objectname)|%(committerdate:unix)|%(upstream:short)|%(upstream:track)|%(worktreepath)' 2>/dev/null)
+done
+
+echo "$verb $n_cand branch(es), kept $n_kept, across ${#repos[@]} repo(s)"
+[ "$delete" = 0 ] && [ "$n_cand" -gt 0 ] && echo "rerun with --delete to act"
+exit $status

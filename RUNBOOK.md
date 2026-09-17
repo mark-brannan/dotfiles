@@ -40,6 +40,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
 - [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
 - [Re-sign a branch whose commits are unsigned](#re-sign-a-branch-whose-commits-are-unsigned)
+- [Prune old local branches](#prune-old-local-branches)
 
 **Secrets**
 - [Add a secret](#add-a-secret)
@@ -582,6 +583,37 @@ If the local verify step reports every commit as `U` or `E` instead of
 format is `<email> <key-type> <key>` — email first, unlike
 `authorized_keys`. The script builds a temporary one when none is
 configured, so this only matters for `git log --show-signature` by hand.
+
+## Prune old local branches
+
+**When:** `/sweep` runs, or local branches have piled up across the repos in
+`~/.local/share/vended-repos.txt`, `~/dotfiles` and yadm. Squash merges leave
+nothing for `git branch --merged` to see, so this is the sweep that works here.
+
+Preview first. It fetches every repo with `--prune`, then lists what it would
+delete and why, and what it keeps and why:
+
+```bash
+prune-branches
+```
+
+A branch is only listed for deletion when its tip is older than 14 days
+(`--days N` moves the line), no remote ref of its name exists, and either its
+upstream was deleted on GitHub or every commit on it is on some remote ref.
+A branch with commits that exist nowhere but here is kept and named. A clean
+worktree on a candidate branch goes with it; a dirty one keeps the branch.
+
+Then act:
+
+```bash
+prune-branches --delete
+```
+
+Verify: the last line reads `deleted N branch(es), kept M, across R repo(s)`
+and the exit is 0. A non-zero exit means a repo could not be fetched or
+inspected and is named on stderr; nothing in that repo was touched. Each
+deletion line carries `undo: git branch <name> <sha>`, good until that repo's
+next `git gc`.
 
 ## Add a secret
 
