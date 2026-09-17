@@ -39,12 +39,8 @@ answers the question itself.
 
 ## Branches
 
-Run `prune-branches` (dry run) once, before the dialog. Its "would delete"
-lines are one more proposed item: local branches older than 14 days that the
-remote already holds, or whose PR merged and GitHub dropped. Its "keep" lines
-are not shown unless a card points at one of those branches. On a tick, run
-`prune-branches --delete` and quote its summary line; on `--dry-run`, or an
-untouched tick, quote the preview's summary line and leave it.
+Run `prune-branches` before the dialog; its "would delete" lines are one more
+proposed item. On a tick, `prune-branches --delete`; otherwise leave it.
 
 ## The dialog
 

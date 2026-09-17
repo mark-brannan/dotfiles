@@ -1,34 +1,13 @@
 #!/usr/bin/env bash
-# prune-branches -- delete local branches that are old and hold nothing the
-# remote does not already have. Dry run unless --delete is given.
+# prune-branches [--delete] [--days N] [--no-fetch] [--repo DIR]... [--list FILE]
 #
-#   prune-branches [--delete] [--days N] [--no-fetch] [--repo DIR]... [--list FILE]
-#
-# Repo set: every name in ~/.local/share/vended-repos.txt (as ~/<name>), plus
-# ~/dotfiles and the yadm repo when they exist. --repo DIR replaces the set;
-# --list FILE replaces the list file. Each repo is fetched with --prune first
-# so "gone" means gone on GitHub today, not at the last fetch; --no-fetch
-# skips that and trusts the local remote refs.
-#
-# A branch is a candidate when all of these hold:
-#   1. its tip commit is older than --days (default 14);
-#   2. no remote ref of the same name exists (it is not on the remote);
-#   3. either its configured upstream has been deleted on the remote (the PR
-#      merged or closed -- squash merges leave nothing to contain), or every
-#      commit on it is reachable from some remote ref.
-# A branch that fails 3 is reported as kept with the number of commits that
-# exist nowhere but here. main/master and the branch checked out in the
-# primary worktree are never candidates.
-#
-# A candidate checked out in a linked worktree has the worktree removed first
-# when it is clean; a dirty worktree keeps its branch and is reported.
-#
-# Every deletion prints its undo, runnable from any directory:
-#   git -C <repo> branch <name> <sha>
-# until the next `git gc` expires the unreachable commit.
-#
-# Exit 0 when every repo was inspected, 1 when a repo could not be (so a
-# caller cannot mistake "looked and found nothing" for "could not look").
+# Deletes (dry run unless --delete) local branches, in every repo named in
+# ~/.local/share/vended-repos.txt plus ~/dotfiles and yadm, that are
+#   older than --days (default 14), not on the remote by name, and
+#   either upstream-gone (PR merged; squash leaves nothing to contain)
+#   or fully contained in a remote ref.
+# Keeps and names anything with commits found nowhere else, and any dirty
+# worktree. Prints an undo per deletion. Exit 1 if a repo could not be read.
 set -uo pipefail
 
 days=14 delete=0 fetch=1 list="$HOME/.local/share/vended-repos.txt"
@@ -49,8 +28,7 @@ while [ $# -gt 0 ]; do
 done
 case "$days" in ''|*[!0-9]*) echo "prune-branches: --days wants a number" >&2; exit 2 ;; esac
 
-# Each repo is a "how to address it" string: a directory for a normal clone,
-# or gitdir=<path> for a bare-style repo whose worktree is $HOME (yadm).
+# A repo is a directory, or gitdir=<path> for yadm (worktree $HOME).
 if [ ${#repos[@]} -eq 0 ]; then
   [ -r "$list" ] && while IFS= read -r name; do
     name=${name%%#*}; name=${name// /}
@@ -86,10 +64,8 @@ for repo in "${repos[@]}"; do
     [ "$date" -ge "$cutoff" ] && continue
     [ "$wt" = "$primary" ] && [ -n "$wt" ] && continue
 
-    # 2. Not on the remote: no remote ref carries this branch's name.
     [ -n "$("${g[@]}" for-each-ref --format='%(refname)' "refs/remotes/*/$branch" 2>/dev/null)" ] && continue
 
-    # 3. Safe: upstream gone, or contained in some remote ref.
     reason=''
     if [ -n "$upstream" ] && [ "$track" = '[gone]' ]; then
       reason="upstream $upstream gone"

@@ -586,34 +586,13 @@ configured, so this only matters for `git log --show-signature` by hand.
 
 ## Prune old local branches
 
-**When:** `/sweep` runs, or local branches have piled up across the repos in
-`~/.local/share/vended-repos.txt`, `~/dotfiles` and yadm. Squash merges leave
-nothing for `git branch --merged` to see, so this is the sweep that works here.
-
-Preview first. It fetches every repo with `--prune`, then lists what it would
-delete and why, and what it keeps and why:
-
 ```bash
-prune-branches
-```
-
-A branch is only listed for deletion when its tip is older than 14 days
-(`--days N` moves the line), no remote ref of its name exists, and either its
-upstream was deleted on GitHub or every commit on it is on some remote ref.
-A branch with commits that exist nowhere but here is kept and named. A clean
-worktree on a candidate branch goes with it; a dirty one keeps the branch.
-
-Then act:
-
-```bash
+prune-branches           # preview
 prune-branches --delete
 ```
 
-Verify: the last line reads `deleted N branch(es), kept M, across R repo(s)`
-and the exit is 0. A non-zero exit means a repo could not be fetched or
-inspected and is named on stderr; nothing in that repo was touched. Each
-deletion line carries `undo: git branch <name> <sha>`, good until that repo's
-next `git gc`.
+Verify: exit 0 and a final `deleted N branch(es)` line; each deletion line
+carries its undo. `prune-branches --help` has the rules.
 
 ## Add a secret
 

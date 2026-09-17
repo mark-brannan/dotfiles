@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 # Tests for prune-branches. Run: bash .local/bin/prune-branches.test.sh
-#
-# What matters: a branch is only ever a candidate when it is old AND absent
-# from the remote AND (upstream gone OR fully contained). Each of the three
-# legs is tested on its own by a branch that fails only that leg and is kept.
-# The dry run changes nothing; --delete deletes exactly the candidates, with a
-# clean worktree removed first and a dirty one left alone, and prints a
-# working undo.
+# Each of the three legs (old / not on remote / gone-or-contained) is failed
+# alone by one branch; dry run changes nothing; --delete removes exactly the
+# candidates and the printed undo works from any cwd.
 set -uo pipefail
 
 PB="$(cd "$(dirname "$0")" && pwd)/prune-branches"
