@@ -40,7 +40,7 @@ answers the question itself.
 ## Branches
 
 Run `prune-branches` before the dialog; its "would delete" lines are one more
-proposed item. On a tick, `prune-branches --delete`; otherwise leave it.
+proposed item; its "keep" lines are not shown. On a tick, `prune-branches --delete`; otherwise leave it.
 
 ## The dialog
 
