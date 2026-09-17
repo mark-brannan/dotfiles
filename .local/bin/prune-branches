@@ -23,7 +23,7 @@
 # A candidate checked out in a linked worktree has the worktree removed first
 # when it is clean; a dirty worktree keeps its branch and is reported.
 #
-# Every deletion prints the tip sha, so the undo is
+# Every deletion prints its undo, runnable from any directory:
 #   git -C <repo> branch <name> <sha>
 # until the next `git gc` expires the unreachable commit.
 #
@@ -123,7 +123,7 @@ for repo in "${repos[@]}"; do
       echo "$label: keep $branch -- git branch -D failed" >&2
       n_kept=$((n_kept + 1)); status=1; continue
     fi
-    echo "$label: $verb $branch ($age d, $reason)${wt:+ +worktree}  undo: git branch $branch ${tip:0:12}"
+    echo "$label: $verb $branch ($age d, $reason)${wt:+ +worktree}  undo: ${g[*]} branch $branch ${tip:0:12}"
     n_cand=$((n_cand + 1))
   done < <("${g[@]}" for-each-ref refs/heads \
              --format='%(refname:short)|%(objectname)|%(committerdate:unix)|%(upstream:short)|%(upstream:track)|%(worktreepath)' 2>/dev/null)

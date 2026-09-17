@@ -64,7 +64,7 @@ hasnt 'old-on-remote'                                             "$out" dry
 hasnt 'new-merged'                                                "$out" dry
 hasnt ' main '                                                    "$out" dry
 has 'would delete 4 branch(es), kept 3'                           "$out" dry
-has 'undo: git branch old-merged [0-9a-f]\{12\}'                  "$out" dry
+has 'undo: git -C .* branch old-merged [0-9a-f]\{12\}'            "$out" dry
 before=$(git -C "$R" for-each-ref refs/heads | wc -l)
 [ "$before" = 10 ] && ok || bad "dry run changed branches: $before"
 
@@ -75,13 +75,15 @@ has 'would delete new-merged' "$out" days0
 # --- delete ------------------------------------------------------------------
 sha=$(git -C "$R" rev-parse old-merged)
 out=$("$PB" --no-fetch --delete --repo "$R" 2>&1); rc=$?
+undo=$(printf '%s\n' "$out" | sed -n 's/.*deleted old-merged .*undo: //p')
 [ "$rc" = 0 ] && ok || bad "delete exit $rc" "$out"
 has 'deleted 4 branch(es), kept 3' "$out" delete
 left=$(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')
 [ "$left" = "main new-merged old-ahead-of-main old-on-remote old-unique wt-dirty " ] && ok || bad "branches after delete: $left"
 [ ! -e "$S/wt-clean" ] && ok || bad "clean worktree not removed"
 [ -e "$S/wt-dirty/junk" ] && ok || bad "dirty worktree was touched"
-gitq "$R" branch old-merged "$sha" && ok || bad "undo did not work"
+(cd / && eval "$undo" >/dev/null 2>&1) && [ "$(git -C "$R" rev-parse old-merged)" = "$sha" ] \
+  && ok || bad "printed undo did not restore old-merged from an unrelated cwd: $undo"
 
 # --- a repo that cannot be inspected is named and fails the exit ---------------
 mkdir -p "$S/notrepo"
