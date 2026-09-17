@@ -1,6 +1,7 @@
 Revision history for #250:
 
+rev 3 (rebase) 2026-09-17 01:25 UTC
 rev 2 (rebase) 2026-09-17 01:11 UTC
 rev 1 (initial) 2026-09-17 01:11 UTC
 
-<!-- mergify-revision-data: {"schema_version":1,"pull_number":250,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"65f0ad3da24fc3dea44f6bdc9c7f618d651fa27b","timestamp_iso":"2026-09-17T01:11:35Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"rebase","old_sha":"65f0ad3da24fc3dea44f6bdc9c7f618d651fa27b","new_sha":"ad5fcc41d74a20113a4dd2df25b72b0b200449ae","timestamp_iso":"2026-09-17T01:11:35Z","reason":"","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/65f0ad3da24fc3dea44f6bdc9c7f618d651fa27b...ad5fcc41d74a20113a4dd2df25b72b0b200449ae"}]} -->
+<!-- mergify-revision-data: {"schema_version":1,"pull_number":250,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"65f0ad3da24fc3dea44f6bdc9c7f618d651fa27b","timestamp_iso":"2026-09-17T01:11:35Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"rebase","old_sha":"65f0ad3da24fc3dea44f6bdc9c7f618d651fa27b","new_sha":"ad5fcc41d74a20113a4dd2df25b72b0b200449ae","timestamp_iso":"2026-09-17T01:11:35Z","reason":"","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/65f0ad3da24fc3dea44f6bdc9c7f618d651fa27b...ad5fcc41d74a20113a4dd2df25b72b0b200449ae"},{"number":3,"change_type":"rebase","old_sha":"ad5fcc41d74a20113a4dd2df25b72b0b200449ae","new_sha":"414de595738a10c59d48804507c4a22f03fde6c0","timestamp_iso":"2026-09-17T01:25:26Z","reason":"","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/ad5fcc41d74a20113a4dd2df25b72b0b200449ae...414de595738a10c59d48804507c4a22f03fde6c0"}]} -->
