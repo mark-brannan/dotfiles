@@ -3,7 +3,8 @@
 while read i
 do
     echo "============================== ($i)"
-    cd ~/$i && pwd || (echo "No such directory for '$i'" && continue)
+    cd ~/"$i" || { echo "No such directory for '$i'"; continue; }
+    pwd
     git -c color.ui=always status -s -b --untracked-files=no
     git checkout main -q || echo "Could not checkout main"
     git pull origin main --rebase --autostash || echo "Failed to pull/rebase $i" 
