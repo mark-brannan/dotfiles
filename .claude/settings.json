@@ -179,6 +179,17 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/npm-publish-auth.sh\"; [ -f \"$h\" ] && bash \"$h\" || true",
+            "timeout": 5,
+            "statusMessage": "Checking that npm publish goes through npm-publish-bg"
+          }
+        ]
+      },
+      {
         "matcher": "Bash|mcp__.*__create_pull_request",
         "hooks": [
           {
