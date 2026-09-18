@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for lib-state.sh's branch_brief (dotfiles#266).
-# Run: bash .claude/hooks/lib-state-branch-brief.test.sh
+# Run: bash .claude/hooks/branch-brief.test.sh
 #
 # Every case builds a real repo with a real bare remote, because the whole
 # point of branch_brief is that it reports what git says rather than what a
