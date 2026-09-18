@@ -327,7 +327,11 @@ printf '%s\n' "$render"
 # reality. Never runs unless the flag is passed -- everything above this is
 # read-only.
 if [ "$REFRESH" -eq 1 ]; then
-  audit -c refresh | while IFS= read -r target; do
+  # Selected outside the pipe: a jq failure inside `| while` would exit 0 with
+  # zero targets, which reads exactly like "nothing to refresh".
+  targets=$(audit -c refresh) || { echo "pr-label-audit: selecting refresh targets failed" >&2; exit 1; }
+  printf '%s\n' "$targets" | while IFS= read -r target; do
+    [ -n "$target" ] || continue
     t_owner=$(printf '%s' "$target" | jq -r '.owner')
     t_repo=$(printf '%s' "$target" | jq -r '.repo')
     t_number=$(printf '%s' "$target" | jq -r '.number')

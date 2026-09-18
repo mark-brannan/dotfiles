@@ -698,20 +698,27 @@ work waiting". Run the audit to tell them apart.
 ~/dotfiles/.local/bin/pr-label-audit
 ```
 
-Read-only — it reports, it never labels, pushes or merges. Override the
-account with `PR_LABEL_AUDIT_OWNER=<owner>`.
+Read-only by default — it reports, it never labels, pushes or merges. Override
+the account with `PR_LABEL_AUDIT_OWNER=<owner>`. Three flags, combinable:
 
-It prints up to six diagnostic sections, each with its own fix, and then
+| Flag | What it does |
+| --- | --- |
+| `--json` | One JSON object per open PR (mergeable, labels, head sha, unresolved threads, failing checks, and the `section` it fell in), then one `repos_missing_fixup_hard` object |
+| `--pr owner/repo#n` | The same report for one pull request, text or `--json`. Drafts print a note on stderr and nothing else |
+| `--refresh` | The one write: posts `@mergifyio refresh` on every PR in the two "label disagrees with reality" sections below. Skips a PR whose last comment is already that, from this account, within 24h |
+
+It prints up to seven diagnostic sections, each with its own fix, and then
 `## Your turn` with the pull requests that really are yours:
 
 | Section | What to do |
 | --- | --- |
 | Repositories whose labels could not be read | The lookup failed — neither confirmed missing nor present. Re-run; if it persists, `gh auth status`, or the repo was renamed/archived. Do **not** create the label on the strength of this |
 | Repositories that do not define the label | `gh label create awaiting-human -R mark-brannan/<repo> -d "Green and thread-free: it is your turn"` — the command is in the output |
+| Repositories that do not define `fixup-hard` | Same failure, different rule: a fixer session that gives up has nowhere to say so. The `gh label create` command is in the output |
 | No `ci-gate / gate` check | Adopt the reusable ci-gate workflow, or accept that those PRs are manual |
 | Gated, unlabelled | Hand each to a session to finish; nothing updates them meanwhile |
-| Green and thread-free but NOT labelled | The Mergify rule itself is broken — read `mark-brannan/.github`'s `.mergify.yml` before anything else |
-| Labelled but no longer green | The toggle hasn't caught up; re-check before treating it as your turn |
+| Green and thread-free but NOT labelled | Re-run with `--refresh` first. If it stays, the Mergify rule itself is broken — read `mark-brannan/.github`'s `.mergify.yml` |
+| Labelled but no longer green | The toggle hasn't caught up: re-run with `--refresh`, and re-check before treating it as your turn |
 
 Verify:
 
