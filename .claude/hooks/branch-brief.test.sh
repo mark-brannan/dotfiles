@@ -61,6 +61,23 @@ case "${GH_MODE:-none}" in
 esac
 GH
 chmod +x "$SCRATCH/bin/gh"
+
+# A git that fails one specific count on demand, so the "git could not answer"
+# branches are tested rather than asserted. Corrupting a pack is the only other
+# way to reach them, and a test that corrupts a repo teaches nothing about the
+# code.
+REAL_GIT=$(command -v git)
+cat > "$SCRATCH/bin/git" <<GIT
+#!/bin/sh
+if [ -n "\${GIT_FAIL_MERGES:-}" ]; then
+  case " \$* " in *" --merges "*) exit 128 ;; esac
+fi
+if [ -n "\${GIT_FAIL_LEFTRIGHT:-}" ]; then
+  case " \$* " in *" --left-right "*) exit 128 ;; esac
+fi
+exec $REAL_GIT "\$@"
+GIT
+chmod +x "$SCRATCH/bin/git"
 PATH="$SCRATCH/bin:$PATH"
 
 # A fresh repo with a bare origin, one commit on main, and a `feat` branch.
@@ -158,6 +175,19 @@ out=$(branch_brief "$r" feat)
 want_line "$out" 'behind: unknown' 'no base ref here: unknown, not 0'
 want_grep "$out" '^recommend: no base to compare against here' \
   'no base ref here: the recommendation is to fetch, not to rebase'
+
+# --- a count that fails says unknown, and never recommends a rebase --------
+# merges feeds the top of the ladder: a silent 0 there recommends a rebase
+# over the branch this whole function exists to protect.
+r=$(new_repo failcount)
+fake_signed "$r" "feat work"
+out=$(export GIT_FAIL_MERGES=1; branch_brief "$r" feat)
+want_line "$out" 'merges: unknown' 'failed count: unknown, not 0'
+want_grep "$out" '^recommend: count the merge commits by hand' \
+  'failed merge count: never falls through to the rebase line'
+out=$(export GIT_FAIL_LEFTRIGHT=1; branch_brief "$r" feat)
+want_line "$out" 'ahead: unknown' 'failed ahead/behind count: unknown, not 0'
+want_line "$out" 'behind: unknown' 'failed ahead/behind count: unknown both ways'
 
 # --- worktrees holding the branch are reported ----------------------------
 r=$(new_repo held)

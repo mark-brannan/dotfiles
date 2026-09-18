@@ -288,9 +288,12 @@ branch_brief() {
     return 0
   fi
 
-  lr=$(_bb rev-list --left-right --count "origin/$base...$br" 2>/dev/null) || lr="0	0"
-  behind=${lr%%[!0-9]*}
-  ahead=${lr##*[!0-9]}
+  if lr=$(_bb rev-list --left-right --count "origin/$base...$br" 2>/dev/null); then
+    behind=${lr%%[!0-9]*}
+    ahead=${lr##*[!0-9]}
+  else
+    ahead=unknown; behind=unknown
+  fi
   printf 'ahead: %s\nbehind: %s\n' "$ahead" "$behind"
 
   # merge-tree returns 0 clean, 1 conflicted, and something else for any
@@ -306,11 +309,13 @@ branch_brief() {
   uns=$(_bb rev-list "origin/$base..$br" | while read -r s; do
           _bb cat-file -p "$s" | grep -q '^gpgsig' || printf 'x\n'
         done | grep -c . || true)
-  mg=$(_bb rev-list --count --merges "origin/$base..$br" 2>/dev/null || printf 0)
+  mg=$(_bb rev-list --count --merges "origin/$base..$br" 2>/dev/null) || mg=unknown
   printf 'conflicts: %s\nunsigned: %s\nmerges: %s\n' "$conf" "$uns" "$mg"
 
   mb=$(_bb merge-base "origin/$base" "$br" 2>/dev/null || printf '%s' "origin/$base")
-  if [ "$mg" -gt 0 ]; then
+  if [ "$mg" = unknown ]; then
+    printf 'recommend: count the merge commits by hand before touching history -- git could not count them between %s and origin/%s\n' "$br" "$base"
+  elif [ "$mg" -gt 0 ]; then
     printf 'recommend: do not rebase and do not resign -- %s merge commit(s) on the branch; `git merge origin/%s`, resolve, commit signed, push as a fast-forward\n' "$mg" "$base"
   elif [ "$conf" = yes ]; then
     printf 'recommend: git merge origin/%s   # conflicts against the base; resolve, commit, and never linearize the branch afterwards\n' "$base"
