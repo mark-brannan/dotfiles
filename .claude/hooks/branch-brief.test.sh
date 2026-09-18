@@ -65,7 +65,7 @@ PATH="$SCRATCH/bin:$PATH"
 
 # A fresh repo with a bare origin, one commit on main, and a `feat` branch.
 new_repo() {  # <name> -> prints the worktree path
-  local n=$1 r="$SCRATCH/$1"
+  local r="$SCRATCH/$1"
   git init -q --bare -b main "$r.git"
   git clone -q "$r.git" "$r" 2>/dev/null
   git -C "$r" config user.email t@e; git -C "$r" config user.name T
@@ -142,10 +142,10 @@ r=$(new_repo stacked)
 git -C "$r" push -q origin "main:refs/heads/release"
 git -C "$r" fetch -q origin
 printf 'base\nfeat\n' > "$r/f"; git -C "$r" add f; fake_signed "$r" "feat work"
-out=$(GH_MODE=pr branch_brief "$r" feat)
+out=$(export GH_MODE=pr; branch_brief "$r" feat)
 want_line "$out" 'base: release (open PR)' 'stacked: the PR base wins over the default branch'
 want_grep "$out" 'rebase origin/release$' 'stacked: the recommendation uses the PR base'
-out=$(GH_MODE=fail branch_brief "$r" feat)
+out=$(export GH_MODE=fail; branch_brief "$r" feat)
 want_grep "$out" '^base: main \(assumed' \
   'lookup failed: say the base is assumed, do not pass it off as known'
 
