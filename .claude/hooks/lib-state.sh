@@ -254,14 +254,14 @@ default_branch() {
 # hand-resolved merge's tree), then conflicts, then signing, then the plain
 # rebase that a clean branch wants.
 branch_brief() {
-  local root="$1" br="$2" bases nb base wts lr ahead behind conf uns mg mb
+  local root="$1" br="$2" bases nb base wts lr ahead behind conf revs uns mg mb
   _bb() { git -C "$root" "$@"; }
 
   _bb rev-parse --verify -q "refs/heads/$br" >/dev/null 2>&1 \
     || { printf 'error: no branch %s in %s\n' "$br" "$root"; return 1; }
 
   wts=$(_bb worktree list --porcelain \
-          | awk -v b="branch refs/heads/$br" '/^worktree /{p=$2} $0==b{print p}' \
+          | awk -v b="branch refs/heads/$br" '/^worktree /{p=substr($0,10)} $0==b{print p}' \
           | tr '\n' ' ')
   printf 'worktrees: %s\n' "${wts:-none}"
 
@@ -306,9 +306,14 @@ branch_brief() {
     case $? in 1) conf=yes ;; *) conf=unknown ;; esac
   fi
 
-  uns=$(_bb rev-list "origin/$base..$br" | while read -r s; do
-          _bb cat-file -p "$s" | grep -q '^gpgsig' || printf 'x\n'
-        done | grep -c . || true)
+  if revs=$(_bb rev-list "origin/$base..$br" 2>/dev/null); then
+    uns=$(printf '%s\n' "$revs" | while read -r s; do
+            [ -n "$s" ] || continue
+            _bb cat-file -p "$s" | grep -q '^gpgsig' || printf 'x\n'
+          done | grep -c . || true)
+  else
+    uns=unknown
+  fi
   mg=$(_bb rev-list --count --merges "origin/$base..$br" 2>/dev/null) || mg=unknown
   printf 'conflicts: %s\nunsigned: %s\nmerges: %s\n' "$conf" "$uns" "$mg"
 
@@ -321,6 +326,8 @@ branch_brief() {
     printf 'recommend: git merge origin/%s   # conflicts against the base; resolve, commit, and never linearize the branch afterwards\n' "$base"
   elif [ "$conf" = unknown ]; then
     printf 'recommend: check the merge by hand before touching history -- git merge-tree could not answer whether %s conflicts with origin/%s\n' "$br" "$base"
+  elif [ "$uns" = unknown ]; then
+    printf 'recommend: check the signatures by hand before pushing -- git could not list the commits between origin/%s and %s\n' "$base" "$br"
   elif [ "$uns" -gt 0 ] && _bb config user.signingkey >/dev/null 2>&1; then
     printf 'recommend: git rebase -S --force-rebase %s   # %s unsigned commit(s); if %s is already on the remote, resign-branch.sh %s instead\n' "$mb" "$uns" "$br" "$br"
   elif [ "$uns" -gt 0 ]; then

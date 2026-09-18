@@ -75,6 +75,9 @@ fi
 if [ -n "\${GIT_FAIL_LEFTRIGHT:-}" ]; then
   case " \$* " in *" --left-right "*) exit 128 ;; esac
 fi
+if [ -n "\${GIT_FAIL_RANGE:-}" ]; then
+  case " \$* " in *" rev-list origin/"*) exit 128 ;; esac
+fi
 exec $REAL_GIT "\$@"
 GIT
 chmod +x "$SCRATCH/bin/git"
@@ -188,13 +191,17 @@ want_grep "$out" '^recommend: count the merge commits by hand' \
 out=$(export GIT_FAIL_LEFTRIGHT=1; branch_brief "$r" feat)
 want_line "$out" 'ahead: unknown' 'failed ahead/behind count: unknown, not 0'
 want_line "$out" 'behind: unknown' 'failed ahead/behind count: unknown both ways'
+out=$(export GIT_FAIL_RANGE=1; branch_brief "$r" feat)
+want_line "$out" 'unsigned: unknown' 'failed commit listing: unsigned is unknown, not 0'
+want_grep "$out" '^recommend: check the signatures by hand' \
+  'failed commit listing: never falls through to the rebase line'
 
 # --- worktrees holding the branch are reported ----------------------------
 r=$(new_repo held)
 git -C "$r" checkout -q main
-git -C "$r" worktree add -q "$SCRATCH/held-wt" feat
+git -C "$r" worktree add -q "$SCRATCH/held wt" feat
 out=$(branch_brief "$r" feat)
-want_grep "$out" "^worktrees: $SCRATCH/held-wt " 'held: the holding worktree is named'
+want_grep "$out" "^worktrees: $SCRATCH/held wt " 'held: the holding worktree is named, spaces and all'
 
 # --- a branch that is not there is an error, not an empty brief -----------
 r=$(new_repo missing)
