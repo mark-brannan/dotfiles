@@ -30,17 +30,18 @@ GATE='ci-gate / gate'
 JSON=0
 REFRESH=0
 PR_TARGET=''
-for arg in "$@"; do
-  case "$arg" in
+usage() { echo "usage: pr-label-audit [--json] [--refresh] [--pr owner/repo#number]" >&2; exit 1; }
+# Strict: an unknown flag or a bare `--pr` is an error, not a silent fleet
+# audit -- `--refresh` writes, so a typo must not quietly widen its target.
+while [ $# -gt 0 ]; do
+  case "$1" in
     --json) JSON=1 ;;
     --refresh) REFRESH=1 ;;
-    --pr=*) PR_TARGET=${arg#--pr=} ;;
-    --pr) : ;; # value comes as the next arg, handled below
-    *)
-      if [ "${prev:-}" = "--pr" ]; then PR_TARGET=$arg; fi
-      ;;
+    --pr=*) PR_TARGET=${1#--pr=} ;;
+    --pr) [ $# -ge 2 ] || usage; shift; PR_TARGET=$1 ;;
+    *) echo "pr-label-audit: unknown argument: $1" >&2; usage ;;
   esac
-  prev=$arg
+  shift
 done
 
 for tool in gh jq; do
@@ -76,11 +77,11 @@ fragment PrFields on PullRequest {
     nodes {
       commit {
         oid
-        pushedDate
+        committedDate
         statusCheckRollup {
           contexts(first: 100) {
             nodes {
-              ... on CheckRun { name conclusion detailsUrl }
+              ... on CheckRun { name status conclusion detailsUrl }
               ... on StatusContext { context state targetUrl }
             }
           }
@@ -134,6 +135,12 @@ if [ -n "$PR_TARGET" ]; then
     echo "pr-label-audit: the GitHub query failed" >&2; exit 1; }
   raw=$(printf '%s' "$page" | jq '{data: {search: {nodes: [.data.repository.pullRequest] | map(select(. != null))}}}') || {
     echo "pr-label-audit: the GitHub query returned something unreadable" >&2; exit 1; }
+  # Drafts are excluded from the audit; for one named PR an empty report would
+  # look like a query that returned nothing, so say why on stderr.
+  if [ "$(printf '%s' "$raw" | jq -r '.data.search.nodes[0].isDraft')" = true ]; then
+    echo "pr-label-audit: $PR_TARGET is a draft -- drafts are excluded from the audit" >&2
+    exit 0
+  fi
   OWNER=$pr_owner
 else
   # `first: 100` is the page, not the answer. An unpaginated search truncates
@@ -195,9 +202,21 @@ fi
 
 single_pr=0
 [ -n "$PR_TARGET" ] && single_pr=1
-render=$(printf '%s' "$raw" | jq -r --arg defines "$defines" --arg unchecked "$unchecked" --arg defines_fixup "$defines_fixup" --arg label "$LABEL" --arg fixup_label "$FIXUP_LABEL" --arg gate "$GATE" --arg owner "$OWNER" --argjson json "$JSON" --argjson single_pr "$single_pr" '
+mode=text
+[ "$JSON" -eq 1 ] && mode=json
+
+# One jq program for every output. `--refresh` performs a live write, so its
+# target list is the same computation the report shows, selected by $mode --
+# never a second copy of the verdict logic that could drift from the first.
+audit() {  # audit <jq-flags> <mode>
+  printf '%s' "$raw" | jq "$1" --arg defines "$defines" --arg unchecked "$unchecked" --arg defines_fixup "$defines_fixup" --arg label "$LABEL" --arg fixup_label "$FIXUP_LABEL" --arg gate "$GATE" --arg owner "$OWNER" --arg mode "$2" --argjson single_pr "$single_pr" "$audit_jq"
+}
+audit_jq='
+  # A CheckRun still queued or running has a null conclusion; fall through to
+  # its status so it reads as IN_PROGRESS, not as a failure.
   def checks: [.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
-               | {name: (.name // .context), result: (.conclusion // .state), url: (.detailsUrl // .targetUrl // null)}];
+               | {name: (.name // .context), result: (.conclusion // .status // .state), url: (.detailsUrl // .targetUrl // null)}];
+  def not_failed: ["SUCCESS", "NEUTRAL", "SKIPPED", "QUEUED", "IN_PROGRESS", "PENDING", "EXPECTED", null];
   def gate_result: (first(checks[] | select(.name == $gate) | .result) // "absent");
   def unresolved: [.reviewThreads.nodes[]? | select(.isResolved | not)] | length;
 
@@ -221,11 +240,11 @@ render=$(printf '%s' "$raw" | jq -r --arg defines "$defines" --arg unchecked "$u
           draft: .isDraft,
           labels: [.labels.nodes[].name],
           head_sha: .commits.nodes[0].commit.oid,
-          head_pushed_at: .commits.nodes[0].commit.pushedDate,
+          head_committed_at: .commits.nodes[0].commit.committedDate,
           gate: gate_result, unresolved: unresolved,
           unresolved_threads: [ .reviewThreads.nodes[]? | select(.isResolved | not)
             | { id: .id, path: .path, first_line: (.comments.nodes[0].body // "" | split("\n")[0]) } ],
-          failing_checks: [ checks[] | select(.result != "SUCCESS" and .result != "NEUTRAL")
+          failing_checks: [ checks[] | select([.result] | inside(not_failed) | not)
             | {name: .name, url: .url} ],
           last_comment: (.lastComments.nodes[0] // null),
           labelled: (([.labels.nodes[].name] | index($label)) != null),
@@ -251,7 +270,9 @@ render=$(printf '%s' "$raw" | jq -r --arg defines "$defines" --arg unchecked "$u
 
   | ( [$prs[] | select((.unchecked_label | not) and (.defines_fixup | not)) | .repo] | unique ) as $fixup_missing
 
-  | if $json == 1 then
+  | if $mode == "refresh" then
+      ( $prs[] | select(.refresh_target) | {owner, repo, number, last_comment} )
+    elif $mode == "json" then
       ( $prs[] | del(.unresolved, .defines_label, .unchecked_label, .refresh_target, .defines_fixup) )
       , ( if $single_pr == 1 then empty else { repos_missing_fixup_hard: $fixup_missing } end )
     else
@@ -297,7 +318,8 @@ render=$(printf '%s' "$raw" | jq -r --arg defines "$defines" --arg unchecked "$u
     + ["", "https://github.com/pulls?q=is%3Aopen+user%3A\($owner)+label%3A\($label)"]
   ) | .[]
   end
-') || { echo "pr-label-audit: rendering failed" >&2; exit 1; }
+'
+render=$(audit -r "$mode") || { echo "pr-label-audit: rendering failed" >&2; exit 1; }
 
 printf '%s\n' "$render"
 
@@ -305,35 +327,7 @@ printf '%s\n' "$render"
 # reality. Never runs unless the flag is passed -- everything above this is
 # read-only.
 if [ "$REFRESH" -eq 1 ]; then
-  printf '%s' "$raw" | jq -c --arg defines "$defines" --arg unchecked "$unchecked" --arg label "$LABEL" --arg gate "$GATE" '
-    def checks: [.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
-                 | {name: (.name // .context), result: (.conclusion // .state)}];
-    def gate_result: (first(checks[] | select(.name == $gate) | .result) // "absent");
-    def unresolved: [.reviewThreads.nodes[]? | select(.isResolved | not)] | length;
-    ( ($defines | split(" ") | map(select(. != ""))) ) as $defines_label
-    | ( ($unchecked | split(" ") | map(select(. != ""))) ) as $unchecked_label
-    | [ .data.search.nodes[]
-        | select(.isDraft | not)
-        | .repository.name as $repo
-        | { repo: $repo, owner: .repository.owner.login, number: .number,
-            gate: gate_result, unresolved: unresolved,
-            labelled: (([.labels.nodes[].name] | index($label)) != null),
-            mergeable: .mergeable,
-            defines_label: (($defines_label | index($repo)) != null),
-            unchecked_label: (($unchecked_label | index($repo)) != null),
-            last_comment: (.lastComments.nodes[0] // null) } ]
-      | unique_by("\(.repo)#\(.number)")
-      | map(. + { verdict:
-          (if .gate == "absent" then "no-gate"
-           elif .mergeable == "CONFLICTING" then "conflicted"
-           elif .gate != "SUCCESS" then "not-green"
-           elif .unresolved > 0 then "threads-open"
-           else "green" end) })
-      | map(select(
-          (.labelled and .verdict != "green")
-          or (.verdict == "green" and (.labelled | not) and .defines_label) ))
-      | .[]
-  ' | while IFS= read -r target; do
+  audit -c refresh | while IFS= read -r target; do
     t_owner=$(printf '%s' "$target" | jq -r '.owner')
     t_repo=$(printf '%s' "$target" | jq -r '.repo')
     t_number=$(printf '%s' "$target" | jq -r '.number')
@@ -350,7 +344,8 @@ if [ "$REFRESH" -eq 1 ]; then
     if [ "$already" = yes ]; then
       continue
     fi
-    gh pr comment "$t_owner/$t_repo#$t_number" --body '@mergifyio refresh' >/dev/null || \
+    # `gh pr comment` reads `owner/repo#n` as a branch name; the repo goes in -R.
+    gh pr comment "$t_number" -R "$t_owner/$t_repo" --body '@mergifyio refresh' >/dev/null || \
       echo "pr-label-audit: could not post the refresh comment on $t_owner/$t_repo#$t_number" >&2
   done
 fi
