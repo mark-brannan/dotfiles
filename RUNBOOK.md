@@ -40,6 +40,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 - [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
 - [Set the auth token for the PR review workflows](#set-the-auth-token-for-the-pr-review-workflows)
 - [Re-sign a branch whose commits are unsigned](#re-sign-a-branch-whose-commits-are-unsigned)
+- [Prune old local branches](#prune-old-local-branches)
 
 **Secrets**
 - [Add a secret](#add-a-secret)
@@ -582,6 +583,16 @@ If the local verify step reports every commit as `U` or `E` instead of
 format is `<email> <key-type> <key>` — email first, unlike
 `authorized_keys`. The script builds a temporary one when none is
 configured, so this only matters for `git log --show-signature` by hand.
+
+## Prune old local branches
+
+```bash
+prune-branches           # preview
+prune-branches --delete
+```
+
+Verify: exit 0 and a final `deleted N branch(es)` line; each deletion line
+carries its undo. `prune-branches --help` has the rules.
 
 ## Add a secret
 
