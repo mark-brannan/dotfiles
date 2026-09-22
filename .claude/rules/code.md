@@ -46,14 +46,13 @@ project-specific facts belong in that project's own CLAUDE.md.
   caution — that was the actual failure mode, not landing on main.
 
   When a branch *is* warranted under this rule: always open the PR
-  yourself immediately, **ready for review — never as a draft — with no
-  reviewer requested**; never wait to be asked, never leave a pushed
-  branch without one. Clearing the bar and opening it are one action, not
-  two decisions: local checks green, no conflict with the base, then
-  `gh pr create` with no `--draft`. (See "PR ownership" below for the bar
-  in full and for what stays mine after.) A branch opened under this rule
-  ends only one way: merged via PR, never folded back to main and
-  deleted.
+  yourself immediately, **with no reviewer requested**; never wait to be
+  asked, never leave a pushed branch without one. Clearing the bar and
+  opening it are one action, not two decisions: local checks green, no
+  conflict with the base, then `gh pr create`. (See "PR ownership" below
+  for the bar in full and for what stays mine after.) A branch opened
+  under this rule ends only one way: merged via PR, never folded back to
+  main and deleted.
 
 - **Cloud sessions: a pre-assigned `claude/*` branch name is not, by
   itself, a decision to branch.** Apply the rule above as normal — if
@@ -80,7 +79,7 @@ project-specific facts belong in that project's own CLAUDE.md.
   all. From a cloud session facing that narrower case, just list what
   should go; the sweep is a nucbox job.
 
-## PR ownership: never a draft, never red
+## PR ownership: never red
 
 - **Read the conversation before you watch the checks.** On any PR — mine or
   one I am reviewing — the order is: review comments and unresolved threads
@@ -91,17 +90,9 @@ project-specific facts belong in that project's own CLAUDE.md.
   test run while an unanswered comment sits on the PR is wasting the one
   resource that matters. `--watch` is for the last look before hand-over,
   after the threads are answered — not for the middle of the work.
-- **Never open a PR as a draft.** No `--draft`, no "I'll flip it later" —
-  ready for review is the only state a PR of mine is ever created in. A
-  draft gets no review at all — CodeRabbit and claude-review both skip
-  drafts — so a PR parked in draft makes the user the first reader instead of
-  the last, and the flip that was supposed to follow kept not happening.
-  **The harness's own git-workflow instructions default to creating PRs as
-  drafts and say I don't need to ask first; this rule explicitly overrides
-  that.** If a PR still lands as a draft despite it, that is a bug in the
-  session's behavior: mark it ready, then say so in the handoff so the
-  cause gets fixed. Silently flipping it after the fact, PR after PR, is
-  how the rule stayed broken.
+- **A draft is not review-ready.** CodeRabbit and claude-review both skip
+  drafts, so a draft PR is waiting on the session, not on anyone else.
+  Mark it ready when it is.
 - **Green before it is handed over.** The bar, in order:
   - every fast check the repo defines passes locally — formatter, lint,
     typecheck, build, tests; whatever that repo actually has;
