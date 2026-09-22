@@ -200,6 +200,28 @@ eq  'and leaves the stamp alone'          "$(ncomments)" 1
 sh "$CS" release -C "$WORK" --scan abcd000012345678
 eq  '--scan finds it by its marker'       "$(ncomments)" 0
 
+# --- a Stop release is provisional; the next working turn re-claims ------------
+# Stop releases on every archivable turn. A session that then takes another
+# turn is holding the branch again with no stamp to show it -- the exact
+# blind spot this hook exists to close -- so refresh re-claims, once.
+setup_repo claude/resumed
+reset_store
+sh "$CS" claim -C "$WORK" cafe0000aaaabbbb
+sh "$CS" release -C "$WORK" cafe0000aaaabbbb
+eq  'the Stop release deletes the stamp'   "$(ncomments)" 0
+ok  'and leaves a tombstone'               test -f "$(rec_for cafe0000aaaabbbb).released"
+: > "$STORE/calls"
+sh "$CS" refresh -C "$WORK" cafe0000aaaabbbb
+eq  'refresh after it re-claims'           "$(ncomments)" 1
+ok  'the record is back'                   test -f "$(rec_for cafe0000aaaabbbb)"
+ok  'the tombstone is gone'                test ! -f "$(rec_for cafe0000aaaabbbb).released"
+sh "$CS" release -C "$WORK" --scan cafe0000aaaabbbb
+eq  'a --scan release is final'            "$(ncomments)" 0
+ok  'and leaves no tombstone'              test ! -f "$(rec_for cafe0000aaaabbbb).released"
+: > "$STORE/calls"
+sh "$CS" refresh -C "$WORK" cafe0000aaaabbbb
+eq  'so the next refresh is free'          "$(ncalls)" 0
+
 # --- nothing to claim ---------------------------------------------------------
 reset_store
 setup_repo ""                       # on main: no branch card, no lookup

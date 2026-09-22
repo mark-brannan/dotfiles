@@ -763,11 +763,9 @@ to stamp: `branch-home-gate.sh` will say the same thing at the end of the
 session.
 
 Fleet-wide, the `claimed` label is the cheap filter — `pr-label-audit --json`
-reports it per PR. If it never appears on a repo, the repo does not define it:
-
-```bash
-gh label create claimed -R mark-brannan/<repo> -d "A session is working this branch"
-```
+reports it per PR. The first claim on a repo creates the label (the issues
+endpoint creates a label it is asked for), so a repo where it never appears
+is one where no session has ever claimed a card, not one missing setup.
 
 Verify the whole loop by hand: open a second session on the same branch and it
 prints a warning naming the first at start-up; `/wrapup` the first and

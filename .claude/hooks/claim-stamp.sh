@@ -113,6 +113,15 @@ parse_url() {
     's@^https?://[^/]+/([^/]+)/([^/]+)/(pull|issues)/([0-9]+)([/?].*)?$@\1 \2 \4@p'
 }
 
+# Sets owner, repo and number from a card URL; false when it is not one.
+card_parts() {
+  owner=""; repo=""; number=""
+  read -r owner repo number <<EOF
+$(parse_url "$1")
+EOF
+  [ -n "$number" ]
+}
+
 # --------------------------------------------------------------- the stamp
 # <id> <sid8> <epoch> <machine> on one tab-separated line per stamp found.
 # Everything a caller needs to judge a claim comes out of the marker, so no
@@ -202,9 +211,7 @@ do_claim() {  # do_claim <dir> <sid>
     pr\ *|issue\ *) url=${card#* } ;;
     *) return 0 ;;   # none, unverified, or nothing at all: no card to stamp
   esac
-  set -- $(parse_url "$url")
-  [ $# -eq 3 ] || return 0
-  owner=$1; repo=$2; number=$3
+  card_parts "$url" || return 0
 
   stamps=$(read_stamps "$owner" "$repo" "$number") || return 0
 
@@ -243,9 +250,19 @@ do_claim() {  # do_claim <dir> <sid>
   return 0
 }
 
-do_refresh() {  # do_refresh <sid>
+do_refresh() {  # do_refresh <sid> <dir>
   rec=$(record_path "$1")
-  [ -f "$rec" ] || return 0            # nothing claimed: free, no network
+  if [ ! -f "$rec" ]; then
+    # Nothing claimed: free, no network. The one exception is a session that
+    # the Stop hook released on an archivable turn and that then carried on
+    # working -- the tombstone says so, and the branch is held again, so it is
+    # claimed again. Once per resume, not per turn: do_claim rewrites the
+    # record, and a claim that fails leaves the tombstone for the next turn.
+    [ -f "$rec.released" ] || return 0
+    do_claim "${2:-$PWD}" "$1"
+    [ -f "$rec" ] && rm -f "$rec.released" 2>/dev/null
+    return 0
+  fi
   usable || return 0
   IFS="$(printf '\t')" read -r card cid last < "$rec" || return 0
   [ -n "${cid:-}" ] || return 0
@@ -268,6 +285,10 @@ do_release() {  # do_release <dir> <sid>
     owner=${card%%/*}; rest=${card#*/}; repo=${rest%%#*}; number=${rest##*#}
     [ -n "${cid:-}" ] && delete_stamp "$owner" "$repo" "$cid"
     rm -f "$rec" 2>/dev/null
+    # A release from the Stop hook is provisional: the session may take
+    # another turn. The tombstone lets refresh re-claim then (see do_refresh);
+    # a --scan release is the deliberate one (/wrapup) and leaves nothing.
+    [ "${SCAN:-0}" = 1 ] && rm -f "$rec.released" 2>/dev/null || : > "$rec.released"
   elif [ "${SCAN:-0}" = 1 ]; then
     # No record -- a wiped TMPDIR, or a release from a session that did not
     # write the stamp itself. Look the card up and delete this session's
@@ -279,9 +300,7 @@ do_release() {  # do_release <dir> <sid>
     # knows it is worth the round trip (/wrapup, once) asks for it.
     card=$(card_of "$_dir")
     case "$card" in pr\ *|issue\ *) url=${card#* } ;; *) return 0 ;; esac
-    set -- $(parse_url "$url")
-    [ $# -eq 3 ] || return 0
-    owner=$1; repo=$2; number=$3
+    card_parts "$url" || return 0
     read_stamps "$owner" "$repo" "$number" \
       | awk -F'\t' -v s="$(sid8 "$_sid")" '$2 == s { print $1 }' \
       | while read -r id; do [ -n "$id" ] && delete_stamp "$owner" "$repo" "$id"; done
@@ -304,10 +323,9 @@ do_read() {  # do_read <dir>
   usable || return 0
   card=$(card_of "$1")
   case "$card" in pr\ *|issue\ *) url=${card#* } ;; *) printf 'no card\n'; return 0 ;; esac
-  set -- $(parse_url "$url")
-  [ $# -eq 3 ] || return 0
+  card_parts "$url" || return 0
   now=$(now_epoch)
-  read_stamps "$1" "$2" "$3" | while IFS="$(printf '\t')" read -r id s e m; do
+  read_stamps "$owner" "$repo" "$number" | while IFS="$(printf '\t')" read -r id s e m; do
     [ -n "${id:-}" ] || continue
     age=$((now - e))
     if [ "$age" -ge "$STALE_SECS" ]; then state=stale; else state=live; fi
