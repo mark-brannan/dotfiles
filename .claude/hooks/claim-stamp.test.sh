@@ -20,6 +20,9 @@ export HOME="$SCRATCH/home"; mkdir -p "$HOME"
 export TMPDIR="$SCRATCH/tmp"; mkdir -p "$TMPDIR"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export CLAUDE_STATE_REPO="$SCRATCH/nostate"
+# The hook refuses to run under CI, and this suite runs under CI: clear the
+# ambient signal so only the one case that sets it on purpose sees it.
+unset CI GITHUB_ACTIONS
 
 gitq() { git -C "$1" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
 
