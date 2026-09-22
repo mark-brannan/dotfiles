@@ -703,7 +703,7 @@ the account with `PR_LABEL_AUDIT_OWNER=<owner>`. Three flags, combinable:
 
 | Flag | What it does |
 | --- | --- |
-| `--json` | One JSON object per open PR (mergeable, labels, head sha, unresolved threads, failing checks, and the `section` it fell in), then one `repos_missing_fixup_hard` object |
+| `--json` | One JSON object per open PR (mergeable, labels, head sha, unresolved threads, failing checks, and the `section` it fell in), then one `repos_missing_fixup_hard` object. With `--pr` that fleet-wide object is omitted |
 | `--pr owner/repo#n` | The same report for one pull request, text or `--json`. Drafts print a note on stderr and nothing else |
 | `--refresh` | The one write: posts `@mergifyio refresh` on every PR in the two "label disagrees with reality" sections below. Skips a PR whose last comment is already that, from this account, within 24h |
 
