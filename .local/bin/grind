@@ -636,11 +636,15 @@ while [ "$i" -lt "$count" ]; do
   # branch a registered worktree holds.
   rm -rf "$wt_path"
   git worktree prune >/dev/null 2>&1 || true
-  git branch -D "$branch" >/dev/null 2>&1 || true
+  # Only in issue mode: `$branch` is the synthetic `grind-<number>` there, so
+  # deleting it is safe. In `--prs` mode it is the PR's real head branch name,
+  # which a human may also hold locally with unpushed commits -- and `-B`
+  # below resets it from the remote anyway, so the delete would be pure risk.
+  [ "$prs" -eq 1 ] || git branch -D "$branch" >/dev/null 2>&1 || true
   if [ "$prs" -eq 1 ]; then
     # The PR's own head branch, reset to the remote: the worker fixes this
-    # pull request or it has not fixed anything. `git branch -D` above already
-    # cleared any local copy, and a branch a worktree still holds was skipped.
+    # pull request or it has not fixed anything. `-B` resets any local copy,
+    # and a branch a worktree still holds was skipped.
     wt_err=$(git fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" 2>&1) \
       && wt_err=$(git worktree add -q -B "$branch" "$wt_path" "origin/$branch" 2>&1 >/dev/null) \
       || { warn "skipping $ref -- could not check out $branch: $wt_err"; skipped=$((skipped + 1)); continue; }

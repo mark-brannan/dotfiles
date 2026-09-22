@@ -864,6 +864,24 @@ run --prs
 has 'a labelled give-up is a clean blocked' '^blocked: .*#11 -- PR 11'
 lacks 'and is not unverified' 'UNVERIFIED'
 
+# --- a local branch of the same name is never force-deleted --------------------------
+# In --prs mode $branch is the PR's real head name, which a human may hold
+# locally with unpushed commits. `git worktree add -B` resets it only when the
+# checkout actually happens; a pre-emptive `git branch -D` would destroy it
+# even on a run that never got that far.
+cat > "$S/audit.json" <<J
+$(audit_row 45 unfinished conflicted '[]' solace "$(old)")
+J
+git -C "$prrepo" branch -q -f fix-45 main
+git -C "$prrepo" commit -q --allow-empty -m "unpushed work" 2>/dev/null
+mine=$(git -C "$prrepo" rev-parse HEAD)
+git -C "$prrepo" branch -q -f fix-45 "$mine"
+git -C "$prorigin" update-ref -d refs/heads/fix-45   # make grind's fetch fail
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+run --prs
+has 'an uncheckoutable PR is skipped, not fatal' 'could not check out fix-45'
+eq 'the local branch of the same name survives' "$mine" "$(git -C "$prrepo" rev-parse fix-45)"
+
 # --- empty PR queue ------------------------------------------------------------------
 jq -nc '{repos_missing_fixup_hard:[]}' > "$S/audit.json"
 run --prs
