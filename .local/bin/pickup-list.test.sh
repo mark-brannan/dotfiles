@@ -29,6 +29,13 @@ BIN="$S/bin"; mkdir -p "$BIN"
 cat > "$BIN/gh" <<'EOF'
 #!/bin/sh
 [ "${GH_FAIL:-0}" = 1 ] && { echo "gh: not logged in" >&2; exit 1; }
+if [ "${1:-}" = api ]; then
+  [ "${GH_HARD_FAIL:-0}" = 1 ] && { echo "gh: search failed" >&2; exit 1; }
+  jqf=.
+  while [ $# -gt 0 ]; do [ "$1" = --jq ] && { shift; jqf=$1; }; shift; done
+  printf '%s' "${GH_HARD_JSON:-\{\"data\":\{\"search\":\{\"nodes\":[]\}\}\}}" | jq -r "$jqf"
+  exit 0
+fi
 b=""
 while [ $# -gt 0 ]; do [ "$1" = --head ] && { shift; b=$1; }; shift; done
 for m in ${GH_MERGED:-}; do [ "$m" = "$b" ] && { echo '[{"number":1}]'; exit 0; }; done
@@ -139,6 +146,40 @@ assert 'brief cuts the next step' test "$(grep -c "$long" <<<"$OUT")" -eq 0
 run
 has 'full output does not cut' "$long"
 rm -f "$P"
+
+# --- fixup-hard PRs come first -------------------------------------------------------
+# The whole point of the row: it outranks every block, so it has to print above
+# the table, not inside it -- and an empty search must leave the table untouched.
+run
+hasnt 'no hard PRs: no hard header' '^Hard --'
+has 'no hard PRs: the listing is as it was' '^Resume, showing 1 of 1$'
+
+GH_HARD_JSON='{"data":{"search":{"nodes":[
+  {"number":193,"url":"https://github.com/o/colregs/pull/193","title":"Give way in a crossing",
+   "repository":{"nameWithOwner":"o/colregs"},
+   "comments":{"nodes":[{"body":"Conflicts across four files and the base moved twice.\nSpent $1.04."}]}},
+  {"number":7,"url":"https://github.com/o/demo/pull/7","title":"No comment left behind",
+   "repository":{"nameWithOwner":"o/demo"},"comments":{"nodes":[]}}]}}}'
+export GH_HARD_JSON
+run
+has 'hard header' '^Hard -- a fixer gave up'
+has 'hard ref and marker' 'o/colregs#193 \[hard\] Give way in a crossing'
+has 'hard url' 'https://github.com/o/colregs/pull/193'
+has 'first line of the comment' 'Conflicts across four files and the base moved twice\.$'
+hasnt 'only the first line' 'Spent'
+has 'a fixer that left no comment says so' 'no comment from the fixer'
+assert 'hard block is above the table' \
+  test "$(grep -n '^Hard --' <<<"$OUT" | cut -d: -f1)" -lt "$(grep -n '^Resume, showing' <<<"$OUT" | cut -d: -f1)"
+has 'the listing itself is unchanged' '^Resume, showing 1 of 1$'
+has 'and still has its row' '\| `claude/alpha` \|'
+
+GH_HARD_FAIL=1 run
+hasnt 'a failed search prints no hard block' '^Hard --'
+has 'and costs the listing nothing' '^Resume, showing 1 of 1$'
+
+run --files
+hasnt 'files output stays machine-readable' 'Hard --'
+unset GH_HARD_JSON
 
 # --- --files gives /pickup the path --------------------------------------------------
 run --files

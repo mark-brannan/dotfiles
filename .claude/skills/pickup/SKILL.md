@@ -24,6 +24,11 @@ straight to §3, and then work §6. Everything else is a resume block: §1.
 
 Run `~/.local/bin/pickup-list`.
 
+- **A `Hard --` block above the table** — those are PRs a fixer already gave
+  up on, and each carries the line saying why. With no argument, offer the top
+  one before the newest block: a human is otherwise its next reader, which
+  outranks a block a session can pick up any time. Solace picks; if she takes
+  it, it is a PR fixup — §0.
 - **No rows** — say so in one line and stop. There is nothing to resume;
   `worklist` is the tool for choosing new work, and Solace will ask for it.
 - **One row** — take it.

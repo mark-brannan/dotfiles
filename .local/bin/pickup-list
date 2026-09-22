@@ -57,6 +57,23 @@ if [ -z "$lib" ]; then
 fi
 # shellcheck disable=SC1090
 . "$lib"
+
+# --- PRs a fixer gave up on, first and always ---------------------------------
+# A `fixup-hard` PR has already had a cheap attempt spent on it, and a human is
+# otherwise its next reader: that outranks any resume block. One search call,
+# the shape pr-label-audit uses, and its owner setting rather than a second one
+# that could drift from it. A failure here prints nothing -- this sits on top of
+# the listing and must never cost the listing a row.
+if [ "$files" = 0 ] && command -v gh >/dev/null 2>&1; then
+  hard=$(gh api graphql \
+    -f q="is:pr is:open archived:false user:${PR_LABEL_AUDIT_OWNER:-mark-brannan} label:fixup-hard" \
+    -f query='query($q:String!){search(query:$q,type:ISSUE,first:20){nodes{... on PullRequest{
+      number url title repository{nameWithOwner} comments(last:1){nodes{body}}}}}}' \
+    --jq '.data.search.nodes[] | "  - \(.repository.nameWithOwner)#\(.number) [hard] \(.title)\n    \(.url)\n    \((.comments.nodes[0].body // "no comment from the fixer") | split("\n")[0])"' \
+    2>/dev/null) || hard=""
+  [ -n "$hard" ] && printf 'Hard -- a fixer gave up on these; take one before any block\n\n%s\n\n' "$hard"
+fi
+
 auto="$(state_dir)/log/auto"
 if [ ! -d "$auto" ]; then
   [ "$files" = 1 ] || printf 'Resume: none\n'
