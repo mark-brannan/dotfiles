@@ -17,8 +17,8 @@ to avoid.
 
 `/pickup owner/repo#n`, or a pull request URL, is a **PR fixup**: a branch
 with more facts on it and a clearer finish line than a resume block has. Skip
-§1 and §4 entirely — there is no block to pick and none to consume — go
-straight to §3, and then work §6. Everything else is a resume block: §1.
+§1 and §4 entirely — there is no block to pick and none to consume — and take
+§2, §3, §6 in that order. Everything else is a resume block: §1.
 
 ## 1. Read the list
 
