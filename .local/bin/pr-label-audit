@@ -182,20 +182,28 @@ fi
 # more items than it returned is the same silent-truncation failure the
 # cursor loop above exists to prevent, one level down. Refuse rather than
 # print a report that looks complete and is not (dotfiles#277).
-truncated=$(printf '%s' "$raw" | jq -r '
-  .data.search.nodes[]? as $n
+# A standalone assignment, not a literal embedded in the $(...) below: sh's
+# command-substitution boundary scanner can misparse unquoted parens inside
+# a single-quoted jq program when it's written directly inline (matches the
+# `audit_jq` pattern further down, for the same reason).
+trunc_jq='
+  def trunc($total; $count; $what):
+    if ($total // 0) > $count
+    then "\($what) truncated (\($total) total, \($count) fetched)"
+    else empty end;
+
+  # Drafts never reach the report (audit_jq filters them out below), so a
+  # truncated connection on a draft must not block everyone else'"'"'s report.
+  .data.search.nodes[]? | select(.isDraft | not) as $n
   | ($n.repository.name + "#" + ($n.number | tostring)) as $id
-  | ( if ($n.labels.totalCount // 0) > ($n.labels.nodes | length)
-      then "\($id): labels truncated (\($n.labels.totalCount) total, \($n.labels.nodes | length) fetched)"
-      else empty end ),
-    ( if ($n.reviewThreads.totalCount // 0) > ($n.reviewThreads.nodes | length)
-      then "\($id): reviewThreads truncated (\($n.reviewThreads.totalCount) total, \($n.reviewThreads.nodes | length) fetched)"
-      else empty end ),
-    ( ($n.commits.nodes[0].commit.statusCheckRollup.contexts // {totalCount:0,nodes:[]}) as $c
-      | if ($c.totalCount // 0) > ($c.nodes | length)
-        then "\($id): checks truncated (\($c.totalCount) total, \($c.nodes | length) fetched)"
-        else empty end )
-')
+  | ( trunc($n.labels.totalCount; ($n.labels.nodes | length); "labels")
+    , trunc($n.reviewThreads.totalCount; ($n.reviewThreads.nodes | length); "reviewThreads")
+    , ( ($n.commits.nodes[0].commit.statusCheckRollup.contexts // {totalCount:0,nodes:[]}) as $c
+        | trunc($c.totalCount; ($c.nodes | length); "checks") )
+    ) as $what
+  | "\($id): \($what)"
+'
+truncated=$(printf '%s' "$raw" | jq -r "$trunc_jq")
 if [ -n "$truncated" ]; then
   echo "pr-label-audit: a page returned more items than it fetched -- the report" >&2
   echo "  would be incomplete, so refusing rather than under-reporting:" >&2
