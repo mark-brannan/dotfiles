@@ -668,7 +668,10 @@ has 'and the rung is a knob like every other' '⏱2h30(⏱️|🌙){5} ' "$o11c"
 has 'the sitting reason glyph trips at the hot rung' '⏱️.*propose stopping' "$o11b"
 o11d=$(msg "$(payload "$TP11" calm4 "$SCRATCH" | METRICS_SIT_HOT_RUNG=9 \
   bash "$HOOK" posttooluse 0 show 2>&1)")
-hasnt 'and stays quiet while the rung is raised past it' 'propose stopping' "$o11d"
+# Not a blanket 'no propose stopping': night trips 🌙 independently of the
+# hot rung, so this only asserts the sitting glyph itself stays out of it --
+# otherwise the assertion is time-of-day flaky, true only outside 22:00-05:00 PT.
+hasnt 'and stays quiet while the rung is raised past it' '⏱️.*propose stopping' "$o11d"
 rm -f "$SITF11"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
