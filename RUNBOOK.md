@@ -50,6 +50,7 @@ and the scars behind them — see [README.md § Conventions](README.md).
 **PRs**
 - [Find all PRs awaiting human review](#find-all-prs-awaiting-human-review)
 - [Audit the `awaiting-human` label](#audit-the-awaiting-human-label)
+- [Find out which session holds a branch](#find-out-which-session-holds-a-branch)
 - [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
 
 **Troubleshooting**
@@ -736,6 +737,41 @@ The audit refuses rather than under-reports: it follows the search cursor, and
 if the account ever exceeds GitHub search's 1000-result ceiling it exits
 non-zero with `more than 1000 open pull requests` instead of printing a
 truncated report that looks complete.
+
+---
+
+## Find out which session holds a branch
+
+Every session that opens on a branch with a PR or a pointer issue stamps that
+card with a claim — session id, branch, an opaque machine token and a UTC
+timestamp — and its Stop hook refreshes the timestamp while it is alive.
+`git worktree list` only sees this machine; the stamp is what a second machine
+can read.
+
+From a checkout of the branch:
+
+```bash
+~/.claude/hooks/claim-stamp.sh read -C .
+```
+
+One line per claim: `live` or `stale`, the session, the machine, the age, the
+card. `live` means assume the other session is still working — don't push to
+the branch. `stale` means the session died without releasing it; the next
+`claim` on that card deletes it, so there is nothing to clean up by hand.
+`no card` means the branch has no PR and no pointer issue, so there is nowhere
+to stamp: `branch-home-gate.sh` will say the same thing at the end of the
+session.
+
+Fleet-wide, the `claimed` label is the cheap filter — `pr-label-audit --json`
+reports it per PR. If it never appears on a repo, the repo does not define it:
+
+```bash
+gh label create claimed -R mark-brannan/<repo> -d "A session is working this branch"
+```
+
+Verify the whole loop by hand: open a second session on the same branch and it
+prints a warning naming the first at start-up; `/wrapup` the first and
+`claim-stamp.sh read -C .` no longer lists it.
 
 ---
 
