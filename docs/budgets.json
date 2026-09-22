@@ -1,7 +1,8 @@
 {
   "$comment": "RUNBOOK.md is the machine operator's file and holds nothing about Claude Code (CLAUDE.md has the rule). The line cap sits above its size at the split so the file has headroom; raising it lands alone. Two sections and four README lines predate the guard and are grandfathered as found, not rewritten.",
   "lines": {
-    "RUNBOOK.md": 400
+    "RUNBOOK.md": 400,
+    ".claude/RUNBOOK.md": 900
   },
   "sections": {
     "targets": [
