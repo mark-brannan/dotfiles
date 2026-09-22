@@ -56,7 +56,7 @@ script is version-controlled here as the source of truth and pasted in by
 hand — the field itself is never the record.
 
 `Trusted` and `Full network access` take
-[`cloud-session-setup.sh`](.local/bin/cloud-session-setup.sh)'s caller
+[`cloud-session-setup.sh`](../.local/bin/cloud-session-setup.sh)'s caller
 verbatim. It only clones and delegates, so the logic stays in the repo rather
 than going stale in a web form:
 
@@ -69,7 +69,7 @@ exit 0
 
 `Default (with tailscale)` needs tailscale installed before the seed exists to
 delegate to, so it can't be a bare clone-and-delegate — paste
-[`cloud-session-setup-tailscale.sh`](.local/bin/cloud-session-setup-tailscale.sh)
+[`cloud-session-setup-tailscale.sh`](../.local/bin/cloud-session-setup-tailscale.sh)
 verbatim instead; it ends with the same clone-and-delegate. Neither variant is
 executed by the platform — both files exist only so the pasted text has an
 authoritative copy in git. Keep them in sync by hand if either changes.
