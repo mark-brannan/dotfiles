@@ -41,18 +41,16 @@ project-specific facts belong in that project's own CLAUDE.md.
     **session >100k tokens**, or **session >30 min wall clock**.
 
   Everything else — small fixes, doc edits, config tweaks — goes straight
-  to main, no branch, no asking. Deny-by-default polarity (branch unless
-  justified) produced five stranded `claude/*` branches from excess
-  caution — that was the actual failure mode, not landing on main.
+  to main, no branch, no asking. Branching by default is the failure
+  mode here, not landing on main.
 
-  When a branch *is* warranted under this rule: always open the PR
-  yourself immediately, **with no reviewer requested**; never wait to be
-  asked, never leave a pushed branch without one. Clearing the bar and
-  opening it are one action, not two decisions: local checks green, no
-  conflict with the base, then `gh pr create`. (See "PR ownership" below
-  for the bar in full and for what stays mine after.) A branch opened
-  under this rule ends only one way: merged via PR, never folded back to
-  main and deleted.
+  When a branch *is* warranted: push it and open the PR yourself, as
+  early as the work is worth looking at — local checks need not have
+  finished. Never wait to be asked, never leave a pushed branch without a
+  PR. Draft or ready, reviewer or none, is yours to judge; the
+  `awaiting-human` label is what says it is my turn. A branch opened this
+  way ends only one way: merged via PR, never folded back to main and
+  deleted.
 
 - **Cloud sessions: a pre-assigned `claude/*` branch name is not, by
   itself, a decision to branch.** Apply the rule above as normal — if
@@ -79,7 +77,13 @@ project-specific facts belong in that project's own CLAUDE.md.
   all. From a cloud session facing that narrower case, just list what
   should go; the sweep is a nucbox job.
 
-## PR ownership: never red
+## PR ownership
+
+The bar is computed, not prose: Mergify adds `awaiting-human` when
+`ci-gate / gate` is green and no review thread is unresolved, and removes
+it when either stops being true. Until it is on, the PR is mine. A draft
+carries no label and gets no CodeRabbit or claude-review pass, so it sits
+in nobody's queue but this session's.
 
 - **Read the conversation before you watch the checks.** On any PR — mine or
   one I am reviewing — the order is: review comments and unresolved threads
@@ -90,10 +94,7 @@ project-specific facts belong in that project's own CLAUDE.md.
   test run while an unanswered comment sits on the PR is wasting the one
   resource that matters. `--watch` is for the last look before hand-over,
   after the threads are answered — not for the middle of the work.
-- **A draft is not review-ready.** CodeRabbit and claude-review both skip
-  drafts, so a draft PR is waiting on the session, not on anyone else.
-  Mark it ready when it is.
-- **Green before it is handed over.** The bar, in order:
+- **Green before hand-over.** In order:
   - every fast check the repo defines passes locally — formatter, lint,
     typecheck, build, tests; whatever that repo actually has;
   - the branch is current with its base and has no conflict — `git fetch
@@ -117,10 +118,7 @@ project-specific facts belong in that project's own CLAUDE.md.
     mergeable,mergeStateStatus`. `gh pr checks` is green on a branch that
     conflicts with main, so green checks are not a mergeable PR;
   - where CI can be read before merge, read it — `gh pr checks --watch`
-    before hand-over (not as a way to pass the time after the first push),
-    or the equivalent — and don't tell the user it's his
-    turn until the checks are passing or the failure is one I've explained
-    and can't fix.
+    before hand-over, not as a way to pass the time after the first push.
 - **A PR handed to the user needs a judgment pass, not a "did this even build"
   pass.** His read is for the call I can't make — is this the right change,
   does it fit the design. Anything a machine could have caught should
