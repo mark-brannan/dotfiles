@@ -53,6 +53,10 @@ The block's `model` and `effort` are the *previous* session's
 recommendation for this work. If the running session is on something else,
 say so in one line — never silently.
 
+For a PR fixup there is no block, so read them off the PR instead: the
+hand-off prompt in its description or its own last comment, if one named
+them. If none did, that's the session's own call to make and state.
+
 Then read the link — the PR, issue or card — for live state. The block
 names where the work is; it does not carry its state, which is stale the
 moment it is written.
