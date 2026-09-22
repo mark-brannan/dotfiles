@@ -1,0 +1,37 @@
+{
+  "$comment": "RUNBOOK.md is the machine operator's file and holds nothing about Claude Code (CLAUDE.md has the rule). The line cap sits above its size at the split so the file has headroom; raising it lands alone. Two sections and four README lines predate the guard and are grandfathered as found, not rewritten.",
+  "lines": {
+    "RUNBOOK.md": 400
+  },
+  "sections": {
+    "targets": [
+      "RUNBOOK.md"
+    ],
+    "max_words": 200,
+    "exempt": [
+      "Where things are",
+      "Add a secret",
+      "A dev server in WSL2 is unreachable from any other device"
+    ]
+  },
+  "narration": {
+    "grandfathered": [
+      {
+        "file": "README.md",
+        "hash": "09d6fbcd68d5"
+      },
+      {
+        "file": "README.md",
+        "hash": "3a6347c33793"
+      },
+      {
+        "file": "README.md",
+        "hash": "5ddd9e3a30ea"
+      },
+      {
+        "file": "README.md",
+        "hash": "b02bec352b31"
+      }
+    ]
+  }
+}
