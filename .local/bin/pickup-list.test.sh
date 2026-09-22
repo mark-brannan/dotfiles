@@ -13,8 +13,12 @@ set -uo pipefail
 
 RL="$(cd "$(dirname "$0")" && pwd)/pickup-list"
 pass=0; fail=0
-S=$(mktemp -d); trap 'rm -rf "$S"' EXIT
+S=$(mktemp -d); export S; trap 'rm -rf "$S"' EXIT
 export HOME="$S/home"; mkdir -p "$HOME"
+export XDG_CACHE_HOME="$S/cache"
+hard_cache="$XDG_CACHE_HOME/pickup-list/fixup-hard"
+nohard() { rm -rf "$XDG_CACHE_HOME/pickup-list"; jq -nc '{data:{search:{nodes:[]}}}' > "$S/hard.json"; }
+nohard
 export TMPDIR="$S/tmp"; mkdir -p "$TMPDIR"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
@@ -30,10 +34,12 @@ cat > "$BIN/gh" <<'EOF'
 #!/bin/sh
 [ "${GH_FAIL:-0}" = 1 ] && { echo "gh: not logged in" >&2; exit 1; }
 if [ "${1:-}" = api ]; then
+  echo "$*" >> "$S/gh-api.log"
   [ "${GH_HARD_FAIL:-0}" = 1 ] && { echo "gh: search failed" >&2; exit 1; }
+  [ "${GH_HARD_HANG:-0}" = 1 ] && { sleep 30; exit 1; }
   jqf=.
   while [ $# -gt 0 ]; do [ "$1" = --jq ] && { shift; jqf=$1; }; shift; done
-  printf '%s' "${GH_HARD_JSON:-\{\"data\":\{\"search\":\{\"nodes\":[]\}\}\}}" | jq -r "$jqf"
+  jq -r "$jqf" "$S/hard.json"
   exit 0
 fi
 b=""
@@ -154,13 +160,16 @@ run
 hasnt 'no hard PRs: no hard header' '^Hard --'
 has 'no hard PRs: the listing is as it was' '^Resume, showing 1 of 1$'
 
-GH_HARD_JSON='{"data":{"search":{"nodes":[
+cat > "$S/hard-two.json" <<'HARD'
+{"data":{"search":{"nodes":[
   {"number":193,"url":"https://github.com/o/colregs/pull/193","title":"Give way in a crossing",
    "repository":{"nameWithOwner":"o/colregs"},
    "comments":{"nodes":[{"body":"Conflicts across four files and the base moved twice.\nSpent $1.04."}]}},
   {"number":7,"url":"https://github.com/o/demo/pull/7","title":"No comment left behind",
-   "repository":{"nameWithOwner":"o/demo"},"comments":{"nodes":[]}}]}}}'
-export GH_HARD_JSON
+   "repository":{"nameWithOwner":"o/demo"},"comments":{"nodes":[]}}]}}}
+HARD
+somehard() { rm -rf "$XDG_CACHE_HOME/pickup-list"; cp "$S/hard-two.json" "$S/hard.json"; }
+somehard
 run
 has 'hard header' '^Hard -- a fixer gave up'
 has 'hard ref and marker' 'o/colregs#193 \[hard\] Give way in a crossing'
@@ -173,13 +182,46 @@ assert 'hard block is above the table' \
 has 'the listing itself is unchanged' '^Resume, showing 1 of 1$'
 has 'and still has its row' '\| `claude/alpha` \|'
 
+# The cache is the whole reason worklist can print this in the SessionStart
+# brief: a fresh one costs no call at all, and a stalled search is abandoned
+# rather than waited on.
+: > "$S/gh-api.log"
+run
+eq 'a fresh cache makes no search call' 0 "$(grep -c . "$S/gh-api.log")"
+has 'and still prints the hard block' '^Hard -- a fixer gave up'
+
+nohard
 GH_HARD_FAIL=1 run
 hasnt 'a failed search prints no hard block' '^Hard --'
 has 'and costs the listing nothing' '^Resume, showing 1 of 1$'
+assert 'a failed search leaves no cache behind' test ! -f "$hard_cache"
 
+nohard
+t0=$(date +%s); GH_HARD_HANG=1 run; t1=$(date +%s)
+assert "a stalled search is abandoned in $((t1 - t0)) s (limit 8)" test $((t1 - t0)) -le 8
+has 'and the listing still prints' '^Resume, showing 1 of 1$'
+
+# --brief is the SessionStart path: it shows what a full run left in the cache
+# and never spends the brief's budget filling it itself.
+nohard
+: > "$S/gh-api.log"
+t0=$(date +%s); GH_HARD_HANG=1 run --brief; t1=$(date +%s)
+eq 'brief never searches on a cold cache' 0 "$(grep -c . "$S/gh-api.log")"
+assert "and so cannot stall, returned in $((t1 - t0)) s" test $((t1 - t0)) -le 2
+has 'the listing is all there is on a cold cache' '^Resume, showing 1 of 1$'
+somehard
+run
+has 'a full run fills the cache' '^Hard -- a fixer gave up'
+: > "$S/gh-api.log"
+run --brief
+has 'and then brief shows it, for free' 'o/colregs#193 \[hard\]'
+eq 'still without a call' 0 "$(grep -c . "$S/gh-api.log")"
+
+nohard
+: > "$S/gh-api.log"
 run --files
 hasnt 'files output stays machine-readable' 'Hard --'
-unset GH_HARD_JSON
+eq 'and --files makes no search call' 0 "$(grep -c . "$S/gh-api.log")"
 
 # --- --files gives /pickup the path --------------------------------------------------
 run --files
