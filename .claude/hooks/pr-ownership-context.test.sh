@@ -166,6 +166,21 @@ check inject 'gh api -X PATCH on pulls -> work' \
   "$(bash_input rw7 'gh api repos/o/r/pulls/25 -X PATCH -f state=closed')"
 t 'recorded as work' "$(printf 'repo\to/r\t25\twork')" "$(rec_last rw7)"
 
+check inject 'read then work on the same PR in one compound call -> work, not read' \
+  "$(bash_input rw7b 'gh pr diff 42 -R o/r --patch; gh pr comment 42 -R o/r --body "fixed in latest push"')"
+t 'recorded as work (a later work clause on the same PR upgrades kind)' \
+  "$(printf 'repo\to/r\t42\twork')" "$(rec_last rw7b)"
+
+check inject 'work then read on the same PR in one compound call -> stays work' \
+  "$(bash_input rw7c 'gh pr comment 42 -R o/r --body hi; gh pr diff 42 -R o/r --patch')"
+t 'recorded as work (never downgraded by a later read on the same PR)' \
+  "$(printf 'repo\to/r\t42\twork')" "$(rec_last rw7c)"
+
+check inject 'work on a different PR in a later clause -> first PR keeps its own kind' \
+  "$(bash_input rw7d 'gh pr view 42 -R o/r; gh pr comment 99 -R o/r --body hi')"
+t 'recorded as read (a later clause on a different PR never contributes)' \
+  "$(printf 'repo\to/r\t42\tread')" "$(rec_last rw7d)"
+
 check inject 'gh-resolve-thread -> injects and records cwd, not a repo line' \
   "$(bash_input_cwd rw8 'gh-resolve-thread PRRT_abc' /repo/checkout)"
 t 'recorded as cwd (thread id carries no repo/number)' \

@@ -111,20 +111,27 @@ if [ -n "$sid" ]; then
         # pair pulled from the *same* clause. A clause naming `issues/NNN`
         # and not `pulls`/`pull/` never contributes a number, so an issue
         # reference can no longer borrow a PR's repo (or vice versa).
+        # dotfiles#224 follow-up: a clause that names the *same* repo#number
+        # as one already locked in must still be inspected for kind -- a
+        # read-then-work pair on one PR in a single compound command (`gh pr
+        # diff 42 -R o/r; gh pr comment 42 -R o/r --body ...`) must record
+        # work, not read. So repo+number lock in on the first clause that
+        # supplies them (never fabricated across clauses -- see above), but
+        # the loop keeps scanning every remaining clause; only a clause
+        # matching that same pair can change `kind`, and only upward
+        # (read -> work, never work -> read).
         repo=""; num=""; kind=""
         clauses=$(printf '%s' "$cmd" | tr ';&|' '\n')
         old_ifs=$IFS; IFS='
 '
         for clause in $clauses; do
           IFS=$old_ifs
-          [ -n "$repo" ] && [ -n "$num" ] && break
           c_repo=$(printf '%s' "$clause" | grep -Eo -- '(^|[[:space:]])(-R|--repo)[[:space:]=]+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+' | head -1 | sed 's/.*[[:space:]=]//')
           c_num=$(printf '%s' "$clause" | grep -Eo 'gh[[:space:]]+pr[[:space:]]+[a-z-]+[[:space:]]+[0-9]+' | head -1 | grep -Eo '[0-9]+$')
           [ -z "$c_num" ] && c_num=$(printf '%s' "$clause" | grep -Eo 'pulls/[0-9]+' | head -1 | grep -Eo '[0-9]+$')
           [ -z "$c_num" ] && c_num=$(printf '%s' "$clause" | grep -Eo 'pull/[0-9]+' | head -1 | grep -Eo '[0-9]+$')
           [ -z "$c_repo" ] && c_repo=$(printf '%s' "$clause" | grep -Eo '(repos|github\.com)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls?/' | head -1 | sed 's#^[^/]*/##; s#/pulls\?/$##; s#/pull/$##')
-          if [ -n "$c_repo" ] && [ -n "$c_num" ]; then
-            repo=$c_repo; num=$c_num
+          if [ -n "$c_repo" ] && [ -n "$c_num" ] && { [ -z "$repo" ] || { [ "$c_repo" = "$repo" ] && [ "$c_num" = "$num" ]; }; }; then
             # dotfiles#224: read vs work, decided from the same clause that
             # supplied the repo+number. `gh pr view/checks/diff/list` is a
             # pure read; any other `gh pr` subcommand (create, edit, comment,
@@ -133,13 +140,18 @@ if [ -n "$sid" ]; then
             # api` call (the only other source of a repo+number pair) is work
             # only if it names a mutating HTTP method or a graphql mutation.
             if printf '%s' "$clause" | grep -Eq '(^|[^A-Za-z0-9_./-])gh[[:space:]]+pr[[:space:]]+(view|checks|diff|list)([[:space:]]|$)'; then
-              kind="read"
+              c_kind="read"
             elif printf '%s' "$clause" | grep -Eq '(^|[^A-Za-z0-9_./-])gh[[:space:]]+pr([[:space:]]|$)'; then
-              kind="work"
+              c_kind="work"
             elif printf '%s' "$clause" | grep -Eiq -- '(^|[[:space:]])(-X|--method)[[:space:]=]+(POST|PUT|PATCH|DELETE)' || printf '%s' "$clause" | grep -Eiq 'mutation[[:space:]]*\('; then
-              kind="work"
+              c_kind="work"
             else
-              kind="read"
+              c_kind="read"
+            fi
+            if [ -z "$repo" ]; then
+              repo=$c_repo; num=$c_num; kind=$c_kind
+            elif [ "$c_kind" = "work" ]; then
+              kind="work"
             fi
           fi
           IFS='
