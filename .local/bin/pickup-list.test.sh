@@ -164,7 +164,9 @@ cat > "$S/hard-two.json" <<'HARD'
 {"data":{"search":{"nodes":[
   {"number":193,"url":"https://github.com/o/colregs/pull/193","title":"Give way in a crossing",
    "repository":{"nameWithOwner":"o/colregs"},
-   "comments":{"nodes":[{"body":"Conflicts across four files and the base moved twice.\nSpent $1.04."}]}},
+   "comments":{"nodes":[
+     {"author":{"__typename":"User"},"body":"Conflicts across four files and the base moved twice.\nSpent $1.04."},
+     {"author":{"__typename":"Bot"},"body":"**Claude finished @o's task in 1m 45s** -- View job"}]}},
   {"number":7,"url":"https://github.com/o/demo/pull/7","title":"No comment left behind",
    "repository":{"nameWithOwner":"o/demo"},"comments":{"nodes":[]}}]}}}
 HARD
@@ -176,6 +178,7 @@ has 'hard ref and marker' 'o/colregs#193 \[hard\] Give way in a crossing'
 has 'hard url' 'https://github.com/o/colregs/pull/193'
 has 'first line of the comment' 'Conflicts across four files and the base moved twice\.$'
 hasnt 'only the first line' 'Spent'
+hasnt 'a review bot posting after the fixer does not displace the handover' 'Claude finished'
 has 'a fixer that left no comment says so' 'no comment from the fixer'
 assert 'hard block is above the table' \
   test "$(grep -n '^Hard --' <<<"$OUT" | cut -d: -f1)" -lt "$(grep -n '^Resume, showing' <<<"$OUT" | cut -d: -f1)"
@@ -201,21 +204,22 @@ t0=$(date +%s); GH_HARD_HANG=1 run; t1=$(date +%s)
 assert "a stalled search is abandoned in $((t1 - t0)) s (limit 8)" test $((t1 - t0)) -le 8
 has 'and the listing still prints' '^Resume, showing 1 of 1$'
 
-# --brief is the SessionStart path: it shows what a full run left in the cache
-# and never spends the brief's budget filling it itself.
+# --brief is the SessionStart path: it shows what is in the cache and never
+# waits on the search itself; a stale cache is refilled by a detached full run,
+# so the brief after this one has the rows for free.
 nohard
-: > "$S/gh-api.log"
 t0=$(date +%s); GH_HARD_HANG=1 run --brief; t1=$(date +%s)
-eq 'brief never searches on a cold cache' 0 "$(grep -c . "$S/gh-api.log")"
-assert "and so cannot stall, returned in $((t1 - t0)) s" test $((t1 - t0)) -le 2
+assert "brief does not wait on a stalled search, returned in $((t1 - t0)) s" test $((t1 - t0)) -le 2
 has 'the listing is all there is on a cold cache' '^Resume, showing 1 of 1$'
 somehard
-run
-has 'a full run fills the cache' '^Hard -- a fixer gave up'
+run --brief
+hasnt 'a cold brief prints no block' '^Hard --'
+i=0; while [ "$i" -lt 20 ] && [ ! -s "$hard_cache" ]; do sleep 0.5; i=$((i + 1)); done
+assert 'and a detached run has refilled the cache behind it' test -s "$hard_cache"
 : > "$S/gh-api.log"
 run --brief
-has 'and then brief shows it, for free' 'o/colregs#193 \[hard\]'
-eq 'still without a call' 0 "$(grep -c . "$S/gh-api.log")"
+has 'so the next brief shows it' 'o/colregs#193 \[hard\]'
+eq 'without a call of its own' 0 "$(grep -c . "$S/gh-api.log")"
 
 nohard
 : > "$S/gh-api.log"
