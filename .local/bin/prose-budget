@@ -571,19 +571,20 @@ class Checker:
         self.info = []
         self._bad_json = set()
         self.full = mode in ("tree", "base") and only is None
+        self.merging = mode == "staged" and only is None and repo.is_merging()
         if only is not None:
             self.files = [f for f in only if os.path.isfile(os.path.join(repo.root, f))]
             self.read = repo.read_disk
         elif mode == "staged":
             deleted = set(repo.git("diff", "--cached", "--name-only", "--diff-filter=D").stdout.split())
-            self.files = [] if repo.is_merging() else [p for p in repo.staged_paths() if p not in deleted]
+            self.files = [] if self.merging else [p for p in repo.staged_paths() if p not in deleted]
             self.read = lambda p: repo.show(":", p)
         else:
             self.files = repo.all_files()
             self.read = repo.read_disk
         if mode == "staged":
             self.before_ref, self.after_ref = "HEAD", ":"
-            self.changed = [] if repo.is_merging() else repo.staged_paths()
+            self.changed = repo.staged_paths()
             self.diff_args = ("--cached",)
         elif mode == "base":
             mb = repo.git("merge-base", base, "HEAD").stdout.strip()
@@ -604,6 +605,10 @@ class Checker:
 
     def run(self):
         r = self.rules
+        if self.merging:
+            self.info.append("staged: mid-merge (MERGE_HEAD present), every check skipped; "
+                             "CI --base gates the real diff after push")
+            return self.findings
         for name in ("lines", "sections", "json_prose", "narration", "voice", "headers", "unique_ids"):
             if r[name]:
                 getattr(self, "check_" + name)(r[name])
