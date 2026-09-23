@@ -117,6 +117,63 @@ check_json deny 'NotebookEdit into a foreign worktree' \
   "$(jq -n --arg p "$THEIRS/sub/nb.ipynb" --arg d "$MINE" \
     '{tool_name:"NotebookEdit",tool_input:{notebook_path:$p},cwd:$d}')"
 
+# --- claim-stamp live/stale/unknown distinction (dotfiles#168) -------------
+# A stub claim-stamp.sh keeps this offline: no gh, no network, no real card.
+# CLAIM_STAMP_BIN overrides the hook's default $HERE/claim-stamp.sh.
+STUB="$TMP/claim-stamp-stub.sh"
+set_stub() {  # set_stub <read-output>
+  cat > "$STUB" <<EOF
+#!/bin/sh
+[ "\$1" = read ] || exit 0
+cat <<'READOUT'
+$1
+READOUT
+EOF
+  chmod +x "$STUB"
+}
+
+# check_claim <description> <claim-stamp read output> <pattern that must be
+# in the deny message>
+check_claim() {
+  local desc=$1 stampout=$2 pattern=$3 out
+  set_stub "$stampout"
+  out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+      '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+    | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
+  if ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then
+    fail=$((fail + 1)); printf 'FAIL (want deny): %s\n  hook output: %s\n' "$desc" "$out"; return
+  fi
+  if printf '%s' "$out" | grep -qF "$pattern"; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); printf 'FAIL (message missing %s): %s\n  hook output: %s\n' "$pattern" "$desc" "$out"
+  fi
+}
+
+check_claim 'a fresh stamp from another session -> live, report and stop' \
+  "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')" \
+  'another session is live'
+check_claim 'only a stale stamp -> named cleanup command' \
+  "$(printf 'stale\tdeadbeef\thost-aa1\t180m\thttps://github.com/o/r/pull/1')" \
+  "git worktree remove $THEIRS"
+check_claim 'no stamps at all on a real card -> stale, cleanup command' \
+  '' \
+  "git worktree remove $THEIRS"
+check_claim 'branch has no card -> unknown, old fallback message' \
+  'no card' \
+  'A hand-off carries a branch'
+
+# claim-stamp.sh itself unusable (stands in for "no gh") -> same unknown
+# fallback, never misread as stale.
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | CLAIM_STAMP_BIN=/nonexistent/claim-stamp.sh bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'A hand-off carries a branch'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: claim-stamp.sh unusable must fall back to the unknown message\n  hook output: %s\n' "$out"
+fi
+
 # --- EnterWorktree -------------------------------------------------------
 # `path` is refused whatever it names: the tool does no ownership check, so
 # there is no path value that makes it safe. `name` creates a fresh one.
