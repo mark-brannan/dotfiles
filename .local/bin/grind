@@ -59,13 +59,16 @@
 # --prs works open pull requests instead of the Ready queue: the ones
 # pr-label-audit puts in "Gated, unlabelled" or "Labelled but no longer green",
 # which is to say the ones a session left unfinished. Everything below still
-# holds -- the caps, the lock, the claim-checking -- with three differences.
+# holds -- the caps, the lock, the claim-checking -- with four differences.
 # The orchestrator does the checkout, onto the PR's own head branch rather
 # than a fresh one, because a fixup that makes a new branch has not fixed the
 # PR. The prompt is the two briefs (`pr-label-audit --pr` and `branch_brief`)
 # plus the fixup contract read out of the pickup skill: one text, two runners,
 # so a session and a headless worker cannot be working to different rules.
-# And `done` is checked against the label Mergify computes, not a PR existing.
+# `done` is checked against the label Mergify computes, not a PR existing.
+# And a not-green PR whose failing checks are all `cancelled` (the gate never
+# actually ran) skips the worker entirely: `gh run rerun --failed` instead,
+# because there is nothing here for a fixup session to fix.
 #
 # Output: one INFO line per unit of work started and finished, a heartbeat
 # every --heartbeat seconds (default 60, 0 disables) while a worker runs, WARN
@@ -440,6 +443,28 @@ pr_skip() {
   fi
 }
 
+# pr_cancelled_rerun <item json> -- every failing check on this PR was
+# cancelled (pr-label-audit's cancelled_only), which is not a signal a fixup
+# worker can act on: nothing actually failed, the run just never got to try.
+# Rerun each cancelled workflow run instead of spending the item budget
+# watching the same cancellation happen again, and return the skip reason.
+# Never called under --dry-run -- a plan must not trigger a workflow rerun as
+# a side effect of describing itself.
+pr_cancelled_rerun() {
+  run_ids=$(printf '%s' "$1" | jq -r '.failing_checks[]?.url // empty' \
+    | sed -n 's#.*/actions/runs/\([0-9][0-9]*\)/.*#\1#p' | sort -u)
+  [ -n "$run_ids" ] || { printf 'all failing checks are cancelled, but no run id could be read from their URLs'; return; }
+  reran=""
+  for rid in $run_ids; do
+    gh run rerun "$rid" --repo "$repo" --failed >/dev/null 2>&1 && reran="$reran $rid"
+  done
+  if [ -n "$reran" ]; then
+    printf 'all failing checks were cancelled -- reran run(s)%s' "$reran"
+  else
+    printf 'all failing checks are cancelled, but rerunning run(s) %s failed' "$run_ids"
+  fi
+}
+
 # build_pr_prompt <ref> <branch> <worktree> -- the two briefs, then the one
 # contract. The briefs are run here rather than described, so the worker reads
 # the same base recommendation a session would and makes no branch decision of
@@ -629,6 +654,14 @@ while [ "$i" -lt "$count" ]; do
     verdict=$(printf '%s' "$item" | jq -r '.verdict')
     reason=$(pr_skip "$item" "$branch")
     [ -n "$branch" ] || reason="could not read its head branch"
+    if [ -z "$reason" ] && [ "$verdict" = "not-green" ] \
+       && [ "$(printf '%s' "$item" | jq -r '.cancelled_only // false')" = true ]; then
+      if [ "$dry_run" -eq 1 ]; then
+        reason="all failing checks are cancelled -- would rerun rather than work it"
+      else
+        reason=$(pr_cancelled_rerun "$item")
+      fi
+    fi
     if [ -n "$reason" ]; then
       if [ "$dry_run" -eq 1 ]; then
         printf '[%d/%d] %s -- SKIP: %s\n' "$i" "$count" "$ref" "$reason"
