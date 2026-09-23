@@ -1,0 +1,6 @@
+Revision history for #313:
+
+rev 2 (rebase) 2026-09-23 00:55 UTC
+rev 1 (initial) 2026-09-23 00:55 UTC
+
+<!-- mergify-revision-data: {"schema_version":1,"pull_number":313,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"911af3f03f773f8a95fa06f330563261c7b29da9","timestamp_iso":"2026-09-23T00:55:11Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"rebase","old_sha":"911af3f03f773f8a95fa06f330563261c7b29da9","new_sha":"770c2da12e7e9fb93ef9b22551eb2c4ab1e69779","timestamp_iso":"2026-09-23T00:55:11Z","reason":"","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/911af3f03f773f8a95fa06f330563261c7b29da9...770c2da12e7e9fb93ef9b22551eb2c4ab1e69779"}]} -->
