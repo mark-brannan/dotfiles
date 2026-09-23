@@ -124,7 +124,7 @@ while IFS= read -r repo; do
       if [ "$nmatch" -eq 1 ]; then
         ckpt=$matches
         branch=$(sed -n '1s/.*@ `\(.*\)`.*/\1/p' "$ckpt")
-        link=$(sed -n 's/^\*\*link:\*\* *//p' "$ckpt" | head -1)
+        link=$(sed -n 's/^- link: *//p' "$ckpt" | head -1)
 
         if [ -n "$link" ] && command -v gh >/dev/null 2>&1; then
           pr_state=$(gh pr view "$link" --json state -q .state 2>/dev/null)

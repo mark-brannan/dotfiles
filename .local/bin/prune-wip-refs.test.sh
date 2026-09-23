@@ -62,13 +62,19 @@ push_wip() {
 ckpt_dir="$HOME/claude_prompts_scratch/state/global/log/auto"
 mkdir -p "$ckpt_dir"
 git init -q -b main "$HOME/claude_prompts_scratch" >/dev/null 2>&1
+# Fixture shape matches a real stop-continuity.sh checkpoint's ## Resume
+# block: a markdown list, `- link: <url>`, not `**link:**` (dotfiles#357
+# review: the old fixture matched the code's old, wrong regex instead of a
+# real checkpoint).
 write_ckpt() {
   file=$1 branch=$2 sid=$3 link=${4:-}
   {
     printf '# Auto-checkpoint — work @ `%s`\n\n' "$branch"
     printf '**Verdict:** archivable\n\n'
     printf -- '- session `%s` · claude-opus-5 · started 2026-09-22T00:00:00Z\n' "$sid"
-    if [ -n "$link" ]; then printf '\n## Resume\n\n**link:** %s\n' "$link"; fi
+    if [ -n "$link" ]; then
+      printf '\n## Resume\n\n- next: fixture line.\n- link: %s\n- model: sonnet\n- effort: low\n' "$link"
+    fi
   } > "$ckpt_dir/$file"
 }
 
