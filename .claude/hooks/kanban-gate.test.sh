@@ -42,8 +42,8 @@ check() {
   else got=invalid; fi
   if [ "$got" = "$want" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (want %s, got %s): %s\n  %s\n' "$want" "$got" "$desc" "$LAST"; fi
 }
-reason()    { if printf '%s' "$LAST" | jq -r '.reason' | grep -Eq -- "$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (reason lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
-no_reason() { if printf '%s' "$LAST" | jq -r '.reason' | grep -Eq -- "$2"; then fail=$((fail+1)); printf 'FAIL (reason has /%s/): %s\n' "$2" "$1"; else pass=$((pass+1)); fi; }
+reason()    { if grep -Eq -- "$2" <<<"$(jq -r '.reason' <<<"$LAST")"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (reason lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
+no_reason() { if grep -Eq -- "$2" <<<"$(jq -r '.reason' <<<"$LAST")"; then fail=$((fail+1)); printf 'FAIL (reason has /%s/): %s\n' "$2" "$1"; else pass=$((pass+1)); fi; }
 
 # --- nothing to gate -----------------------------------------------------------
 check silent 'committed board, clean tree'   "$(stop_input)"
