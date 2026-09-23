@@ -802,6 +802,7 @@ case "\$1 \$2" in
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
   "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
   "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
+  "api repos/"*"/actions/runs/"*) printf '%s\n' "\${GH_RUN_ATTEMPT:-1}" ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
 GH
@@ -861,20 +862,39 @@ prview 60 '[]' '[]'
 rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
 : > "$CLAUDE_LOG"; : > "$GH_LOG"
 run --prs --dry-run
-has 'dry-run names the cancelled-only reason' '#60 -- SKIP: all failing checks are cancelled -- would rerun rather than work it$'
+has 'dry-run names the cancelled-only reason' '#60 -- SKIP: all checks are cancelled -- would rerun rather than work it$'
 lacks 'dry-run never calls gh run rerun' 'run rerun'
 
 : > "$GH_LOG"
-run --prs
+GH_RUN_ATTEMPT=1 run --prs
 eq 'exit 0 -- a cancelled-only skip is not a failure' 0 "$RC"
 eq 'no worker spent on a cancelled-only PR' 0 "$(calls_claude)"
 assert 'gh run rerun is called with the run id parsed from the check URL' \
   grep -Eq -- 'run rerun 9001 .*--failed' "$GH_LOG"
-has 'the skip reason says the run was reran' 'WARN  skipping .*#60 -- all failing checks were cancelled -- reran run\(s\) 9001'
+has 'the skip reason says the run was reran' 'WARN  skipping .*#60 -- all checks were cancelled -- reran run\(s\) 9001'
 
-GH_RERUN_FAIL=1 run --prs
+GH_RERUN_FAIL=1 GH_RUN_ATTEMPT=1 run --prs
 eq 'a rerun that fails is still just a skip, not a run failure' 0 "$RC"
-has 'the reason says the rerun failed' 'WARN  skipping .*#60 -- all failing checks are cancelled, but rerunning run\(s\) 9001 failed$'
+has 'the reason says nothing was eligible' 'WARN  skipping .*#60 -- all checks were cancelled, but nothing was eligible to rerun$'
+
+: > "$GH_LOG"
+GH_RUN_ATTEMPT=2 run --prs
+eq 'a run already on its 2nd attempt is left alone, still just a skip' 0 "$RC"
+eq 'no rerun call for a run already retried' 0 "$(grep -c 'run rerun' "$GH_LOG")"
+has 'the reason says nothing was eligible, not that it reran' 'WARN  skipping .*#60 -- all checks were cancelled, but nothing was eligible to rerun$'
+
+cat > "$S/audit.json" <<J
+$(audit_row_cancelled 60 9001 "$(old)")
+$(audit_row_cancelled 61 9002 "$(old)")
+J
+prview 61 '[]' '[]'
+: > "$GH_LOG"
+GH_RUN_ATTEMPT=1 run --prs
+eq 'exit 0 -- both are skips, not failures' 0 "$RC"
+eq 'still no worker spent, on either cancelled-only PR' 0 "$(calls_claude)"
+eq 'only one PR is reran per pass' 1 "$(grep -c 'run rerun' "$GH_LOG")"
+assert 'the first PR in the queue is the one reran' grep -Eq -- 'run rerun 9001 .*--failed' "$GH_LOG"
+has 'the second PR is skipped for the per-pass cap, not reran' 'WARN  skipping .*#61 -- this pass already reran a PR$'
 
 # --- --prs budget defaults, and flags that still override them -----------------------
 has 'default item budget is $1' -- '--max-budget-usd 1 '
