@@ -367,6 +367,21 @@ class LandAloneTest(RepoCase):
         self.stage("scripts/foo.py", "ansible/x.yml")
         self.assertEqual(self.findings("--staged"), [])
 
+    def test_merge_commit_is_not_charged_for_the_other_side(self):
+        self.config({})
+        self.write("RUNBOOK.md", "seed\n")
+        self.commit("RUNBOOK.md", ".prose-budgets.json")
+        self.git("checkout", "-qb", "feature")
+        self.write("scripts/foo.py", "x\n")
+        self.commit("scripts/foo.py")
+        self.git("checkout", "-q", "main")
+        self.write("RUNBOOK.md", "seed\nmore\n")
+        self.commit("RUNBOOK.md")
+        self.git("checkout", "-q", "feature")
+        r = self.git("merge", "-q", "--no-ff", "--no-commit", "main")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.findings("--staged"), [])
+
 
 class ConfigRelaxTest(RepoCase):
     """The guard's own config is a file like any other; weakening it lands alone."""

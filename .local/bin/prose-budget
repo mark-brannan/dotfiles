@@ -526,6 +526,19 @@ class Repo:
         r = self.git("diff", "--cached", "--no-renames", "--name-only", "--diff-filter=ACMRD")
         return [p for p in r.stdout.splitlines() if p.strip()]
 
+    def is_merging(self):
+        """True mid-merge (MERGE_HEAD exists).
+
+        `--staged` diffs the index against HEAD, one parent. Mid-merge every
+        file the *other* parent touched reads as newly-staged prose even
+        though it already landed, reviewed, on that branch -- and there is
+        no single-ref diff that reliably separates "the merge resolution
+        added this" from "the other side already had this". `--staged`
+        skips entirely in that case; CI's `--base` gate still runs the real
+        PR diff after push, so real churn is still caught, just not here.
+        """
+        return self.git("rev-parse", "--verify", "-q", "MERGE_HEAD").returncode == 0
+
     def changed_paths(self, a, b):
         r = self.git("diff", "--no-renames", "--name-only", a, b)
         return [p for p in r.stdout.splitlines() if p.strip()]
@@ -563,14 +576,14 @@ class Checker:
             self.read = repo.read_disk
         elif mode == "staged":
             deleted = set(repo.git("diff", "--cached", "--name-only", "--diff-filter=D").stdout.split())
-            self.files = [p for p in repo.staged_paths() if p not in deleted]
+            self.files = [] if repo.is_merging() else [p for p in repo.staged_paths() if p not in deleted]
             self.read = lambda p: repo.show(":", p)
         else:
             self.files = repo.all_files()
             self.read = repo.read_disk
         if mode == "staged":
             self.before_ref, self.after_ref = "HEAD", ":"
-            self.changed = repo.staged_paths()
+            self.changed = [] if repo.is_merging() else repo.staged_paths()
             self.diff_args = ("--cached",)
         elif mode == "base":
             mb = repo.git("merge-base", base, "HEAD").stdout.strip()
