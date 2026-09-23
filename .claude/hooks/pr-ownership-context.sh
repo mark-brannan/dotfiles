@@ -136,7 +136,7 @@ if [ -n "$sid" ]; then
               kind="read"
             elif printf '%s' "$clause" | grep -Eq '(^|[^A-Za-z0-9_./-])gh[[:space:]]+pr([[:space:]]|$)'; then
               kind="work"
-            elif printf '%s' "$clause" | grep -Eq -- '(^|[[:space:]])(-X|--method)[[:space:]=]+(POST|PUT|PATCH|DELETE)' || printf '%s' "$clause" | grep -Eiq 'mutation[[:space:]]*\('; then
+            elif printf '%s' "$clause" | grep -Eiq -- '(^|[[:space:]])(-X|--method)[[:space:]=]+(POST|PUT|PATCH|DELETE)' || printf '%s' "$clause" | grep -Eiq 'mutation[[:space:]]*\('; then
               kind="work"
             else
               kind="read"
