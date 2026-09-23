@@ -369,6 +369,45 @@ else
   printf 'SKIP: %s is missing\n' "$FIX"
 fi
 
+# --- 4b. friction with work in flight ----------------------------------------
+# dotfiles#194: the friction counter answers a sitting clock's "land it, not
+# stop and talk" logic the same way #192 gated the sitting clock -- mirrors
+# section 6b2's in-flight setup (a dirty scratch git repo as cwd) rather than
+# a hand-rolled fixture, since in_flight() is what is being relied on here.
+if [ -f "$FIX" ]; then
+  FWT="$SCRATCH/fricflight"; mkdir -p "$FWT"
+  git -C "$FWT" init -q 2>/dev/null
+  git -C "$FWT" checkout -q -b feature 2>/dev/null || true
+  : > "$FWT/dirty.txt"
+
+  fctx1=$(payload "$FIX" fricflight "$FWT" \
+          | METRICS_FRICTION_TURNS=200 METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 \
+          | jq -r '.hookSpecificOutput.additionalContext // ""')
+  has 'with work in flight the friction line says land it, not apply the rule' \
+      'with work in flight.*Do not raise capacity or offer a stopping point yet' "$fctx1"
+  hasnt 'and does not carry the ordinary capacity-rule wording yet' \
+      'Apply the capacity rule from the standing orders, once' "$fctx1"
+
+  fctx2=$(payload "$FIX" fricflight "$FWT" \
+          | METRICS_FRICTION_TURNS=200 METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 \
+          | jq -r '.hookSpecificOutput.additionalContext // ""')
+  has 'and a second call still says it -- unspent, not fired-once' \
+      'with work in flight' "$fctx2"
+
+  # ...and once the work lands, the unspent capacity-rule line fires --
+  # same "leaves the rung unspent" shape as the sitting clock's #192 gate.
+  git -C "$FWT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+  rm -f "$FWT/dirty.txt"
+  fctx3=$(payload "$FIX" fricflight "$FWT" \
+          | METRICS_FRICTION_TURNS=200 METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 \
+          | jq -r '.hookSpecificOutput.additionalContext // ""')
+  has 'and once the work lands the ordinary capacity-rule line fires' \
+      'Apply the capacity rule from the standing orders, once' "$fctx3"
+  hasnt 'with the in-flight wording gone' 'with work in flight' "$fctx3"
+else
+  printf 'SKIP: %s is missing\n' "$FIX"
+fi
+
 # --- 5. the ladder extends past the configured lines, forever ----------------
 # dotfiles#132: NAG_CONTEXT_LINES stops at 200k by default, but a session that
 # blows straight past it must keep counting every NAG_CONTEXT_STEP, not go
