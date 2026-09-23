@@ -37,11 +37,17 @@
 #       a session in one repo can see its own without reading the rest
 #   L8  a card under ## Needs ruling missing any of "default:", "undo:",
 #       "until:", "risk:" -- the agent's evaluation travels on the card so
-#       the ruling is one word; a bare question is hedging written down
+#       the ruling is one word; a bare question is hedging written down.
+#       Skipped for a "kind: tentative ADR" card -- L10 checks that one
 #   L9  a card under ## Solace's missing "why you:" (the mechanism an agent
 #       lacks, or "learn"), or missing "why this:" (the evidence this is the
 #       confirmed fix) when "why you:" is not "learn" -- click work with no
 #       proof sent the user to rotate a secret sops already held
+#   L10 a "kind: tentative ADR" card under ## Needs ruling missing any of
+#       "gates:", "settle:", "repos:" -- a tentative colregs-family design
+#       decision carries what it gates, what would settle it and the
+#       repo(s) it touches, in place of a ruling card's default/undo/
+#       until/risk; the decision itself is the card's own sentence
 #
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
@@ -143,7 +149,14 @@ run_lint() {
     function has_field(t, name) { return index(t, " " name ":") || index(t, "(" name ":") || substr(t, 1, length(name) + 1) == name ":" }
     function fields(text,   t, miss) {
       t = " " tolower(text)
-      if (cursec == ruling) {
+      if (cursec == ruling && index(t, "kind: tentative adr") > 0) {
+        miss = ""
+        if (!has_field(t, "gates")) miss = miss ", gates:"
+        if (!has_field(t, "settle")) miss = miss ", settle:"
+        if (!has_field(t, "repos")) miss = miss ", repos:"
+        if (miss != "")
+          report(cstart, "L10", "tentative-ADR card missing " substr(miss, 3) " -- a kind: tentative ADR card carries gates: (what it gates), settle: (what would settle it) and repos: (the repo(s) it touches) in place of a ruling card\047s default:/undo:/until:/risk:; the decision itself is the card\047s own sentence")
+      } else if (cursec == ruling) {
         miss = ""
         if (!has_field(t, "default")) miss = miss ", default:"
         if (!has_field(t, "undo")) miss = miss ", undo:"
@@ -290,7 +303,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk: -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk: (or, for a kind: tentative ADR card, gates:/settle:/repos: instead) -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }

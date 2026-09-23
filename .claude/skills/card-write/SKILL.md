@@ -34,6 +34,12 @@ GitHub home. Take the first line that fits:
   flashed, adopted by a user, or inherited by later decisions. Only then →
   a card under `## Needs ruling`. There is no `needs-ruling` label and no
   ruling issue.
+- **A tentative design decision for the colregs family** (colregs,
+  colregs-engine, searoom; nav-wright if it ever has one) → a
+  `kind: tentative ADR` card under `## Needs ruling`, never a draft ADR in
+  the public repo. Before a ruling session writes it up, the decision is
+  something the codebase is living with, not settled; the card is its only
+  home.
 - **A check** — "verify X", "confirm Y still works" — is not a loop and never
   reaches Solace. Run it now. A check that needs a future event and has a
   stated expected output goes on `## Claude's` as your own queue, unmentioned;
@@ -105,6 +111,18 @@ A ruling card carries your evaluation, so that the ruling is one word:
 - [ ] **Short name** — the question ([link](https://...)) default: <what you would do> undo: <the reversal and its cost> until: <event or date it can wait for> risk: <consequence if the default is wrong>
 ```
 
+A tentative-ADR card is a ruling card whose decision is already tentatively
+taken, living with the codebase until a ruling session writes it up as a
+colregs-family ADR (the next number in `docs/adr/`, a budget entry in
+`docs/budgets.json`) — never a direct edit to a public repo's docs. It
+carries `kind: tentative ADR` and `gates:`/`settle:`/`repos:` in place of
+`default:`/`undo:`/`until:`/`risk:`; the decision itself is the card's own
+sentence, grouped by project like every other ruling card:
+
+```markdown
+- [ ] **Short name** — the decision, one sentence ([link](https://...)) kind: tentative ADR gates: <what it gates> settle: <what would settle it> repos: <repo(s) it touches>
+```
+
 A click-work card carries two proofs:
 
 ```markdown
@@ -132,9 +150,11 @@ repo's uncommitted board diff again at Stop. It rejects:
 5. a state word: merged, awaiting, not merged, CI green, open as;
 6. a card with no link;
 7. a ruling card with no `### <project>` group above it;
-8. a ruling card missing any of `default:`, `undo:`, `until:`, `risk:`;
+8. a ruling card missing any of `default:`, `undo:`, `until:`, `risk:`
+   (skipped for a `kind: tentative ADR` card, which rule 10 checks instead);
 9. a `## Solace's` card missing `why you:`, or missing `why this:` when
-   `why you:` is not `learn`.
+   `why you:` is not `learn`;
+10. a `kind: tentative ADR` card missing any of `gates:`, `settle:`, `repos:`.
 
 ## Lifecycle
 
