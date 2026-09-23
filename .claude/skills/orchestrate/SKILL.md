@@ -94,9 +94,10 @@ You are a worker agent in <owner/repo>, in your own git worktree under
   --detach`, so the branch is free for the next session, and stop. Do not
   wait for CI, watch checks, poll for reviews or label the PR. A later
   session does that with a fresh context.
-- Budget: about 100k of context. Past ~90k with no PR open: push what you
-  have, leave a checkpoint comment on the issue (branch, done, left), and
-  stop.
+- Budget: 110k of context, hard. Past ~95k with no PR open: commit by path
+  and push what you have, leave a checkpoint comment on the issue (branch,
+  commit, done, left), run `git checkout --detach`, and stop. The
+  orchestrator dispatches a fresh worker to resume from that branch.
 - Scope: the issue as written. File no cards or issues; anything off-scope
   or needing a human's judgment goes in your final report.
 - Final report, under 200 words: PR URL, branch, what changed, checks run
@@ -112,7 +113,9 @@ them with the proof, per `/card-write`.
 A worker starts at ~45k context from the system prompt and the repo's
 standing orders, so "100k" is 55k of work. Finished workers ran 59k–147k.
 One `Monitor` over the sub-agent transcripts, each threshold crossed once
-per worker; an issue rated hard on Opus gets every row +40k.
+per worker; an issue rated hard on Opus gets every row +40k, which the
+script applies from the `HARD` list, so keep that list current as you
+dispatch.
 
 | context | action |
 |---|---|
@@ -122,15 +125,18 @@ per worker; an issue rated hard on Opus gets every row +40k.
 
 ```sh
 D=<project dir>/<session-id>/subagents; seen=""
+HARD="agent-<id> agent-<id>"   # workers on an issue rated hard: +40k per row
 while true; do
   for f in "$D"/agent-*.jsonl; do
     [ -f "$f" ] || continue; n=$(basename "$f" .jsonl)
+    case " $HARD " in *" $n "*) off=40000;; *) off=0;; esac
     p=$(jq -rs '[.[] | select(.type=="assistant") | .message.usage
         | (.input_tokens//0)+(.cache_read_input_tokens//0)+(.cache_creation_input_tokens//0)]
         | max // 0' "$f")
-    for t in 95000 110000 140000; do
-      [ "$p" -ge "$t" ] && ! echo "$seen" | grep -q "$n:$t" \
-        && { seen="$seen $n:$t"; echo "SPEND $n context_peak=$p crossed $t"; }
+    for base in 95000 110000 140000; do
+      t=$((base + off))
+      [ "$p" -ge "$t" ] && ! echo "$seen" | grep -qF "$n:$base" \
+        && { seen="$seen $n:$base"; echo "SPEND $n context_peak=$p crossed $t"; }
     done
   done; sleep 60
 done
@@ -163,11 +169,17 @@ or claimed drops it off the list. (Solace, 2026-09-22.)
   20 workers, about $60 at the measured $0.80–$4.90 each; Solace changes
   it with a word. "No new work" from Solace means drain: running workers
   finish and report, nothing new launches.
-- **You hold no branch and touch no PR.** Keep your own reads small; act
-  on reports and on the recount.
-- **A worker's `gh pr view` lands in your session's pr-threads record**
-  (the #224 shape; PR #317 fixes it). A Stop gate naming a PR you never
-  worked is that: clear the read from the record, not the PR.
+- **A checkpoint is not a finish.** A worker that stopped with no PR (its
+  own budget, the 110k cap, or a `TaskStop`) leaves its issue in the queue
+  with the pushed branch named; the next dispatch for it says to resume
+  from that branch, not from `origin/main`.
+- **You hold no branch and edit no PR.** The one PR action that is yours
+  is opening one from a stopped worker's pushed branch (`gh pr create
+  --head`, no checkout). Keep your own reads small; act on reports and on
+  the recount.
+- **A worker's `gh pr view` can land in your session's pr-threads record**
+  (the #224 shape). A Stop gate naming a PR you never worked is that:
+  clear the read from the record, not the PR.
 
 ## 6. Ending
 
