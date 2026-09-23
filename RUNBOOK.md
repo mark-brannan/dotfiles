@@ -14,6 +14,7 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 - [Set up a new machine](#set-up-a-new-machine)
 - [Keep machines in sync](#keep-machines-in-sync)
 - [Prune old local branches](#prune-old-local-branches)
+- [Prune stale Stop-hook salvage refs](#prune-stale-stop-hook-salvage-refs)
 
 **Secrets**
 - [Add a secret](#add-a-secret)
@@ -116,6 +117,16 @@ prune-branches --delete
 
 Verify: exit 0 and a final `deleted N branch(es)` line; each deletion line
 carries its undo. `prune-branches --help` has the rules.
+
+## Prune stale Stop-hook salvage refs
+
+```bash
+prune-wip-refs           # preview
+prune-wip-refs --delete
+```
+
+Verify: exit 0 and a final `deleted N wip ref(s)` line; each deletion line
+carries its undo. `prune-wip-refs --help` has the rules.
 
 ## Add a secret
 
