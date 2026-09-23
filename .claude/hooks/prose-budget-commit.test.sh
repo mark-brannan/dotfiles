@@ -39,7 +39,7 @@ CLEAN=$(mkrepo)
 printf 'seed plus one\n' > "$CLEAN/README.md"; git -C "$CLEAN" add README.md
 NOCONF=$(mktemp -d); git -C "$NOCONF" init -q -b main; printf 'x\n' > "$NOCONF/a.md"; git -C "$NOCONF" add a.md
 mkdir -p "$DIRTY/sub"
-trap 'rm -rf "$DIRTY" "$CLEAN" "$NOCONF"' EXIT
+trap 'rm -rf "$DIRTY" "$CLEAN" "$NOCONF" "${MERGING:-}"' EXIT
 
 check deny  'plain commit'                    'git commit -m "docs: more"'
 check deny  'after a separator'               'git add README.md && git commit -m x'
@@ -57,6 +57,18 @@ check allow 'commit mentioned in a message'   'git add x && git commit -m "git c
 check allow 'commit as prose'                 'echo "run git commit -m x"'
 check allow 'commit in a heredoc body'        $'cat <<EOF\ngit commit -m x\nEOF'
 check allow 'a different tool'                'gh pr create --title x'
+
+# A merge in progress (MERGE_HEAD present): --staged would diff the whole
+# merged index against the pre-merge HEAD and flag main's own already-merged
+# prose as new, so both spellings that finish a merge must be skipped.
+MERGING=$(mkrepo)
+printf 'seed plus one\n' > "$MERGING/README.md"; git -C "$MERGING" add README.md; git -C "$MERGING" commit -qm bump
+git -C "$MERGING" rev-parse HEAD > "$MERGING/.git/MERGE_HEAD"
+check allow 'git commit with MERGE_HEAD present'  'git commit -m x' "$MERGING"
+git -C "$MERGING" rev-parse HEAD > "$MERGING/.git/MERGE_HEAD"
+check allow 'git merge --continue'                'git merge --continue' "$MERGING"
+rm -f "$MERGING/.git/MERGE_HEAD"
+check deny  'git merge --continue, no MERGE_HEAD, dirty staging' 'git merge --continue' "$DIRTY"
 
 # Fail-open: no jq, and no engine.
 BARE=$(mktemp -d); for t in bash sh awk cat cut dirname git timeout; do p=$(command -v $t) && ln -s "$p" "$BARE/$t"; done

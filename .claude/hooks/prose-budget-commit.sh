@@ -9,7 +9,9 @@
 # exit 0 silently. CI (--base) is the real gate; this is the fast local one.
 # Detection is structural via lib-shell-words.awk, so a commit message that
 # mentions `git commit` is not a commit. `cd DIR && git commit` and
-# `git -C DIR commit` run the engine in DIR.
+# `git -C DIR commit` run the engine in DIR. `git merge --continue` is
+# treated as a commit too, since resolving a conflict finishes the merge;
+# a MERGE_HEAD in progress is then skipped rather than checked (see below).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -54,6 +56,9 @@ function segment(lo, hi, nested,   g, i, dir) {
     i++
   }
   if (i <= hi && w[i] == "commit") { print "COMMIT\t" CD "\t" dir; exit }
+  if (i <= hi && w[i] == "merge") {
+    for (j = i + 1; j <= hi; j++) if (w[j] == "--continue") { print "COMMIT\t" CD "\t" dir; exit }
+  }
 }')
 case "$hit" in COMMIT*) ;; *) exit 0 ;; esac
 
@@ -65,7 +70,14 @@ for step in "$cd_dir" "$c_dir"; do
   dir=$(cd "$dir" 2>/dev/null && cd "$step" 2>/dev/null && pwd) || exit 0
 done
 
-out=$(cd "$dir" && "$ENGINE" --staged 2>&1)
+# A merge in progress (MERGE_HEAD present) carries no new prose of its own:
+# --staged would diff the full merged index against the pre-merge HEAD and
+# flag everything main already reviewed. The base-relative check CI runs
+# already covers a merge commit, so skip here rather than false-deny it.
+out=$(cd "$dir" && {
+  git rev-parse --verify -q MERGE_HEAD >/dev/null 2>&1 && exit 0
+  "$ENGINE" --staged
+} 2>&1)
 rc=$?
 case "$rc" in 1|2) ;; *) exit 0 ;; esac
 
