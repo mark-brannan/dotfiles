@@ -17,8 +17,8 @@ to avoid.
 
 `/pickup owner/repo#n`, or a pull request URL, is a **PR fixup**: a branch
 with more facts on it and a clearer finish line than a resume block has. Skip
-§1 and §4 entirely — there is no block to pick and none to consume — go
-straight to §3, and then work §6. Everything else is a resume block: §1.
+§1 and §4 entirely — there is no block to pick and none to consume — and take
+§2, §3, §6 in that order. Everything else is a resume block: §1.
 
 ## 1. Read the list
 
@@ -58,6 +58,10 @@ The block's `model` and `effort` are the *previous* session's
 recommendation for this work. If the running session is on something else,
 say so in one line — never silently.
 
+For a PR fixup there is no block, so read them off the PR instead: the
+hand-off prompt in its description or its own last comment, if one named
+them. If none did, that's the session's own call to make and state.
+
 Then read the link — the PR, issue or card — for live state. The block
 names where the work is; it does not carry its state, which is stale the
 moment it is written.
@@ -82,6 +86,20 @@ If git refuses because the branch is checked out in another worktree, that is
 a live claim by a session that has not released it. Say so — name the branch
 and the worktree git named — and stop. Don't take it away from them, and
 don't work anywhere else on the same branch.
+
+Then claim it on the card, so a session on *another machine* — which git
+cannot see — knows too:
+
+```
+~/.claude/hooks/claim-stamp.sh claim -C . <this session id>
+```
+
+It prints nothing when the branch is free. When it prints a warning, another
+session holds the branch right now: relay it to Solace in one line, naming the
+session and how old the claim is, and don't push to the branch until you know
+that session has let go. The SessionStart hook claims automatically for a
+session that *opens* on the branch; a pickup checks the branch out afterwards,
+so this is the one place the claim has to be asked for.
 
 Everything the previous session wanted handed over is on the remote. If it
 isn't pushed, it isn't handed over: work from the pushed state and say in one
@@ -158,9 +176,15 @@ do not paraphrase it into a second version that can drift from this one.
    run that line. An unsigned commit fails the gate, so a shortcut here buys
    nothing and costs the branch.
 
-5. **Push with `--force-with-lease`,** never a bare `--force`. A refused
-   lease is not an obstacle to retry past: it means someone else pushed to
-   this branch while you worked. Stop, and say whose push you found.
+5. **Push with `--force-with-lease`,** never a bare `--force`, from your own
+   checkout — unless the branch carries mergify-cli `Change-Id` trailers, in
+   which case its pre-push hook blocks any push from that checkout whatever
+   ref is being pushed. There, push from a detached throwaway worktree
+   instead, per `code.md`'s PR-ownership section: `git worktree add --detach
+   <tmp> <sha>`, push `--force-with-lease` from there, then remove it. A
+   refused lease is not an obstacle to retry past either way: it means
+   someone else pushed to this branch while you worked. Stop, and say whose
+   push you found.
 
 6. **Finish is `awaiting-human` back on the PR** — and Mergify puts it there,
    computed from a green `ci-gate / gate` and no unresolved thread. The

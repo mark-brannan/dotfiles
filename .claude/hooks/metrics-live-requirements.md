@@ -7,15 +7,46 @@ governs. Values in the examples are tuning, not part of the ruling.
 
 ## What is shown, and how often
 
-**Every threshold crossed prints its own line.** A jump across several
-thresholds prints one line per threshold, never a merged one. Louder and
-more frequent is the direction; going quieter is never a cleanup. Display
-lines cost no tokens, so frequency is free. One jump to 350k, two of the
-rungs it crossed; the second number on each line is the rung.
+**A notice on every event, and one notice per event.** On every Stop, every
+tool invocation, and every prompt (`UserPromptSubmit` renders the block too,
+ruled 2026-09-22, [dotfiles#137](https://github.com/mark-brannan/dotfiles/issues/137))
+— high frequency, one block each time. Louder and *more often* is the
+direction; going quieter is never a cleanup, and display lines cost no
+tokens, so frequency is free. This is the default for any new wiring too:
+don't ask per-event whether high frequency applies — it does, unless told
+otherwise for that specific case.
+
+This corrects what was written here before. `#149` was read as a ruling about
+lines *per event*: "more lines, not fewer... do not coalesce, dedupe or fire
+at the right time", so a jump across four rungs printed four lines. Ruled by
+Solace, 2026-09-22 ([dotfiles#137](https://github.com/mark-brannan/dotfiles/issues/137)):
+that was never the ask. He was pushing back on repeated attempts to make the
+readout appear **less often**. Frequency, not line count. A four-rung jump
+renders one block with four ⛁ in it.
 
 ```
-⛁⛁⛁ 350k/120k ⚖0 — still room.
-⛁⛁⛁⛁ 350k/150k ⚖0 — propose stopping.
+⛁⛁⛁⛁ 46k/155k ⚖(x1) 🔧⛔(x2) ⏱1h33⏱️⏱️⏱️⏱️ — 💸 propose stopping.
+⇢ 1 ⚙ 59
+```
+
+**A rung value is never a number on screen.** The block's only `a/b` is
+`output_tokens/context_peak`; a rung reaches the reader as glyph repetitions
+and nothing else. The threshold lines rendered `context_peak/rung` — the same
+shape, one line away, meaning something different.
+
+**A counted field never vanishes; zero is a state with a glyph.** 🧘‍♀️
+decisions, 🌌 friction, ✅ blocked — the field keeps its slot and its `(x0)`,
+so "nothing happened" and "this is not measured" never look the same. Ruled
+by Solace, 2026-09-22 ([dotfiles#137](https://github.com/mark-brannan/dotfiles/issues/137)).
+Each calm glyph names its own field, so it carries no family prefix.
+
+**The sitting cluster gets louder past its hot rung.** ⏱️ or 🌙 for the
+first rungs, ⏰ beyond `METRICS_SIT_HOT_RUNG` — night or day, so a long
+evening still reads as an evening.
+
+```
+⏱2h30⏱️⏱️⏱️⏰⏰
+⏱2h30🌙🌙🌙⏰⏰
 ```
 
 **The persistent block appears on every displayed event,** with no counter
@@ -23,8 +54,13 @@ or throttle. It always has its status line and its turns line. The turns
 line never disappears on a clean tree; git state is appended only when
 there is some.
 
+**The verdict tail only appears when something is wrong.** No "still room"
+filler, no replacement wording — the whole `— …` tail is absent when nothing
+proposes stopping. Ruled by Solace, 2026-09-22
+([dotfiles#137](https://github.com/mark-brannan/dotfiles/issues/137)).
+
 ```
-» 20/41k 🔧✅(x0) — still room.
+» 20/41k 🧘‍♀️(x0) 🌌(x0) 🔧✅(x0) ⏱0m
 ⇢ 3 ⚙ 0 ⎇ 1~
 ```
 
@@ -34,7 +70,7 @@ at the top rather than going quiet; the overflow count is the settled
 shape for that.
 
 ```
-⛁⛁⛁⛁⛁(x6) 350k/220k ⚖0 — propose stopping.
+⛁⛁⛁⛁⛁(x9) 10/350k 🧘‍♀️(x0) 🌌(x0) 🔧✅(x0) ⏱0m — 💸 propose stopping.
 ```
 
 **Bias toward more information.** Adding a number or a line never needs a
@@ -44,9 +80,6 @@ the display proves stable and legible, the user may later ask for more
 measured output. Until then, more.
 
 ## The ratio in the persistent block
-
-This section is about the block's status line only. A threshold line is a
-different thing: its second number is the rung it reports crossing.
 
 The ratio shown is two real, measured numbers from the session:
 `output_tokens` on top, `context_peak` on bottom.
@@ -59,13 +92,14 @@ output-tokens badge — settled after repeated attempts on
 re-propose them.
 
 ```
-⛁⛁⛁⛁ 30/152k 🔧✅(x0) — 💸 propose stopping.
+⛁⛁⛁⛁ 20/152k 🧘‍♀️(x0) 🌌(x0) 🔧✅(x0) ⏱0m — 💸 propose stopping.
 ```
 
 ## Stop output
 
-**Order on Stop:** threshold lines, then the block, then the archival line
-last.
+**Order on Stop:** the block, then the archival line last. The bucket ahead
+of the block still exists — the sitting and gate lines feed it — and still
+prints first when it has anything in it.
 
 **The archival line always appears on Stop,** with reasons when the session
 is not archivable, and both Stop hooks read those reasons from one shared
@@ -89,6 +123,22 @@ The two are never concatenated into one string.
 ```
 additionalContext: Sitting 2h03, past 2h00. Already raised at 1h00 and not acted on. Stop here and run /wrapup.
 ```
+
+**One injection per rung crossed, and one deliberate repeat.** A model line
+fires on the event that crosses a rung and says nothing on the events after
+it, the same edge-triggered cadence the screen lines use
+([dotfiles#282](https://github.com/mark-brannan/dotfiles/issues/282)).
+
+The exception is context, and only context. A rung raised and not acted on
+is said again after `METRICS_MODEL_CONTEXT_REPEAT` tool calls of silence,
+with the tool count as the new number. Context is the one counter that
+climbs while the model works rather than between prompts, so an autonomous
+run can spend a whole rung's worth without ever reaching a prompt — and
+edge-triggered there means the line is said once, tens of thousands of
+tokens before it matters, and never again. Injections also run on
+PostToolUse, not prompts alone, so the rung is spoken when it is crossed.
+Ruled by Solace, 2026-09-22
+([dotfiles#137](https://github.com/mark-brannan/dotfiles/issues/137)).
 
 **The screen ladder and the model-facing ladder are separate.** Whether
 their values coincide is tuning. Both are adjusted in the same place as

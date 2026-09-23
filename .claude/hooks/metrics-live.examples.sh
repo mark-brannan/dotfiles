@@ -19,22 +19,28 @@ export CLAUDE_STATE_REPO=""
 
 show() { printf '\n### %s\n' "$1"; }
 
+# The crossing engine runs on a prompt and on a Stop; the block renders on
+# every shown event. A crossing prints nothing of its own (dotfiles#137), so
+# each case below is a prompt to move the rungs, then a shown event to see
+# where they landed.
+block() { payload "$1" "$2" "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1; }
+
 show "first context crossing (100k)"
 TP="$SCRATCH/a.jsonl"; turn "$TP" 103000
-out=$(payload "$TP" a "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
-printf '  %s\n' "$(msg "$out")"
+payload "$TP" a "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+printf '%s\n' "$(msg "$(block "$TP" a)")" | sed 's/^/  /'
 
 show "second crossing, same session (150k)"
 turn "$TP" 152000
-out=$(payload "$TP" a "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
-printf '  %s\n' "$(msg "$out")"
+payload "$TP" a "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+printf '%s\n' "$(msg "$(block "$TP" a)")" | sed 's/^/  /'
 
 show "one jump crosses six rungs at once (350k)"
 TP2="$SCRATCH/b.jsonl"; turn "$TP2" 350000
-out=$(payload "$TP2" b "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
-printf '%s\n' "$(msg "$out")" | sed 's/^/  /'
+payload "$TP2" b "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+printf '%s\n' "$(msg "$(block "$TP2" b)")" | sed 's/^/  /'
 
-show "model injection: below stop threshold (103k) -- screen only"
+show "model injection: below stop threshold (103k) -- nothing to the model"
 TP3="$SCRATCH/c.jsonl"; turn "$TP3" 103000
 out=$(payload "$TP3" c "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 printf '  additionalContext: [%s]\n' "$(ctx "$out")"
@@ -74,7 +80,17 @@ turn "$TP5" 42000
 out=$(payload "$TP5" f "$SCRATCH" | METRICS_SIT_EVERY_MIN=60 bash "$HOOK" prompt 0 2>&1)
 printf '  screen:           %s\n' "$(msg "$out")"
 printf '  additionalContext: %s\n' "$(ctx "$out")"
+show "model injection: sitting still past 2h, no new rung (silent)"
+turn "$TP5" 43000
+out=$(payload "$TP5" f "$SCRATCH" | METRICS_SIT_EVERY_MIN=60 bash "$HOOK" prompt 0 2>&1)
+printf '  screen:           [%s]\n' "$(msg "$out")"
+printf '  additionalContext: [%s]\n' "$(ctx "$out")"
 unset METRICS_MODEL_CONTEXT_LINES
+
+show "sitting cluster: the ⏰ tier past the 90-minute rung"
+sed -i "s/\"sitting_start\": *[0-9]*/\"sitting_start\": $((now - 9000))/" \
+  "$SITFILE" 2>/dev/null
+printf '%s\n' "$(msg "$(block "$TP5" f)")" | sed 's/^/  /'
 
 rm -f "$SITFILE"
 
@@ -98,6 +114,36 @@ for _ in 1 2; do askturn "$TP6"; done
 out=$(payload "$TP6" g "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 printf '  additionalContext: %s\n' "$(ctx "$out")"
 rm -f "$SITFILE"
+
+# --- PostToolUse -------------------------------------------------------------
+# The engine runs on tool calls too, so a context rung crossed by a large tool
+# result mid-turn is spoken when it happens rather than at the next prompt. The
+# block and the injection ride out together -- one hook invocation, one object.
+show "PostToolUse: a tool result crosses a rung mid-turn (block + injection)"
+TP7="$SCRATCH/h.jsonl"; turn "$TP7" 40000
+payload "$TP7" h "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+turn "$TP7" 152000
+out=$(payload "$TP7" h "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
+printf '  screen:            %s\n' "$(msg "$out" | head -1)"
+printf '  additionalContext: %s\n' "$(ctx "$out")"
+
+show "PostToolUse: next tool call, no new rung (block only, model silent)"
+turn "$TP7" 153000
+out=$(payload "$TP7" h "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
+printf '  screen:            %s\n' "$(msg "$out" | head -1)"
+printf '  additionalContext: [%s]\n' "$(ctx "$out")"
+
+show "PostToolUse: the repeat arm at METRICS_MODEL_CONTEXT_REPEAT=3"
+# 3 rather than the shipped 20 so the example is three lines instead of
+# twenty; the arm is the same one, counting tool calls of unacted silence.
+TP8="$SCRATCH/i.jsonl"; turn "$TP8" 152000
+payload "$TP8" i "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+for n in 1 2 3 4; do
+  turn "$TP8" $((153000 + n))
+  out=$(payload "$TP8" i "$SCRATCH" \
+        | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)
+  printf '  tool call %d:       [%s]\n' "$n" "$(ctx "$out")"
+done
 
 show "friction crossing (committed contentious fixture)"
 FIX="$(dirname "$HOOK")/fixtures/friction-contentious.jsonl"

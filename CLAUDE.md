@@ -11,8 +11,11 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 
 - `README.md` — the critical path for a human setting up a machine, plus the
   conventions and the design rationale.
-- `RUNBOOK.md` — procedures. Machines, cloud environments, secrets,
+- `RUNBOOK.md` — the machine operator's procedures: setup, sync, secrets,
   troubleshooting. Deliberately partial; it says so at the top.
+- `.claude/RUNBOOK.md` — the Claude Code procedures: hooks, cloud
+  environments, PR workflows. The only runbook a hook or workflow change may
+  touch.
 - `.config/yadm/bootstrap` — decrypts sops-managed secrets. Idempotent.
 - `.config/yadm/hooks/pre_commit` — the commit-time gate against credentials.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
@@ -42,8 +45,16 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 - Don't restructure it as a side effect of unrelated work. `.claude/rules/writing.md`
   governs; it is a human-voiced doc.
 
-## RUNBOOK.md
+## RUNBOOK.md and .claude/RUNBOOK.md
 
+- **`RUNBOOK.md` is the machine's, and nothing about Claude Code goes in it.**
+  Not a hook, not a cloud seed, not a PR workflow, not their troubleshooting.
+  Those go in `.claude/RUNBOOK.md`. The bar for the two files is different on
+  purpose: the user holds the dotfiles themselves to a far higher standard
+  than the Claude Code layer, and a session that adds its hook to
+  `RUNBOOK.md` is polluting the file the user reads when a real machine is
+  broken. `docs/budgets.json` caps `RUNBOOK.md` in CI; raising a cap lands
+  alone.
 - **Actions only.** Every section answers "what do I do." Commands, the order
   to run them in, and how to tell it worked. If a passage doesn't change what
   the reader does next, it belongs in `README.md` instead.

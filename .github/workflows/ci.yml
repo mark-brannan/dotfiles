@@ -157,6 +157,30 @@ jobs:
           done
           exit $status
 
+  # The prose guard every consumer repo runs through mark-brannan/.github's
+  # reusable workflow, run here on the engine in this checkout rather than a
+  # fetched tag: this repo hosts the engine, and a PR that changes it must be
+  # gated by the version it ships. docs/budgets.json holds every number; the
+  # engine's own `config` rule refuses a cap that rises in the same change.
+  prose-budget:
+    runs-on: ubuntu-latest
+    env:
+      BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: prose-budget
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE" ]; then
+            python3 .local/bin/prose-budget --require-config --base "$BASE"
+          else
+            echo "::notice::not a pull_request event; running tree rules only (--tree)"
+            python3 .local/bin/prose-budget --require-config --tree
+          fi
+
   # Refuses to call an empty PR green: a branch whose tree equals its base
   # at the merge base (a stray Stop-commit reverted it, which is how PR #198
   # "landed" nothing for #196) merges cleanly and lands nothing. On a push to
@@ -175,7 +199,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, shellcheck, seeded, hook-tests, nonempty]
+    needs: [secrets-encrypted, shellcheck, seeded, hook-tests, prose-budget, nonempty]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}

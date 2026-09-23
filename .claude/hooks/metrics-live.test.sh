@@ -49,21 +49,23 @@ hasnt() {
   else pass=$((pass+1)); fi
 }
 
-# --- 1. two context lines, in order ------------------------------------------
+# --- 1. context rungs are counted, never spoken ------------------------------
+# Ruled on dotfiles#137, 2026-09-22: one notice per event, and that notice is
+# the block. A context crossing moves the block's ⛁ cluster and prints no
+# line of its own -- least of all one naming the rung, which reused the a/b
+# shape the block spends on output_tokens/context_peak.
 TP="$SCRATCH/ctx.jsonl"; SID=ctx1
 turn "$TP" 103000
 out1=$(payload "$TP" "$SID" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 turn "$TP" 152000
-out2=$(payload "$TP" "$SID" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
-out3=$(payload "$TP" "$SID" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+payload "$TP" "$SID" "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+out2=$(payload "$TP" "$SID" "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
 
-has  'first crossing names 100k'      '103k/100k' "$(msg "$out1")"
-hasnt 'first crossing does not propose stopping' 'propose stopping' "$(msg "$out1")"
-has  'second crossing names 150k'     '152k/150k' "$(msg "$out2")"
-has  'second crossing proposes stopping' 'propose stopping' "$(msg "$out2")"
-has  'first crossing shows one ⛁ glyph'  '⛁ 103k' "$(msg "$out1")"
-has  'second crossing shows two ⛁ glyphs' '⛁⛁ 152k' "$(msg "$out2")"
-t    'nothing fires a third time'     '' "$(msg "$out3")"
+t     'a crossing on a prompt says nothing at all' '' "$(msg "$out1")"
+has   'the block counts both rungs'          '^⛁⛁ ' "$(msg "$out2")"
+hasnt 'and never names the rung it crossed'  '/(100|150)k' "$(msg "$out2")"
+hasnt 'no threshold line rides in front of it' 'still room' "$(msg "$out2")"
+has   'the stop rung still reaches the verdict' '💸 propose stopping' "$(msg "$out2")"
 
 CROSS="$STATE/metrics/crossings/$SID.jsonl"
 t 'both crossings are recorded, in order' \
@@ -291,12 +293,13 @@ has   'and reports the block as missing' 'no `## Resume` block' "$(msg "$o")"
 hasnt 'never claims it was written'      'Resume block written' "$(msg "$o")"
 o=$(S3); t 'and stays quiet after' '' "$(printf '%s' "$o" | jq -r '.decision // ""')"
 
-# A crossing that arms the Stop is consumed by it, so the block reason has to
-# carry the line -- otherwise the threshold that caused the block is never seen.
+# A context crossing still arms the Stop. It no longer speaks on the way: the
+# reason carries the resume instruction, and the metrics land in the block on
+# the next Stop, which is the one that passes.
 TP4="$SCRATCH/cross.jsonl"; turn "$TP4" 103000
 o=$(payload "$TP4" stop4 "$REPO" Stop | METRICS_STOP_HOUR=24 bash "$HOOK" stop 0 show 2>&1)
 t   'a context crossing at Stop blocks' block "$(printf '%s' "$o" | jq -r '.decision // ""')"
-has 'and the reason carries the crossing line' '⛁ 103k/100k' \
+hasnt 'and the reason carries no threshold line' '⛁' \
     "$(printf '%s' "$o" | jq -r '.reason // ""')"
 
 # A dirty tree is not archivable, so nothing blocks however late it is.
@@ -304,11 +307,12 @@ has 'and the reason carries the crossing line' '⛁ 103k/100k' \
 o4=$(payload "$TP3" stop2 "$REPO" Stop | METRICS_STOP_HOUR=0 bash "$HOOK" stop 0 show 2>&1)
 t 'a dirty tree is never archivable' '' "$(printf '%s' "$o4" | jq -r '.decision // ""')"
 
-# --- 3c. order: nags before the block, archival after it ---------------------
-# dotfiles#149 step 4's whole point. A nag that fires on the same Stop that
-# also confirms a pending resume block must render before the block, with
-# the archival verdict after it -- never interleaved. Own repo so this does
-# not depend on section 3's ordering or its dirty-tree flip above.
+# --- 3c. order: the block first, the archival verdict after it ---------------
+# dotfiles#149 step 4's whole point, minus the context line #137 removed. The
+# nag bucket still prints ahead of the block -- the sitting and gate lines
+# feed it -- but no producer of it co-occurs with a Stop, so what is left to
+# pin here is the block against the archival tail. Own repo so this does not
+# depend on section 3's ordering or its dirty-tree flip above.
 REPOO="$SCRATCH/repoo"; mkdir -p "$REPOO"
 git -C "$REPOO" init -q -b feat/order
 git -C "$REPOO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
@@ -328,13 +332,12 @@ turn "$TPO" 152000
 oO2=$(payload "$TPO" orderx "$REPOO" Stop | METRICS_STOP_HOUR=24 bash "$HOOK" stop 0 show 2>&1)
 t 'order: the confirming Stop does not re-block' '' "$(printf '%s' "$oO2" | jq -r '.decision // ""')"
 msgO2=$(msg "$oO2")
-nag_at=$(printf '%s\n' "$msgO2" | grep -n '⛁⛁ 152k/150k' | head -1 | cut -d: -f1)
+status_at=$(printf '%s\n' "$msgO2" | grep -n '— ' | head -1 | cut -d: -f1)
 block_at=$(printf '%s\n' "$msgO2" | grep -n '⇢ ' | head -1 | cut -d: -f1)
 arch_at=$(printf '%s\n' "$msgO2" | grep -n '📦' | head -1 | cut -d: -f1)
-t 'all three sections are present' yes \
-  "$( [ -n "$nag_at" ] && [ -n "$block_at" ] && [ -n "$arch_at" ] && echo yes || echo no )"
-t 'the nag line renders before the block' yes \
-  "$( [ "${nag_at:-0}" -lt "${block_at:-0}" ] 2>/dev/null && echo yes || echo no )"
+t 'both sections are present' yes \
+  "$( [ -n "$status_at" ] && [ -n "$block_at" ] && [ -n "$arch_at" ] && echo yes || echo no )"
+t 'the block opens the message, no line in front of it' 1 "${status_at:-0}"
 t 'the archival verdict renders after the block' yes \
   "$( [ "${block_at:-0}" -lt "${arch_at:-0}" ] 2>/dev/null && echo yes || echo no )"
 has 'and reports the resume block it found' 'Resume block written' "$msgO2"
@@ -358,20 +361,25 @@ if [ -f "$FIX" ]; then
   t 'and fires once, not every turn' '0' \
     "$(printf '%s' "$ctx2" | grep -c 'corrections or rebukes' | tr -d ' ')"
 
+  scr=$(msg "$(payload "$FIX" fric2 "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)")
+  has 'friction past its nag threshold trips the reason cluster' \
+    '⚡.*propose stopping' "$scr"
+
 else
   printf 'SKIP: %s is missing\n' "$FIX"
 fi
 
 # --- 5. the ladder extends past the configured lines, forever ----------------
 # dotfiles#132: NAG_CONTEXT_LINES stops at 200k by default, but a session that
-# blows straight past it must keep getting a line every NAG_CONTEXT_STEP,
-# not go quiet. A single jump to 320k crosses five rungs at once (100k, 150k,
-# 200k, 250k, 300k) and the glyph count escalates with each: the fifth rung is
-# capped at 5 ⛁ and switches to "(xN)".
+# blows straight past it must keep counting every NAG_CONTEXT_STEP, not go
+# quiet. A single jump to 350k crosses six rungs at once (100k through 350k)
+# and the glyph count escalates with each: past the fifth it caps at 5 ⛁
+# and switches to "(xN)".
 TP5="$SCRATCH/ladder.jsonl"; SID5=ladder
 turn "$TP5" 350000
-out5=$(payload "$TP5" "$SID5" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
-has 'the ladder reaches past the last configured line' '350k/350k' "$(msg "$out5")"
+payload "$TP5" "$SID5" "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+out5=$(payload "$TP5" "$SID5" "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
+has 'the ladder reaches past the last configured line' '/350k' "$(msg "$out5")"
 has 'and the glyph count is capped, with the total after it' \
     '⛁⛁⛁⛁⛁\(x6\)' "$(msg "$out5")"
 t 'six rungs cross in one jump, in order' \
@@ -379,9 +387,10 @@ t 'six rungs cross in one jump, in order' \
   "$(jq -r 'select(.kind == "context") | .at' "$STATE/metrics/crossings/$SID5.jsonl" 2>/dev/null)"
 
 # --- 6. model injection rides its own context ladder -------------------------
-# Below the first rung, nothing reaches the model. At or above it, the first
-# prompt offers a stopping point and every prompt after says it was already
-# raised.
+# Below the first rung, nothing reaches the model. At or above it, the prompt
+# that crosses a rung offers a stopping point, a later rung says it was
+# already raised, and the prompts in between say nothing at all
+# (dotfiles#282: the injection is edge-triggered, like the screen line).
 TP6="$SCRATCH/inject.jsonl"; SID6=inject
 turn "$TP6" 103000
 ctx6a=$(payload "$TP6" "$SID6" "$SCRATCH" \
@@ -399,6 +408,12 @@ ctx6c=$(payload "$TP6" "$SID6" "$SCRATCH" \
         | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
 has  'a later crossing says it was already raised'  'Already raised at 125k' "$ctx6c"
 hasnt 'and does not repeat the stopping-point offer' 'a stopping point'      "$ctx6c"
+
+# dotfiles#282: a prompt that crosses no new rung carries no context line.
+turn "$TP6" 261000
+ctx6c2=$(payload "$TP6" "$SID6" "$SCRATCH" \
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+t 'and the next prompt over the same rung says nothing' '' "$ctx6c2"
 
 # A single call can cross more than one stop-eligible rung at once (a big
 # tool result landing between prompts). That must still emit exactly one
@@ -429,6 +444,11 @@ out6g=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 has 'a later sitting crossing names the earlier rung raised' \
     'Already raised at 1h00' "$(ctx "$out6g")"
 hasnt 'and does not repeat the break offer' 'offer a break' "$(ctx "$out6g")"
+
+# dotfiles#282: still past 2h, no new rung -- silence, not a re-nag.
+clock 125 10
+out6g2=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
+t 'and the next prompt inside the same rung says nothing' '' "$(ctx "$out6g2")"
 
 clock 5 2
 out6h=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
@@ -462,6 +482,20 @@ hasnt 'the in-flight rung is not spent -- no "already raised"' \
       'Already raised' "$(ctx "$out6k")"
 hasnt 'and two hours in flight still does not order /wrapup' \
       'Stop here and run /wrapup' "$(ctx "$out6k")"
+
+# dotfiles#282: unspent is not the same as unlimited -- the in-flight line
+# still fires once per rung, not on every prompt.
+clock 125 10
+out6k2=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
+t 'the in-flight line does not repeat inside its rung' '' "$(ctx "$out6k2")"
+
+# ...and the unspent offer still arrives on the prompt after the work lands,
+# at the rung that was already spoken in flight.
+git -C "$WT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+rm -f "$WT/dirty.txt"
+out6k3=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
+has 'and once the work lands the unspent offer fires' \
+    'Stop here and run /wrapup' "$(ctx "$out6k3")"
 clock_clear
 
 # --- 6c. model injection: decision load, mirrors section 6 --------------------
@@ -496,6 +530,11 @@ ctx6l=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
 has 'a later decision crossing names the earlier rung raised' \
     'past 5\. Already raised at 3 and not acted on\.' "$ctx6l"
 hasnt 'and does not repeat the front-load offer' 'Front-load or card the rest\.' "$ctx6l"
+
+# dotfiles#282: no new decision, no line.
+ctx6m=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
+        | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
+t 'and a prompt adding no decision says nothing' '' "$ctx6m"
 
 # --- 7. the sitting line carries git state once #129 makes it safe to ---------
 # dotfiles#132's third deferred item, reconciled now that #129 landed: a dirty
@@ -600,6 +639,90 @@ cat > "$SCRATCH/bin/gh" <<'GH'
 echo 1
 GH
 chmod +x "$SCRATCH/bin/gh"
+
+# --- 11. calm states, and the ⏰ tier ---------------------------------------
+# ✅ has shown blocked=0 since the #137 spec landed; friction and decisions
+# vanished at zero instead, so "no friction" and "this field does not exist"
+# looked the same. Ruled 2026-09-22: 🌌 friction, 🧘‍♀️ decisions, bare --
+# the glyph names its own field, so no ⚡/⚖ prefix.
+TP11="$SCRATCH/calm.jsonl"; turn "$TP11" 1000
+o11=$(msg "$(payload "$TP11" calm "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)")
+has 'friction at zero shows its calm glyph'  '🌌\(x0\)' "$o11"
+has 'decisions at zero show theirs'          '🧘‍♀️\(x0\)' "$o11"
+has 'and blocked is unchanged'               '🔧✅\(x0\)' "$o11"
+hasnt 'a calm block carries no verdict tail' ' — ' "$o11"
+
+# dotfiles#137: UserPromptSubmit renders the block same as every other wired
+# event now -- high frequency was the explicit ask, not a per-event opt-in.
+TP11P="$SCRATCH/calm-prompt.jsonl"; turn "$TP11P" 1000
+o11p=$(msg "$(payload "$TP11P" calmprompt "$SCRATCH" | bash "$HOOK" prompt 0 show 2>&1)")
+has 'UserPromptSubmit renders the block too' '^(»|⛁)' "$o11p"
+
+# The sitting cluster gets louder past NAG_SIT_HOT_RUNG rungs, night or day,
+# so the night glyph still reads at the front of a long evening.
+SITF11=$STATE/metrics/sitting.json
+mkdir -p "$(dirname "$SITF11")"
+jq -nc --argjson s "$(( $(date +%s) - 9000 ))" \
+  '{sitting_start: $s, last_prompt: $s}' > "$SITF11"
+o11b=$(msg "$(payload "$TP11" calm2 "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)")
+has 'past the hot rung the glyph changes'     '⏱2h30(⏱️|🌙){3}⏰⏰' "$o11b"
+o11c=$(msg "$(payload "$TP11" calm3 "$SCRATCH" | METRICS_SIT_HOT_RUNG=9 \
+  bash "$HOOK" posttooluse 0 show 2>&1)")
+has 'and the rung is a knob like every other' '⏱2h30(⏱️|🌙){5}' "$o11c"
+
+# dotfiles#137: the reason cluster trips on the same hot rung as the glyph
+# itself, no second threshold to keep in sync.
+has 'the sitting reason glyph trips at the hot rung' '⏱️.*propose stopping' "$o11b"
+o11d=$(msg "$(payload "$TP11" calm4 "$SCRATCH" | METRICS_SIT_HOT_RUNG=9 \
+  bash "$HOOK" posttooluse 0 show 2>&1)")
+hasnt 'and stays quiet while the rung is raised past it' 'propose stopping' "$o11d"
+rm -f "$SITF11"
+
+# --- 12. PostToolUse drives the engine and may carry an injection ------------
+# dotfiles#137, ruled 2026-09-22. Context is the one counter that climbs while
+# the model works, so its rung is spoken on the tool call that crosses it and
+# repeated after NAG_MODEL_CONTEXT_REPEAT tool calls of unacted silence. Both
+# are behaviour a prompt-only engine could not have.
+TP12="$SCRATCH/ptu.jsonl"
+turn "$TP12" 40000
+payload "$TP12" ptu "$SCRATCH" | bash "$HOOK" prompt 0 >/dev/null 2>&1
+turn "$TP12" 152000
+o12=$(payload "$TP12" ptu "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
+has 'a rung crossed by a tool call injects on that call'     'Context at 152k' "$(ctx "$o12")"
+t   'and the injection names PostToolUse, not the prompt event' PostToolUse     "$(printf '%s' "$o12" | jq -r '.hookSpecificOutput.hookEventName // ""')"
+has 'while the block still renders in the same object' 'propose stopping'     "$(msg "$o12")"
+
+turn "$TP12" 153000
+o12b=$(payload "$TP12" ptu "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
+t   'the next tool call injects nothing -- no new rung' '' "$(ctx "$o12b")"
+has 'though the block is unaffected' 'propose stopping' "$(msg "$o12b")"
+
+# The repeat arm, at 3 rather than the shipped 20 so the case is three calls.
+for n in 2 3; do
+  turn "$TP12" $((153000 + n))
+  o12c=$(payload "$TP12" ptu "$SCRATCH" \
+         | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)
+done
+has 'a raised rung is said again after the repeat count'     'for 3 tool calls and not acted on' "$(ctx "$o12c")"
+turn "$TP12" 154000
+o12d=$(payload "$TP12" ptu "$SCRATCH" \
+       | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)
+t   'and the counter resets, so it does not repeat every call' '' "$(ctx "$o12d")"
+
+# A Stop takes no injection: hookSpecificOutput is not a thing it may carry,
+# and its crossings reach the model through the block reason instead.
+TP12s="$SCRATCH/ptu-stop.jsonl"
+turn "$TP12s" 152000
+o12e=$(payload "$TP12s" ptustop "$SCRATCH" | bash "$HOOK" stop 0 show 2>&1)
+t   'a Stop never carries an additionalContext' '' "$(ctx "$o12e")"
+
+# Prompts still own the counters wound by the user's rhythm: a tool call must
+# not advance the sitting clock or the decision ladder.
+SITF12=$STATE/metrics/sitting.json
+before12=$(jq -r '.sitting_start // 0' "$SITF12" 2>/dev/null || echo 0)
+payload "$TP12" ptu "$SCRATCH" | bash "$HOOK" posttooluse 0 show >/dev/null 2>&1
+t   'a tool call leaves the sitting clock where it found it' "$before12" \
+    "$(jq -r '.sitting_start // 0' "$SITF12" 2>/dev/null || echo 0)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
