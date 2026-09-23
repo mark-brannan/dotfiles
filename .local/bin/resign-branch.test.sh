@@ -34,6 +34,47 @@ cat > "$T/bin/gh" <<'G'
 rc=$(cat "$T/gh.rc" 2>/dev/null || echo 0); [ "$rc" -eq 0 ] || { echo "gh: boom" >&2; exit "$rc"; }
 case "$*" in *--head*) cat "$T/gh.out" 2>/dev/null ;; *--base*) cat "$T/gh.children" 2>/dev/null ;; esac
 G
+# gh api graphql --input -: fakes createCommitOnBranch by replaying the
+# addition/deletion payload onto expectedHeadOid directly in origin.git and
+# moving the named branch, the same side effect the real mutation has.
+# gh api repos/.../commits/<oid>: fakes GitHub's verification check as true.
+cat > "$T/bin/gh" <<'G'
+#!/bin/sh
+rc=$(cat "$T/gh.rc" 2>/dev/null || echo 0); [ "$rc" -eq 0 ] || { echo "gh: boom" >&2; exit "$rc"; }
+case "$*" in
+  *"api graphql"*)
+    payload=$(cat)
+    branch=$(printf '%s' "$payload" | jq -r '.variables.input.branch.branchName')
+    headline=$(printf '%s' "$payload" | jq -r '.variables.input.message.headline')
+    body=$(printf '%s' "$payload" | jq -r '.variables.input.message.body')
+    oid=$(printf '%s' "$payload" | jq -r '.variables.input.expectedHeadOid')
+    GD="$T/origin.git"
+    cur=$(git --git-dir="$GD" rev-parse "refs/heads/$branch" 2>/dev/null) || cur=""
+    [ "$cur" = "$oid" ] || { echo '{"errors":[{"message":"oid mismatch"}]}' >&2; exit 1; }
+    idx="$T/fake-gh-index"
+    GIT_INDEX_FILE="$idx" git --git-dir="$GD" read-tree "$oid"
+    printf '%s' "$payload" | jq -c '.variables.input.fileChanges.additions[]?' | while IFS= read -r a; do
+      p=$(printf '%s' "$a" | jq -r .path); c=$(printf '%s' "$a" | jq -r .contents)
+      blob=$(printf '%s' "$c" | base64 -d | git --git-dir="$GD" hash-object -w --stdin)
+      GIT_INDEX_FILE="$idx" git --git-dir="$GD" update-index --add --cacheinfo 100644,"$blob","$p"
+    done
+    printf '%s' "$payload" | jq -c '.variables.input.fileChanges.deletions[]?' | while IFS= read -r d; do
+      p=$(printf '%s' "$d" | jq -r .path)
+      GIT_INDEX_FILE="$idx" git --git-dir="$GD" update-index --remove --force-remove "$p" 2>/dev/null || true
+    done
+    tree=$(GIT_INDEX_FILE="$idx" git --git-dir="$GD" write-tree); rm -f "$idx"
+    msg="$headline"; [ -z "$body" ] || msg="$headline
+
+$body"
+    new=$(printf '%s' "$msg" | git --git-dir="$GD" commit-tree "$tree" -p "$oid")
+    git --git-dir="$GD" update-ref "refs/heads/$branch" "$new"
+    printf '%s\n' "$new"
+    ;;
+  *"api repos/"*"/commits/"*) printf 'true\n' ;;
+  *--head*) cat "$T/gh.out" 2>/dev/null ;;
+  *--base*) cat "$T/gh.children" 2>/dev/null ;;
+esac
+G
 cat > "$T/bin/yadm" <<'G'
 #!/bin/sh
 [ "$1 $2" = "introspect repo" ] && { printf '%s\n' "$T/yadm-repo.git"; exit 0; }; exit 1
@@ -143,6 +184,38 @@ b=$(norm_url "https://github.com/mark-brannan/dotfiles.git")
 c=$(norm_url "ssh://git@github.com/mark-brannan/dotfiles")
 ok 'norm_url: scp-style and https:// match' [ "$a" = "$b" ]
 ok 'norm_url: scp-style and ssh:// match' [ "$a" = "$c" ]
+
+# --- 9. no local signing key: falls back to GitHub-API-signed commits ---
+git -C "$W" config user.signingkey ""
+: > "$T/gh.out"; : > "$T/gh.children"
+git -C "$W" checkout -q -b feat-c main
+echo c1 > "$W/c" && git -C "$W" add c && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-c 1"
+echo c2 >> "$W/c" && git -C "$W" add c && git -C "$W" -c commit.gpgsign=false commit -q --author="Not Me <notme@example.com>" -m "feat-c 2"
+git -C "$W" push -q origin feat-c
+run feat-c
+ok  'API fallback: exits 0' [ $rc -eq 0 ]
+has 'API fallback: names the path' 'no local signing key -- replaying'
+git -C "$W" fetch -q origin
+ok  'API fallback: same file content on the remote' [ "$(git -C "$W" show origin/feat-c:c)" = "$(printf 'c1\nc2\n')" ]
+ok  'API fallback: two commits replayed' [ "$(git -C "$W" rev-list --count origin/main..origin/feat-c)" = 2 ]
+trailer_log=$(git -C "$W" log origin/feat-c --format=%B -2)
+case "$trailer_log" in
+  *"Co-Authored-By: Not Me <notme@example.com>"*) ok 'API fallback: original author preserved as a trailer' true ;;
+  *) ok 'API fallback: original author preserved as a trailer' false ;;
+esac
+ok  'API fallback: scratch branch cleaned up' [ -z "$(git -C "$T/origin.git" for-each-ref 'refs/heads/resign-tmp/*' --format='%(refname)')" ]
+
+# --- 10. no local signing key, executable-bit change: refuses, remote untouched ---
+git -C "$W" checkout -q -b feat-d main
+echo x > "$W/x" && git -C "$W" add x && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-d 1"
+chmod +x "$W/x" && git -C "$W" add x && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-d 2 chmod +x"
+git -C "$W" push -q origin feat-d
+old_d=$(git -C "$W" rev-parse origin/feat-d)
+run feat-d
+ok  'API fallback mode change: refuses' [ $rc -eq 1 ]
+has 'API fallback mode change: says why' "the GitHub API fallback can only create or delete plain 100644 blobs"
+git -C "$W" fetch -q origin
+ok  'API fallback mode change: remote untouched' [ "$(git -C "$W" rev-parse origin/feat-d)" = "$old_d" ]
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
