@@ -159,9 +159,9 @@ check_claim 'a fresh stamp from another session -> live, report and stop' \
 check_claim 'only a stale stamp -> named cleanup command' \
   "$(printf 'stale\tdeadbeef\thost-aa1\t180m\thttps://github.com/o/r/pull/1')" \
   "git worktree remove $THEIRS"
-check_claim 'no stamps at all on a real card -> stale, cleanup command' \
+check_claim 'no stamps at all -> unknown: a failed gh read prints the same nothing' \
   '' \
-  "git worktree remove $THEIRS"
+  'A hand-off carries a branch'
 check_claim 'branch has no card -> unknown, old fallback message' \
   'no card' \
   'A hand-off carries a branch'

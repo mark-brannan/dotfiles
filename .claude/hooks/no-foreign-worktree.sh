@@ -107,23 +107,26 @@ usable_claim() {
 #
 # "live" -- claim-stamp.sh read (dotfiles#307) shows a fresh stamp from some
 # session on the branch's card: another session is genuinely working there.
-# "stale" -- the card was found and carries no fresh stamp (including no
-# stamp at all -- archivable_reasons() in lib-state.sh treats absence of any
-# stamp the same way, dotfiles#307): nothing here claims the worktree is live.
-# "unknown" -- claim-stamp.sh could not be asked at all (no gh, CI, the
-# switch is off), answered "no card" for this branch, or answered
-# "unverified" because the stamps could not be fetched -- never read as
-# stale. A false "stale" here is exactly how PR #162 lost a worktree: this
-# hook would be recommending the destructive step instead of merely failing
-# to prevent it. One read, not two: the state and the line it is reported
-# from must come from the same answer.
+# "stale" -- the card was found and every stamp on it is stale: a session
+# claimed this worktree and then died without releasing it.
+# "unknown" -- everything else: claim-stamp.sh could not be asked (no gh,
+# CI, the switch is off), answered "no card" or "unverified", or printed
+# nothing. Nothing is deliberately not stale: claim-stamp.sh's read prints
+# nothing both for a card with no stamp and for a gh call that failed, and
+# a session on a machine without gh leaves no stamp at all. A false "stale"
+# here is exactly how PR #162 lost a worktree: this hook would be
+# recommending the destructive step instead of merely failing to prevent
+# it. One read, not two: the state and the line it is reported from must
+# come from the same answer.
 claim_read() {
   claim_state=unknown; claim_live=""
   usable_claim || return 0
   out=$(sh "$CLAIM_STAMP_BIN" read -C "$1" 2>/dev/null) || return 0
-  case "$out" in 'no card'|unverified*) return 0 ;; esac
+  case "$out" in ''|'no card'|unverified*) return 0 ;; esac
   claim_live=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "live" { print; exit }')
-  if [ -n "$claim_live" ]; then claim_state=live; else claim_state=stale; fi
+  if [ -n "$claim_live" ]; then claim_state=live
+  elif printf '%s\n' "$out" | awk -F'\t' '$1 == "stale" { f = 1 } END { exit !f }'; then claim_state=stale
+  fi
 }
 
 deny_path() {
