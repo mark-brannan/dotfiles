@@ -329,6 +329,33 @@ EOF
     fi
   fi
 
+  # Never an untracked path base once had (dotfiles#280). A worktree created
+  # before some upstream commit deleted a file carries that file on disk as a
+  # stale, untracked leftover for the rest of the worktree's life -- nothing
+  # in the branch's own history added it and nothing this session wrote it,
+  # but `git add -A` cannot tell that apart from real new work. The signal
+  # that does: the path was tracked *somewhere* in this branch's own ancestry
+  # (which, rebased onto a newer base or not, always still contains whatever
+  # commit originally added the file to main) and is now missing from `$base`
+  # -- i.e. deleted upstream, not merely moved. A file this session actually
+  # created was never tracked anywhere in that history, so it never matches.
+  if git -C "$work_root" rev-parse -q --verify "$base" >/dev/null 2>&1; then
+    stale=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      ever_tracked=$(git -C "$work_root" log -1 --format=%H HEAD -- "$f" 2>/dev/null)
+      [ -n "$ever_tracked" ] || continue
+      git -C "$work_root" cat-file -e "$base:$f" 2>/dev/null && continue
+      stale="$stale $f"
+    done <<EOF
+$(git -C "$work_root" ls-files --others --exclude-standard 2>/dev/null)
+EOF
+    if [ -n "$stale" ]; then
+      sc_note "refused: untracked path(s) were tracked in this branch's history and are gone from \`$base\` now -- stale leftovers from before this checkout last synced, not new work; not committing:$stale"
+      return 0
+    fi
+  fi
+
   # --- the commit: repo hooks run as configured, signing is required -------
   # `commit.gpgsign=true` rather than the machine's setting: a cloud session
   # has no signing key, so "as configured" meant unsigned, and the salvage

@@ -10,9 +10,10 @@
 # model was told to write would be silent and total.
 #
 # The salvage commit's refusals (dotfiles#196: CI, stale base, revert of the
-# branch's own work) are covered near the bottom, in a throwaway repo of
-# their own. The rest of the hook -- metrics shape, the state-repo push -- is
-# not covered here.
+# branch's own work; dotfiles#280: a stale untracked leftover from before the
+# checkout synced) are covered near the bottom, in a throwaway repo of their
+# own. The rest of the hook -- metrics shape, the state-repo push -- is not
+# covered here.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 
@@ -247,6 +248,34 @@ gitq "$SWORK" checkout -- f hookpath
 echo 'guard: yes, differently' > "$SWORK/hookpath"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
 has 'a real edit to a branch-changed file: committed' 'committed and pushed to .claude/salvage.' "$CKPT"
+eq 'and nothing is left dirty' '' "$(git -C "$SWORK" status --porcelain)"
+
+# --- an untracked path base once had: refused, not committed (dotfiles#280) ------
+# A worktree created before an upstream commit deleted a tracked file carries
+# it on disk as an untracked leftover for the rest of the worktree's life.
+# Give the branch's own history a commit that added stale.txt (so HEAD's
+# ancestry has it, same as inheriting it from old main) and a later one that
+# removed it (so HEAD's own tree is clean, same as after a rebase past the
+# upstream deletion) -- then put the bytes back by hand: exactly what a
+# stale leftover looks like on disk, whatever operation actually produced it.
+gitq "$SWORK" checkout claude/salvage
+echo history > "$SWORK/stale.txt"
+gitq "$SWORK" add stale.txt; gitq "$SWORK" commit -m "add stale.txt"
+gitq "$SWORK" rm -q stale.txt; gitq "$SWORK" commit -m "remove stale.txt"
+gitq "$SWORK" push origin claude/salvage
+echo history > "$SWORK/stale.txt"   # the stale leftover: untracked, on disk
+
+snapshot; echo dirty >> "$SWORK/f"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+has 'stale untracked leftover: refused, path named' \
+  'refused: untracked path\(s\) were tracked .* stale\.txt' "$CKPT"
+untouched 'stale untracked leftover' $' M f\n?? stale.txt'
+
+# ... a genuinely new untracked file, never tracked anywhere, still commits.
+rm -f "$SWORK/stale.txt"
+echo brand-new > "$SWORK/new-file.txt"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+has 'a genuinely new untracked file: committed' 'committed and pushed to .claude/salvage.' "$CKPT"
 eq 'and nothing is left dirty' '' "$(git -C "$SWORK" status --porcelain)"
 
 # --- HEAD behind @{u}: refused, not committed, not pushed (dotfiles#196) ---------
