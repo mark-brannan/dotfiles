@@ -83,11 +83,77 @@ deny() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permission
 # message free of double quotes, backslashes and newlines.
 deny_literal() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-foreign-worktree: %s This is a gate and fails closed."}}\n' "$1"; exit 0; }
 
+# claim-stamp.sh, overridable so tests can point this at a stub instead of
+# shelling out to gh against a fixture repo with no real remote.
+CLAIM_STAMP_BIN=${CLAIM_STAMP_BIN:-$HERE/claim-stamp.sh}
+
+# Same preconditions claim-stamp.sh's own usable() checks (dotfiles#287) --
+# kept separate rather than sourced, because the only thing this hook needs
+# from claim-stamp.sh is its `read` output, and duplicating four cheap
+# `command -v`/env checks costs less than trusting a silent, unversioned
+# convention to keep agreeing with a file this script does not source.
+usable_claim() {
+  [ -z "${GITHUB_ACTIONS:-}" ] || return 1
+  [ -z "${CI:-}" ] || return 1
+  [ "${CLAUDE_CLAIM_STAMP:-on}" != off ] || return 1
+  [ -x "$CLAIM_STAMP_BIN" ] || return 1
+  command -v gh >/dev/null 2>&1 || return 1
+  return 0
+}
+
+# claim_read <foreign-worktree-root> -- sets claim_state to one of live,
+# stale, unknown, and claim_live to the first live stamp line (tab-separated:
+# state, session, machine, age, card url) when the state is live.
+#
+# "live" -- claim-stamp.sh read (dotfiles#307) shows a fresh stamp from some
+# session on the branch's card: another session is genuinely working there.
+# "stale" -- the card was found and every stamp on it is stale: a session
+# claimed this worktree and then died without releasing it.
+# "unknown" -- everything else: claim-stamp.sh could not be asked (no gh,
+# CI, the switch is off), answered "no card" or "unverified", or printed
+# nothing. Nothing is deliberately not stale: claim-stamp.sh's read prints
+# nothing both for a card with no stamp and for a gh call that failed, and
+# a session on a machine without gh leaves no stamp at all. A false "stale"
+# here is exactly how PR #162 lost a worktree: this hook would be
+# recommending the destructive step instead of merely failing to prevent
+# it. One read, not two: the state and the line it is reported from must
+# come from the same answer.
+claim_read() {
+  claim_state=unknown; claim_live=""
+  usable_claim || return 0
+  out=$(sh "$CLAIM_STAMP_BIN" read -C "$1" 2>/dev/null) || return 0
+  case "$out" in ''|'no card'|unverified*) return 0 ;; esac
+  claim_live=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "live" { print; exit }')
+  if [ -n "$claim_live" ]; then claim_state=live
+  elif printf '%s\n' "$out" | awk -F'\t' '$1 == "stale" { f = 1 } END { exit !f }'; then claim_state=stale
+  fi
+}
+
 deny_path() {
-  deny "no-foreign-worktree: \`$1\` is inside $2, a git worktree this session does not own. A hand-off carries a branch, an issue and a PR -- never a directory; another session may still be running in there, and it may be archived out from under you mid-turn (that is how PR #162 lost its worktree).
+  word=$1; ft=$2
+  branch=$(git -C "$ft" symbolic-ref -q --short HEAD 2>/dev/null)
+  claim_state=unknown; claim_live=""
+  [ -n "$branch" ] && claim_read "$ft"
+
+  case "$claim_state" in
+    live)
+      who=$(printf '%s' "$claim_live" | awk -F'\t' '{ printf "session `%s` on `%s`, claimed %s ago", $2, $3, $4 }')
+      deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. ${who:+$who -- }another session is live in there (claim-stamp.sh, dotfiles#307); it may be archived out from under you mid-turn if you reach in (that is how PR #162 lost its worktree).
+To read that branch, stay here: \`git log/diff/show $branch\`, \`git show $branch:<path>\` -- worktrees of a repo share objects and refs.
+Report it and stop. Do not take the worktree away from them."
+      ;;
+    stale)
+      deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. claim-stamp.sh (dotfiles#307) finds no live claim on \`$branch\` -- the session that held this worktree looks dead, not merely between turns.
+That does not make it yours to clear: reaching in and archiving it out from under an owner who turns out to still be there is the mistake PR #162 made. Report this to the user with the cleanup command: \`git worktree remove $ft\` (run from a worktree other than this one) -- git itself refuses if anything uncommitted is left inside, and the branch survives the removal either way, so nothing is lost if the stale read was wrong.
+To read that branch meanwhile, stay here: \`git log/diff/show $branch\`, \`git show $branch:<path>\`."
+      ;;
+    *)
+      deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. A hand-off carries a branch, an issue and a PR -- never a directory; another session may still be running in there, and it may be archived out from under you mid-turn (that is how PR #162 lost its worktree).
 To read that branch, stay here: \`git log/diff/show <branch>\`, \`git show <branch>:<path>\` -- worktrees of a repo share objects and refs.
 To work on it, take your own worktree: EnterWorktree(name=<name>), then \`git checkout <branch>\` inside it. If git refuses because the branch is checked out elsewhere, another session holds it: report that and stop.
 Worktree hygiene is the user's call, not a session's."
+      ;;
+  esac
 }
 
 command -v jq  >/dev/null 2>&1 || deny_literal 'jq is missing, so the command cannot be inspected.'
