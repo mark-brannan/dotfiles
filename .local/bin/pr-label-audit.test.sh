@@ -332,6 +332,28 @@ page false "$(pr alpha 9 'mixed checks' false MERGEABLE '[]' '[]' "$mixed")" > "
 runargs --json
 eq 'a running, skipped or pending check is not a failing one' '["lint"]' "$(row 'alpha#9' | jq -c '[.failing_checks[].name]')"
 eq 'and a failing check carries its url' 'https://example.test/lint' "$(row 'alpha#9' | jq -r '.failing_checks[0].url')"
+run
+eq 'a red check outside the gate is unfinished work -- Mergify wants #check-failure=0' \
+  '## Gated, unlabelled -- a session left these unfinished' "$(section_of 'alpha#9')"
+has 'and the report names the check' 'alpha#9 \[checks-red: lint\]'
+hasnt 'rather than indicting the rule' 'Green and thread-free but NOT labelled'
+runargs --json
+eq 'a real failure is not cancelled_only' false "$(row 'alpha#9' | jq -r '.cancelled_only')"
+
+# --- cancelled_only: true only when every failing check was cancelled, not merely absent of failures ---
+all_cancelled='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"CANCELLED"},{"name":"lint","conclusion":"CANCELLED"}]}}'
+page false "$(pr alpha 10 'all cancelled' false MERGEABLE '[]' '[]' "$all_cancelled")" > "$S/search.json"
+runargs --json
+eq 'every failing check cancelled -> cancelled_only true' true "$(row 'alpha#10' | jq -r '.cancelled_only')"
+
+mixed_cancelled='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"CANCELLED"},{"name":"lint","conclusion":"FAILURE"}]}}'
+page false "$(pr alpha 11 'one real failure too' false MERGEABLE '[]' '[]' "$mixed_cancelled")" > "$S/search.json"
+runargs --json
+eq 'one non-cancelled failure among them -> cancelled_only false' false "$(row 'alpha#11' | jq -r '.cancelled_only')"
+
+page false "$(pr alpha 1 'green and labelled' false MERGEABLE "$lab" '[]' "$green")" > "$S/search.json"
+runargs --json
+eq 'no failing checks at all -> cancelled_only false, not vacuously true' false "$(row 'alpha#1' | jq -r '.cancelled_only')"
 
 # --- --refresh: idempotent, and never fires without the flag ---------------------------
 rm -f "$BIN/.comments"

@@ -24,6 +24,11 @@ with more facts on it and a clearer finish line than a resume block has. Skip
 
 Run `~/.local/bin/pickup-list`.
 
+- **A `Hard --` block above the table** — those are PRs a fixer already gave
+  up on, and each carries the line saying why. With no argument, offer the top
+  one before the newest block: a human is otherwise its next reader, which
+  outranks a block a session can pick up any time. Solace picks; if she takes
+  it, it is a PR fixup — §0.
 - **No rows** — say so in one line and stop. There is nothing to resume;
   `worklist` is the tool for choosing new work, and Solace will ask for it.
 - **One row** — take it.
@@ -99,6 +104,16 @@ so this is the one place the claim has to be asked for.
 Everything the previous session wanted handed over is on the remote. If it
 isn't pushed, it isn't handed over: work from the pushed state and say in one
 line what you found missing.
+
+One exception, and it is not a hand-off: when the checkpoint's `## Stop-commit`
+section names a `wip/<session-id>` ref, the previous session ended with a dirty
+tree and the Stop hook salvaged it to that ref rather than onto the branch
+(dotfiles#285). It is a machine's snapshot of work nobody chose to publish, so
+offer it, don't merge it:
+
+```
+git fetch origin wip/<session-id> && git diff <branch>..FETCH_HEAD
+```
 
 For a **PR fixup** the branch is the PR's head branch, and the same three
 rules hold — your own worktree, fetch first, refuse a branch another worktree
