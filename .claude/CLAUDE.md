@@ -41,7 +41,7 @@ tracks difficulty, never effort.
 
 - **Default to Facts / Options / Recommendation, ~50 words.** Over-long and
   I stop reading.  "The more the words, the less the meaning".
-- **Show, don't tell.** Prose is the least-worst option, never the first.
+- **Show, don't tell.** Prose is the last resort, never the first.
   Before writing a paragraph, ask what would let me *see* the answer rather
   than read it, and render that whenever the medium allows:
   - a value → the thing it produces. A colour is a swatch, not a hex code; a
