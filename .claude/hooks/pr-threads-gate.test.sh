@@ -29,6 +29,7 @@ case "$1 $2" in
       # the ambiguous NOT_FOUND in the first place. Proves nothing either
       # way, so it must not read as "confirmed gone".
       o/flaky) echo "gh: HTTP 403: rate limit exceeded" >&2; exit 1 ;;
+      o/slow) sleep 5 ;;
     esac
     ;;
 esac
@@ -36,22 +37,13 @@ esac
 # NOT_FOUND-on-`repository` response -- JSON body on stdout, gh's own error
 # text appended after it with no separator (that's really how gh behaves; see
 # the issue), non-zero exit.
+# Every one of these gets the identical NOT_FOUND reply; what separates them
+# is only what `gh repo view` above says when the gate goes to confirm it.
 case "$*" in
-  *"name=notfound"*)
-    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/notfound'"'"'."}]}'
-    echo "gh: Could not resolve to a Repository with the name 'o/notfound'." >&2
-    exit 1
-    ;;
-  *"name=hidden"*)
-    # dotfiles#309: same NOT_FOUND shape, but `gh repo view` (mocked above)
-    # can still see this one -- an access problem, not a missing repo.
-    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/hidden'"'"'."}]}'
-    echo "gh: Could not resolve to a Repository with the name 'o/hidden'." >&2
-    exit 1
-    ;;
-  *"name=flaky"*)
-    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/flaky'"'"'."}]}'
-    echo "gh: Could not resolve to a Repository with the name 'o/flaky'." >&2
+  *"name=notfound"*|*"name=hidden"*|*"name=flaky"*|*"name=slow"*)
+    r=${*#*name=}; r=o/${r%% *}
+    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'%s'"'"'."}]}' "$r"
+    echo "gh: Could not resolve to a Repository with the name '$r'." >&2
     exit 1
     ;;
 esac
@@ -205,6 +197,19 @@ t 'all eight queried' 8 "$(grep -c 'api graphql' "$GH_LOG")"
 check block 'eight PRs, one open thread each -> block' open "$(stop_input s9)"
 reason 'names the eighth PR'            'o/r#8 has 1 unresolved'
 no_reason 'no count cap'                'not checked'
+
+# --- several NOT_FOUND repos confirm concurrently, not one timeout each ---------
+# dotfiles#345: the confirming `gh repo view` runs inside the backgrounded
+# fetch job. Serially, four hung confirmations would cost four timeout windows.
+if command -v timeout >/dev/null 2>&1; then
+  for i in 1 2 3 4; do record s11 "$(printf 'repo\to/slow\t%s' "$i")"; done
+  start=$(date +%s)
+  out=$(stop_input s11 | PR_THREADS_GATE_TIMEOUT=1 sh "$HOOK" 2>&1); LAST=$out
+  elapsed=$(( $(date +%s) - start ))
+  if [ "$elapsed" -lt 4 ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: four confirmations took ${elapsed}s, so they ran serially"; fi
+  reason 'all four reported unverified' 'o/slow#4: repository NOT_FOUND over GraphQL'
+  no_reason 'and none of them dropped'  'never a PR this session worked'
+fi
 
 # --- dotfiles#224: a read never gates the Stop, whatever threads it has --------
 record rd1 "$(printf 'repo\to/r\t25\tread')"

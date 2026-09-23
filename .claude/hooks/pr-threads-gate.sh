@@ -28,11 +28,13 @@
 #
 # EXCEPTION, dotfiles#263/#309: NOT_FOUND on `repository` over GraphQL is
 # ambiguous by GitHub's own anti-enumeration design -- identical whether the
-# repo doesn't exist or the token merely lacks access to it right now
-# (private, transferred, unattached in a cloud session). So NOT_FOUND alone
-# never drops an entry; it drops only once a second, independent `gh repo
-# view` call also confirms the repo is gone. Any other outcome -- including
-# a repo-view failure -- falls through to the generic failed-closed case.
+# repo is gone or the token merely lacks access to it right now (private,
+# transferred, unattached in a cloud session). So an entry drops only once a
+# second, independent `gh repo view` confirms a 404; every other outcome,
+# repo-view failures included, falls through to the failed-closed case. That
+# confirming call runs inside the backgrounded fetch job that saw the
+# NOT_FOUND, so N missing repos still cost one timeout window between them,
+# not one each.
 #
 # EXCEPTION, dotfiles#224: a "repo" record line carries a third field, read
 # or work, written by pr-ownership-context.sh (kind is empty on an older or
@@ -97,26 +99,17 @@ while IFS="$(printf '\t')" read -r repo num; do
         state mergeable mergeStateStatus
         reviewThreads(first:100){ nodes{ id isResolved path
           comments(first:1){ nodes{ author{login} body } } } } } } }' > "$WORK/$n.out" 2>&1
-    echo $? > "$WORK/$n.rc" ) &
+    echo $? > "$WORK/$n.rc"
+    # The confirming look runs here, not in the results loop, so N missing
+    # repos cost one repo-view timeout window between them, not N serially.
+    nf=$(jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' < "$WORK/$n.out" 2>/dev/null)
+    if [ "${nf:-0}" -gt 0 ] 2>/dev/null; then
+      $TO gh repo view "$repo" > "$WORK/$n.view.out" 2>&1
+      echo $? > "$WORK/$n.view.rc"
+    fi ) &
 done <<EOF
 $prs
 EOF
-wait
-
-# Second pass, same wall-clock reasoning as the first fetch above: every
-# NOT_FOUND-on-`repository` result needs a confirmatory `gh repo view`, and a
-# session that touched several now-missing repos pays that timeout once,
-# total, rather than once per entry serially in the results loop below.
-i=0
-while [ "$i" -lt "$n" ]; do
-  i=$((i + 1))
-  out=$(cat "$WORK/$i.out" 2>/dev/null)
-  nf=$(printf '%s' "$out" | jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' 2>/dev/null)
-  [ "${nf:-0}" -gt 0 ] 2>/dev/null || continue
-  IFS="$(printf '\t')" read -r repo num < "$WORK/$i.pr"
-  ( $TO gh repo view "$repo" > "$WORK/$i.view.out" 2>&1
-    echo $? > "$WORK/$i.view.rc" ) &
-done
 wait
 
 open=""
@@ -134,26 +127,20 @@ while [ "$i" -lt "$n" ]; do
   # `gh api graphql` exits non-zero whenever the response carries an `errors`
   # array, even though the body is still valid JSON up to that array -- jq
   # parses the leading value fine and only complains (to its own stderr,
-  # never $out) about the trailing text gh appends. NOT_FOUND handling is the
-  # EXCEPTION note above; every other error falls through to failed-closed
-  # right below.
-  nf=$(printf '%s' "$out" | jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' 2>/dev/null)
-  nf=${nf:-0}
-  if [ "$nf" -gt 0 ] 2>/dev/null; then
+  # never $out) about the trailing text gh appends. A view.rc means the fetch
+  # job saw NOT_FOUND on `repository` and went looking (EXCEPTION above); any
+  # other error falls through to the generic failed-closed case right below.
+  if [ -f "$WORK/$i.view.rc" ]; then
     view_out=$(cat "$WORK/$i.view.out" 2>/dev/null)
-    view_rc=$(cat "$WORK/$i.view.rc" 2>/dev/null)
-    if [ "$view_rc" = 0 ]; then
+    if [ "$(cat "$WORK/$i.view.rc")" = 0 ]; then
       failed="$failed
 - $repo#$num: GraphQL reported repository NOT_FOUND but \`gh repo view\` can see it -- an access problem, not a missing repo; not dropped"
-    elif printf '%s' "$view_out" | grep -qi 'HTTP 404\|Could not resolve to a Repository'; then
+    elif printf '%s' "$view_out" | grep -qiE 'HTTP 404|Could not resolve to a Repository'; then
       dropped="$dropped
 - $repo#$num: repository not found over GraphQL (NOT_FOUND), confirmed 404 by \`gh repo view\` -- dropped; this record was never a PR this session worked"
     else
-      # A repo-view failure that isn't a confirmed 404 -- timeout, rate
-      # limit, or the same proxy/token block that produced the ambiguous
-      # NOT_FOUND in the first place -- proves nothing either way, so it
-      # falls through to the generic failed-closed case per the EXCEPTION
-      # note above, not to dropped.
+      # Unconfirmed failure (timeout, rate limit, the same block that made
+      # NOT_FOUND ambiguous) proves nothing -- failed-closed, not dropped.
       failed="$failed
 - $repo#$num: repository NOT_FOUND over GraphQL, and \`gh repo view\` failed without confirming it is gone ($(printf '%s' "$view_out" | head -1 | tr -d '\n')) -- unverified, not dropped"
     fi
