@@ -119,7 +119,10 @@ check_json deny 'NotebookEdit into a foreign worktree' \
 
 # --- claim-stamp live/stale/unknown distinction (dotfiles#168) -------------
 # A stub claim-stamp.sh keeps this offline: no gh, no network, no real card.
-# CLAIM_STAMP_BIN overrides the hook's default $HERE/claim-stamp.sh.
+# CLAIM_STAMP_BIN overrides the hook's default $HERE/claim-stamp.sh. The
+# claim path refuses to run under CI, and this suite runs under CI: clear the
+# ambient signal so only the one case that sets it on purpose sees it.
+unset CI GITHUB_ACTIONS
 STUB="$TMP/claim-stamp-stub.sh"
 set_stub() {  # set_stub <read-output>
   cat > "$STUB" <<EOF
@@ -179,6 +182,18 @@ if printf '%s' "$out" | grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m a
   pass=$((pass + 1))
 else
   fail=$((fail + 1)); printf 'FAIL: live deny must name the holder from a single claim-stamp read (reads: %s)\n  hook output: %s\n' "$(wc -c < "$TMP/reads")" "$out"
+fi
+
+# Under CI (the shared PR reviewer's checkout holds no claim on anything)
+# the card is never consulted: a live stamp still yields the unknown message.
+set_stub "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | CI=true CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'A hand-off carries a branch'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: under CI the claim path must not run; expected the unknown message\n  hook output: %s\n' "$out"
 fi
 
 # claim-stamp.sh itself unusable (stands in for "no gh") -> same unknown
