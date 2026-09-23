@@ -314,6 +314,20 @@ salvaged 'a genuinely new untracked file' '?? new-file.txt'
 eq 'the new file is on the wip ref' 'brand-new' "$(git -C "$SORIGIN" show "$WIP:new-file.txt")"
 rm -f "$SWORK/new-file.txt"
 
+# ... the branch's own add-delete-recreate of the same path: path history looks
+# identical to the stale-leftover case above, but the bytes are new -- this is
+# the session's own work, not dotfiles#280's upstream-deletion leftover, and
+# the content check is what tells them apart.
+echo 'new content, not history' > "$SWORK/stale.txt"
+snapshot
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+has 'recreate with new content: salvaged, not refused' \
+  "salvaged to .$WIP. and pushed it" "$CKPT"
+salvaged 'recreate with new content' '?? stale.txt'
+eq 'the recreated file carries the new content, not the old' \
+  'new content, not history' "$(git -C "$SORIGIN" show "$WIP:stale.txt")"
+rm -f "$SWORK/stale.txt"
+
 # --- HEAD behind @{u}: refused, not committed, not pushed (dotfiles#196) ---------
 # Simulate the remote moving on without this checkout -- a hand re-push, a
 # second session, anything -- by pushing a new commit straight to origin from

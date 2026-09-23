@@ -336,29 +336,41 @@ EOF
     fi
   fi
 
-  # Never an untracked path base once had (dotfiles#280). A worktree created
-  # before some upstream commit deleted a file carries that file on disk as a
-  # stale, untracked leftover for the rest of the worktree's life -- nothing
-  # in the branch's own history added it and nothing this session wrote it,
-  # but `git add -A` cannot tell that apart from real new work. The signal
-  # that does: the path was tracked *somewhere* in this branch's own ancestry
-  # (which, rebased onto a newer base or not, always still contains whatever
-  # commit originally added the file to main) and is now missing from `$base`
-  # -- i.e. deleted upstream, not merely moved. A file this session actually
-  # created was never tracked anywhere in that history, so it never matches.
+  # dotfiles#280: a worktree checked out before some upstream commit deleted
+  # a file still carries that file on disk, untracked, and `git add -A`
+  # cannot tell it from real new work. Path history alone doesn't settle it
+  # either -- a branch that itself added, deleted and is now legitimately
+  # recreating the same path leaves an identical trail. What distinguishes
+  # the two is content: only when the untracked file was tracked at some
+  # commit in HEAD's own history, is missing from `$base`, *and* the working
+  # copy still matches that commit's content byte for byte is it the old
+  # leftover rather than new work -- a session's freshly written file
+  # essentially never matches old bytes by chance. A shallow checkout can
+  # hide the commit that first added a long-lived path, so unshallow first;
+  # unable to, refuse rather than guess. Paths are read NUL-delimited so
+  # control characters and non-ASCII names survive intact.
   if git -C "$work_root" rev-parse -q --verify "$base" >/dev/null 2>&1; then
+    if [ "$(git -C "$work_root" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ] \
+       && ! timeout 60 git -C "$work_root" fetch -q --unshallow origin >/dev/null 2>&1; then
+      sc_note "refused: repo is shallow and could not be unshallowed -- can't tell a real stale leftover from new work; not committing"
+      return 0
+    fi
     stale=""
-    while IFS= read -r f; do
+    while IFS= read -r -d '' f; do
       [ -n "$f" ] || continue
       ever_tracked=$(git -C "$work_root" log -1 --format=%H HEAD -- "$f" 2>/dev/null)
       [ -n "$ever_tracked" ] || continue
       git -C "$work_root" cat-file -e "$base:$f" 2>/dev/null && continue
+      # The last commit to touch the path may be the one that deleted it, so
+      # there is no blob there to compare -- fall back to its parent, the
+      # last commit where the path actually existed.
+      last_live="$ever_tracked"
+      git -C "$work_root" cat-file -e "$last_live:$f" 2>/dev/null || last_live="$last_live^"
+      cmp -s <(git -C "$work_root" show "$last_live:$f" 2>/dev/null) "$work_root/$f" || continue
       stale="$stale $f"
-    done <<EOF
-$(git -C "$work_root" ls-files --others --exclude-standard 2>/dev/null)
-EOF
+    done < <(git -C "$work_root" ls-files -z --others --exclude-standard 2>/dev/null)
     if [ -n "$stale" ]; then
-      sc_note "refused: untracked path(s) were tracked in this branch's history and are gone from \`$base\` now -- stale leftovers from before this checkout last synced, not new work; not committing:$stale"
+      sc_note "refused: untracked path(s) were tracked in this branch's history, are gone from \`$base\` now, and still match their last tracked content -- stale leftovers from before this checkout last synced, not new work; not committing:$stale"
       return 0
     fi
   fi
