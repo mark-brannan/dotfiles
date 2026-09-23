@@ -33,8 +33,15 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 **1 — Tooling.**
 
 ```bash
-sudo apt-get install -y yadm age    # or: brew install yadm age sops
-# sops on Linux: grab a release binary from https://github.com/getsops/sops/releases
+# Linux / WSL
+sudo apt-get install -y yadm age
+# sops has no apt package: grab a release binary from https://github.com/getsops/sops/releases
+command -v yadm age sops            # all three, before continuing
+```
+
+```zsh
+# macOS
+brew install yadm age sops
 command -v yadm age sops            # all three, before continuing
 ```
 
