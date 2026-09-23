@@ -88,6 +88,8 @@ cat > "$S/prompt.txt"
 n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
 echo "\$n \$*" >> "$CLAUDE_LOG"
 echo \$((n + 1)) > "$S/claude-next"
+stage="$S/claude-stage/\$n"
+[ -d "\$stage" ] && { mkdir -p .claude-staging && cp -r "\$stage"/. .claude-staging/; }
 reply="$S/claude-replies/\$n.json"
 if [ -f "\$reply" ]; then cat "\$reply"; else
   echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
@@ -95,6 +97,29 @@ if [ -f "\$reply" ]; then cat "\$reply"; else
 fi
 GH
 chmod +x "$S/bin/claude"
+# real git for everything except `push`, which is logged and turned into a
+# no-op -- grind's staging move (#172) commits and pushes for real, and this
+# suite has no reachable remote to push to.
+REAL_GIT=$(command -v git)
+export GIT_PUSH_LOG="$S/git-push.log"; : > "$GIT_PUSH_LOG"
+cat > "$S/bin/git" <<GITSHIM
+#!/bin/sh
+skip_next=0; subcmd=""
+for a in "\$@"; do
+  if [ "\$skip_next" = 1 ]; then skip_next=0; continue; fi
+  case "\$a" in
+    -C) skip_next=1; continue ;;
+    -*) continue ;;
+  esac
+  subcmd=\$a; break
+done
+if [ "\$subcmd" = push ]; then
+  printf '%s\n' "\$*" >> "$GIT_PUSH_LOG"
+  exit 0
+fi
+exec "$REAL_GIT" "\$@"
+GITSHIM
+chmod +x "$S/bin/git"
 # reply <cost> <status> <n> -- writes the two-line stream-json shape above
 # (one assistant usage event, one result event) to $S/claude-replies/<n>.json.
 reply() {
@@ -218,6 +243,8 @@ cat > "$S/prompt.txt"
 n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
 echo "\$n \$*" >> "$CLAUDE_LOG"
 echo \$((n + 1)) > "$S/claude-next"
+stage="$S/claude-stage/\$n"
+[ -d "\$stage" ] && { mkdir -p .claude-staging && cp -r "\$stage"/. .claude-staging/; }
 reply="$S/claude-replies/\$n.json"
 if [ -f "\$reply" ]; then cat "\$reply"; else
   echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
@@ -395,6 +422,37 @@ reply 0.50 "done" 1
 run --resume "$session_id" --pause-every 1
 eq 'an unverified item is retried on resume' 1 "$(calls_claude)"
 has 'the retry, with a PR this time, is a plain success line' '^o/alpha#5: First item -- sonnet, \$0\.50,'
+
+# --- .claude/ writes: staged content is moved into place and committed by
+# grind itself before the PR-exists check runs (dotfiles#172 -- every write
+# under .claude/ is refused inside the sandboxed worker, whatever the
+# permission mode, so it stages under .claude-staging/ instead) ---------------
+cat > "$S/pr-list.json" <<'JSON'
+[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
+JSON
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+rm -rf "$S/claude-stage"; : > "$GIT_PUSH_LOG"
+mkdir -p "$S/claude-stage/1/hooks"
+echo 'echo staged' > "$S/claude-stage/1/hooks/example.test.sh"
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+has 'the item still reports a plain success' '^o/alpha#5: First item -- sonnet, \$0\.50,'
+has 'grind logs the move' 'moved staged \.claude/ files into place and pushed for o/alpha#5'
+assert 'the staged file landed under .claude/ on the branch' \
+  bash -c 'git -C "'"$S"'/repo" show grind-5:.claude/hooks/example.test.sh 2>/dev/null | grep -q "echo staged"'
+assert 'nothing is left under .claude-staging/ on the branch' \
+  bash -c '! git -C "'"$S"'/repo" show grind-5:.claude-staging >/dev/null 2>&1'
+eq 'grind pushed exactly once for the staged files' 1 "$(wc -l < "$GIT_PUSH_LOG" | tr -d ' ')"
+rm -rf "$S/claude-stage"
+
+# an item with nothing staged is unaffected -- no move, no extra push, no log line
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+lacks 'no staging log line when nothing was staged' 'moved staged \.claude/ files'
+eq 'no push logged either' 0 "$(wc -l < "$GIT_PUSH_LOG" | tr -d ' ')"
 
 # `carded` with an untouched board and no new comment on the issue
 cat > "$S/issue-comments.json" <<'JSON'
