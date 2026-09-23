@@ -162,6 +162,24 @@ check_claim 'no stamps at all on a real card -> stale, cleanup command' \
 check_claim 'branch has no card -> unknown, old fallback message' \
   'no card' \
   'A hand-off carries a branch'
+check_claim 'stamps could not be fetched -> unknown, never stale' \
+  'unverified: gh api failed' \
+  'A hand-off carries a branch'
+
+# The stub counts its invocations: the state and the attributed line must
+# come from one read, not a second call that can disagree with the first.
+set_stub "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')"
+{ head -1 "$STUB"; printf 'printf x >> "%s"\n' "$TMP/reads"; tail -n +2 "$STUB"; } > "$STUB.new"
+mv "$STUB.new" "$STUB"; chmod +x "$STUB"; : > "$TMP/reads"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m ago' \
+   && [ "$(wc -c < "$TMP/reads")" -eq 1 ]; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: live deny must name the holder from a single claim-stamp read (reads: %s)\n  hook output: %s\n' "$(wc -c < "$TMP/reads")" "$out"
+fi
 
 # claim-stamp.sh itself unusable (stands in for "no gh") -> same unknown
 # fallback, never misread as stale.
