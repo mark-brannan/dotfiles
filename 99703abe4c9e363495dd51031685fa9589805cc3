@@ -1,6 +1,1 @@
-Revision history for #361:
-
-rev 2 (rebase) 2026-09-23 05:52 UTC — add the Generated-with footer to the PR body
-rev 1 (initial) 2026-09-23 05:52 UTC
-
-<!-- mergify-revision-data: {"schema_version":1,"pull_number":361,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"c67f1a3af1d1cf7a26893dabc8c71418e847eae1","timestamp_iso":"2026-09-23T05:52:25Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"rebase","old_sha":"c67f1a3af1d1cf7a26893dabc8c71418e847eae1","new_sha":"d8f9b707be91cd722b955c595c84cd63e01a2d5b","timestamp_iso":"2026-09-23T05:52:25Z","reason":"add the Generated-with footer to the PR body","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/c67f1a3af1d1cf7a26893dabc8c71418e847eae1...d8f9b707be91cd722b955c595c84cd63e01a2d5b"}]} -->
+review PRRT_kwDOAsco8c6lCDRY: state_lock no longer installs a trap (it overwrote a caller's, e.g. stop-continuity.sh's restore_board); callers add state_unlock to their own trap instead. Added a test for a caller's pre-existing EXIT trap surviving state_lock.
