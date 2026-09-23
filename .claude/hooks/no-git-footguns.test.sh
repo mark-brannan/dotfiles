@@ -10,7 +10,7 @@ pass=0; fail=0
 check() {
   local want=$1 desc=$2 cmd=$3 out got
   out=$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' | timeout 5 sh "$HOOK" 2>&1; [ "${PIPESTATUS[1]}" = 124 ] && echo TIMEOUT)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1)); printf 'FAIL (want %s, got %s): %s\n  cmd: %s\n' "$want" "$got" "$desc" "$cmd"
     [ -n "$out" ] && printf '  hook output: %s\n' "$out"
@@ -165,7 +165,7 @@ BARE=$(mktemp -d /tmp/no-git-footguns-bare.XXXXXX)
 for tool in sh cat printf dirname; do p=$(command -v $tool) && ln -s "$p" "$BARE/$tool"; done
 out=$(jq -n '{tool_name:"Bash",tool_input:{command:"git add -A"}}' | PATH=$BARE sh "$HOOK" 2>&1)
 rm -rf "$BARE"
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else
   fail=$((fail + 1)); printf 'FAIL: no jq/awk on PATH should deny\n  hook output: %s\n' "$out"; fi
 out=$(jq -n '{tool_name:"Bash",tool_input:{command:"git add -A"}}' | sh "$HOOK" 2>&1)
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then pass=$((pass + 1)); else
