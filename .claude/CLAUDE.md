@@ -128,7 +128,7 @@ I'm fine, drop it.
   over ~5 minutes or a matrix past a handful of legs is a ruling, not a
   knob; a timeout is set to the measured cost and read as a signal, never
   padded. Test bloat has cost whole days (colregs-engine conformance,
-  dotfiles#337); audit card on the board.
+  dotfiles#337); the audit is dotfiles#340.
 
 ## Continuity
 
