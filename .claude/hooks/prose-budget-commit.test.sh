@@ -58,17 +58,22 @@ check allow 'commit as prose'                 'echo "run git commit -m x"'
 check allow 'commit in a heredoc body'        $'cat <<EOF\ngit commit -m x\nEOF'
 check allow 'a different tool'                'gh pr create --title x'
 
-# A merge in progress (MERGE_HEAD present): --staged would diff the whole
-# merged index against the pre-merge HEAD and flag main's own already-merged
-# prose as new, so both spellings that finish a merge must be skipped.
+# A merge in progress (MERGE_HEAD present): the engine's own is_merging()
+# skip (prose-budget, Checker.run) treats --staged as clean mid-merge, since
+# it would otherwise diff the whole merged index against the pre-merge HEAD
+# and flag main's own already-merged prose as new. Stage an over-budget
+# diff -- like $DIRTY's -- and leave it staged (never commit it) so `allow`
+# here is actually proof of the merge skip, not just an empty diff: without
+# MERGE_HEAD the very same staged content must deny.
 MERGING=$(mkrepo)
-printf 'seed plus one\n' > "$MERGING/README.md"; git -C "$MERGING" add README.md; git -C "$MERGING" commit -qm bump
+{ echo '## A'; echo; for _ in $(seq 60); do printf 'word '; done; echo; } > "$MERGING/README.md"
+git -C "$MERGING" add README.md
 git -C "$MERGING" rev-parse HEAD > "$MERGING/.git/MERGE_HEAD"
-check allow 'git commit with MERGE_HEAD present'  'git commit -m x' "$MERGING"
-git -C "$MERGING" rev-parse HEAD > "$MERGING/.git/MERGE_HEAD"
-check allow 'git merge --continue'                'git merge --continue' "$MERGING"
+check allow 'git commit, MERGE_HEAD present, over-budget staged'     'git commit -m x' "$MERGING"
+check allow 'git merge --continue, MERGE_HEAD present, over-budget'  'git merge --continue' "$MERGING"
 rm -f "$MERGING/.git/MERGE_HEAD"
-check deny  'git merge --continue, no MERGE_HEAD, dirty staging' 'git merge --continue' "$DIRTY"
+check deny  'same over-budget staging, MERGE_HEAD gone'              'git commit -m x' "$MERGING"
+check deny  'git merge --continue, no MERGE_HEAD, dirty staging'     'git merge --continue' "$DIRTY"
 
 # Fail-open: no jq, and no engine.
 BARE=$(mktemp -d); for t in bash sh awk cat cut dirname git timeout; do p=$(command -v $t) && ln -s "$p" "$BARE/$t"; done
