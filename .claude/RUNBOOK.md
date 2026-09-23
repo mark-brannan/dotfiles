@@ -618,7 +618,7 @@ systemctl --user list-timers grind-prs@dotfiles.timer
 tail -30 ~/.local/state/grind/timer-dotfiles.log
 ```
 
-The log ends in a tally — `done: PR queue exhausted. Running total $N / $5.00.`
+The log ends in a tally — `done: PR queue exhausted. Running total $N / $5.00. N skipped.`
 — or `grind: no unfinished PRs on <repo>`, with a timestamp inside the window.
 Anything else is one of these, and each says so on its own line:
 
