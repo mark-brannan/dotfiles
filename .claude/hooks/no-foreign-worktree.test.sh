@@ -162,6 +162,9 @@ check_claim 'no stamps at all on a real card -> stale, cleanup command' \
 check_claim 'branch has no card -> unknown, old fallback message' \
   'no card' \
   'A hand-off carries a branch'
+check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
+  'no card' \
+  'git merge --ff-only <branch>'
 
 # claim-stamp.sh itself unusable (stands in for "no gh") -> same unknown
 # fallback, never misread as stale.
@@ -183,6 +186,16 @@ check_json deny 'EnterWorktree(path=own)' \
   "$(jq -n --arg p "$MINE" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')"
 check_json allow 'EnterWorktree(name=...)' \
   "$(jq -n --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{name:"fresh"},cwd:$d}')"
+
+# EnterWorktree(path=foreign)'s recovery advice is the ff-only merge, not
+# checkout -- `git checkout <branch>` is denied by the auto-mode classifier
+# even on a clean tree (dotfiles#233), so the hook must never recommend it.
+out=$(printf '%s' "$(jq -n --arg p "$THEIRS" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')" | bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'git merge --ff-only <branch>' && ! printf '%s' "$out" | grep -qF 'git checkout <branch>'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: EnterWorktree(path=...) must recommend ff-only merge, not checkout\n  hook output: %s\n' "$out"
+fi
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \

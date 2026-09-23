@@ -23,18 +23,22 @@
 #                         -- every worktree of a repo shares its objects and
 #                         refs, so nothing about another branch requires
 #                         standing in another directory.
-#   work on a branch      EnterWorktree(name=...) for your own worktree, then
-#                         `git checkout <branch>` inside it. If git refuses
-#                         because the branch is checked out elsewhere, that
-#                         is a live claim by another session: report it and
-#                         stop. Do not take it away from them.
+#   work on a branch      EnterWorktree(name=...) for your own (fresh,
+#                         unrelated-history) worktree, then `git merge
+#                         --ff-only <branch>` inside it -- this hook's
+#                         recovery text used to say `git checkout <branch>`,
+#                         but the auto-mode classifier denies that outright
+#                         as irreversible local destruction even on a clean
+#                         tree (dotfiles#233). If `--ff-only` fails, the
+#                         histories have diverged: report it and stop,
+#                         rather than falling back to checkout.
 #   worktree hygiene      the user's, not a session's.
 #
 # `EnterWorktree(path=...)` is refused outright: the tool enters an existing
 # worktree with no ownership check of any kind (verified in its own
 # documentation -- the only requirement is that the path appear in `git
 # worktree list`), and every legitimate use of it is reachable via
-# `EnterWorktree(name=...)` plus a checkout.
+# `EnterWorktree(name=...)` plus a fast-forward merge.
 #
 # What counts as foreign: git is asked, nothing is assumed from the path.
 # A candidate resolves to a toplevel (`rev-parse --show-toplevel`) that
@@ -147,7 +151,7 @@ To read that branch meanwhile, stay here: \`git log/diff/show $branch\`, \`git s
     *)
       deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. A hand-off carries a branch, an issue and a PR -- never a directory; another session may still be running in there, and it may be archived out from under you mid-turn (that is how PR #162 lost its worktree).
 To read that branch, stay here: \`git log/diff/show <branch>\`, \`git show <branch>:<path>\` -- worktrees of a repo share objects and refs.
-To work on it, take your own worktree: EnterWorktree(name=<name>), then \`git checkout <branch>\` inside it. If git refuses because the branch is checked out elsewhere, another session holds it: report that and stop.
+To work on it, take your own worktree: EnterWorktree(name=<name>), then \`git merge --ff-only <branch>\` inside it. If --ff-only fails, the histories have diverged: report that and stop.
 Worktree hygiene is the user's call, not a session's."
       ;;
   esac
@@ -171,13 +175,14 @@ home=$(cd "$HOME" 2>/dev/null && pwd -P) || exit 0
 own_top=$(git -C "$payload_cwd" rev-parse --show-toplevel 2>/dev/null)
 
 # EnterWorktree with a `path` is refused whatever the path: the tool does no
-# ownership check, and `name` plus a checkout covers every honest use.
+# ownership check, and `name` plus a fast-forward merge covers every honest
+# use.
 case "$tool" in
   EnterWorktree)
     p=$(printf '%s' "$payload" | jq -r '.tool_input.path // empty' 2>/dev/null)
     [ -n "$p" ] || exit 0
     deny "no-foreign-worktree: EnterWorktree(path=...) enters a worktree that already exists, with no check on whose it is -- the tool only requires that the path appear in \`git worktree list\`. That is how PR #162 lost its worktree mid-turn: the session that owned it was archived and the directory went away underneath the session that had attached to it.
-Take your own instead: EnterWorktree(name=<name>), then \`git checkout <branch>\` inside it to put the branch you are resuming in your own directory. If git refuses because the branch is checked out in another worktree, another session holds it: report that and stop.
+Take your own instead: EnterWorktree(name=<name>), then \`git merge --ff-only <branch>\` inside it to bring the branch you are resuming into your own directory. If --ff-only fails, the histories have diverged: report that and stop.
 Nothing needs the other directory -- worktrees of a repo share objects and refs, so \`git log/diff/show <branch>\` and \`git show <branch>:<path>\` read it from here."
     ;;
 esac
