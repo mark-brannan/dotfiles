@@ -53,7 +53,8 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   purpose: the user holds the dotfiles themselves to a far higher standard
   than the Claude Code layer, and a session that adds its hook to
   `RUNBOOK.md` is polluting the file the user reads when a real machine is
-  broken.
+  broken. `docs/budgets.json` caps `RUNBOOK.md` in CI; raising a cap lands
+  alone.
 - **Actions only.** Every section answers "what do I do." Commands, the order
   to run them in, and how to tell it worked. If a passage doesn't change what
   the reader does next, it belongs in `README.md` instead.
