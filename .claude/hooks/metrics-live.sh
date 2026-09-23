@@ -630,7 +630,13 @@ if [ "$run_engine" -eq 1 ]; then
          || { [ "$m_sit_at" -eq 0 ] && ! in_flight; }; then
       inf=""; in_flight && inf=" with work in flight ($in_flight_memo)"
       if [ -n "$inf" ]; then sv="Do not offer a break or /wrapup yet: land this without asking -- commit, push, open the PR -- then offer."
-      elif [ "$r" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then sv="If the work is landed, this is a good place to stop; if not, land it and then offer."
+      elif [ "$r" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then
+        # Only a genuine repeat (m_sit_at already spent) gets the softened
+        # wording -- a first crossing, including the deferred offer that
+        # fires once in-flight work lands, keeps the original imperative.
+        if [ "$m_sit_at" -eq 0 ]; then sv="Stop here and run /wrapup."
+        else sv="If the work is landed, this is a good place to stop; if not, land it and then offer."
+        fi
       else sv="Say so and offer a break."; fi
       if [ "$m_sit_at" -eq 0 ]; then
         [ -n "$inf" ] || m_sit_at=$r   # unspent while in flight: fires once landed

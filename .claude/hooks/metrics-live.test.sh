@@ -533,8 +533,8 @@ t 'the in-flight line does not repeat inside its rung' '' "$(ctx "$out6k2")"
 git -C "$WT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 rm -f "$WT/dirty.txt"
 out6k3=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
-has 'and once the work lands the unspent offer fires' \
-    'good place to stop' "$(ctx "$out6k3")"
+has 'and once the work lands the unspent offer fires, unsoftened' \
+    'Stop here and run /wrapup' "$(ctx "$out6k3")"
 clock_clear
 
 # --- 6c. model injection: decision load, mirrors section 6 --------------------
