@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Work a repo's open issues as the PM — triage and cluster them, dispatch one worker agent per issue in its own worktree, watch each worker's context and stop it before it runs dry, and hand Solace a review list every five PRs. Use on "/orchestrate", "prioritise the issues and sequence the work", "be the orchestrator / PM / taskmaster", "work the backlog with sub-agents". Not for one PR (/critical-review, /pickup) and not headless (grind). Fable or Opus; workers Sonnet, Opus for an issue rated hard.
+description: Work a repo's open issues as the PM — triage and cluster them, dispatch one worker agent per issue in its own worktree, watch each worker's context and stop it before it runs dry, and keep five to ten PRs awaiting Solace's look, refilling as they drain. Use on "/orchestrate", "prioritise the issues and sequence the work", "be the orchestrator / PM / taskmaster", "work the backlog with sub-agents". Not for one PR (/critical-review, /pickup) and not headless (grind). Fable or Opus; workers Sonnet, Opus for an issue rated hard.
 ---
 
 # Orchestrate
@@ -55,9 +55,10 @@ Then rule on each row yourself:
   the first's PR when it depends on it.
 - **Stack only on a real dependency**, per `CLAUDE.md`: the worker branches
   from the base PR's head and writes `Depends-On: #<n>` in its body.
-- **The tail of the queue never runs.** Solace stopped new dispatch after
-  an hour and every deferred item was a hard one. Order by what matters
-  inside the file constraint, not by ease.
+- **Order by value** — what it unblocks, what is broken now, what Solace
+  has asked for — and let the file constraint only reorder within that.
+  The tail of the queue never runs: Solace stopped new dispatch after an
+  hour and every deferred item was a hard one.
 
 Show the plan as one table (cluster, issues in order, model) with the skip
 list and its proofs; ask only what gates wave 1, which is usually nothing;
@@ -137,19 +138,36 @@ done
 
 A nudge is one `SendMessage`, imperative, naming the number and the issue.
 
-## 5. While workers run
+## 5. The loop
 
-- **You hold no branch and touch no PR.** A thread from Solace on a PR, or
-  another session's claim stamp on its branch, makes that PR theirs: log
-  it, move on. Keep your own reads small; act on reports.
+What is capped is not workers but **PRs awaiting Solace's look**: every PR
+this session opened or fixed that is still open and unclaimed — no thread
+from Solace, no other session's claim stamp on its branch. Merged, closed
+or claimed drops it off the list. (Solace, 2026-09-22.)
+
+- **Band: five to ten.** Below five, dispatch to refill, five to ten
+  workers in flight across clusters. At ten, stop dispatching; running
+  workers finish and report. Solace reviews in batches of that size.
+- **The list is complete, never a delta.** Post it when the count first
+  reaches five and again each time it changes while in band: PR, issue,
+  one line of what, and a `look` column — `quick`, or `critical` with the
+  reason from the worker's report (a part left undone, something a human
+  must decide, a wide diff). About one PR in three is `critical`. Name the
+  stacks and their merge order.
+- **Refill when it drains.** At the cap with nothing running, watch the
+  listed PRs (one `Monitor`, a `gh` recount every few minutes) and resume
+  dispatch when the count drops below five — while the session cap holds
+  and the queue still has an item whose files no open PR of this session
+  touches.
+- **The session cap** is a row in the plan table before wave 1: default
+  20 workers, about $60 at the measured $0.80–$4.90 each; Solace changes
+  it with a word. "No new work" from Solace means drain: running workers
+  finish and report, nothing new launches.
+- **You hold no branch and touch no PR.** Keep your own reads small; act
+  on reports and on the recount.
 - **A worker's `gh pr view` lands in your session's pr-threads record**
   (the #224 shape; PR #317 fixes it). A Stop gate naming a PR you never
   worked is that: clear the read from the record, not the PR.
-- **Every five ready PRs, the review list** as a table — PR, issue, one
-  line of what — naming the stacks and their merge order. Ready means the
-  PR is open and no worker is on it. Not green.
-- **"No new work" from Solace means drain.** Running workers finish and
-  report; nothing new launches.
 
 ## 6. Ending
 
