@@ -801,6 +801,7 @@ case "\$1 \$2" in
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
   "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
+  "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
 GH
@@ -844,6 +845,36 @@ git -C "$S/held" checkout -q fix-45
 run --prs --dry-run
 has 'a worktree-held branch is skipped, by name' '#45 -- SKIP: a local worktree holds fix-45$'
 git -C "$prrepo" worktree remove -f "$S/held" >/dev/null 2>&1
+
+# --- a not-green PR whose failing checks are all cancelled reruns instead of working ---
+audit_row_cancelled() { # audit_row_cancelled <n> <run id> <when>
+  jq -nc --argjson n "$1" --argjson rid "$2" --arg t "$3" \
+    '{repo:"alpha", number:$n, title:("PR " + ($n|tostring)), url:("https://x/" + ($n|tostring)),
+      owner:"o", author:"solace", labels:[], head_committed_at:$t, verdict:"not-green", section:"unfinished",
+      failing_checks:[{name:"ci-gate / gate", url:("https://github.com/o/alpha/actions/runs/" + ($rid|tostring) + "/job/1")}],
+      cancelled_only:true}'
+}
+cat > "$S/audit.json" <<J
+$(audit_row_cancelled 60 9001 "$(old)")
+J
+prview 60 '[]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+: > "$CLAUDE_LOG"; : > "$GH_LOG"
+run --prs --dry-run
+has 'dry-run names the cancelled-only reason' '#60 -- SKIP: all failing checks are cancelled -- would rerun rather than work it$'
+lacks 'dry-run never calls gh run rerun' 'run rerun'
+
+: > "$GH_LOG"
+run --prs
+eq 'exit 0 -- a cancelled-only skip is not a failure' 0 "$RC"
+eq 'no worker spent on a cancelled-only PR' 0 "$(calls_claude)"
+assert 'gh run rerun is called with the run id parsed from the check URL' \
+  grep -Eq -- 'run rerun 9001 .*--failed' "$GH_LOG"
+has 'the skip reason says the run was reran' 'WARN  skipping .*#60 -- all failing checks were cancelled -- reran run\(s\) 9001'
+
+GH_RERUN_FAIL=1 run --prs
+eq 'a rerun that fails is still just a skip, not a run failure' 0 "$RC"
+has 'the reason says the rerun failed' 'WARN  skipping .*#60 -- all failing checks are cancelled, but rerunning run\(s\) 9001 failed$'
 
 # --- --prs budget defaults, and flags that still override them -----------------------
 has 'default item budget is $1' -- '--max-budget-usd 1 '
