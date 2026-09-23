@@ -14,7 +14,7 @@ pass=0; fail=0
 check() {
   local want=$1 desc=$2 cmd=$3 dir=${4:-$DIRTY} out got
   out=$(jq -n --arg c "$cmd" --arg d "$dir" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' | timeout 20 bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision": *"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision": *"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1)); printf 'FAIL (want %s, got %s): %s\n  cmd: %s\n' "$want" "$got" "$desc" "$cmd"
     [ -n "$out" ] && printf '  hook output: %s\n' "$out"
@@ -47,8 +47,8 @@ check deny  'yadm commit'                     'yadm commit -m x'
 check deny  'git -C dir commit'               "git -C $DIRTY commit -m x" "$CLEAN"
 check deny  'cd dir && git commit'            "cd $DIRTY && git commit -m x" "$CLEAN"
 check deny  'commit from a subdirectory'      'git commit -m x' "$DIRTY/sub"
-printf '%s' "$LAST" | grep -q 'delta' || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the findings'; }
-printf '%s' "$LAST" | grep -q 'Do not ask the user' || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the retry instruction'; }
+grep -q 'delta' <<<"$LAST" || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the findings'; }
+grep -q 'Do not ask the user' <<<"$LAST" || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the retry instruction'; }
 
 check allow 'clean staging'                   'git commit -m x' "$CLEAN"
 check allow 'no config in the repo'           'git commit -m x' "$NOCONF"
