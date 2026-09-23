@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for lib-state.sh's archivable_reasons(), focused on the session-live
-# check (dotfiles#167). Run: bash .claude/hooks/lib-state.test.sh
+# check (dotfiles#167).
 #
 # The dirty/unpushed/home checks predate this file and are exercised
 # end-to-end by stop-continuity.test.sh and metrics-live.test.sh already;
@@ -19,8 +19,7 @@ gitq() { git -C "$1" -c user.name=t -c user.email=t@example.invalid -c commit.gp
 
 # --- a clean, pushed, homed worktree ------------------------------------------
 ORIGIN="$SCRATCH/origin.git"; git init -q --bare "$ORIGIN" >/dev/null 2>&1
-WT="$SCRATCH/work"; gitq "$SCRATCH" init -q "$WT" 2>/dev/null || gitq "" init -q "$WT"
-git -C "$WT" checkout -q -b feature >/dev/null 2>&1
+WT="$SCRATCH/work"; gitq "$SCRATCH" init -q -b feature "$WT"
 printf 'x\n' > "$WT/f"
 gitq "$WT" add f
 gitq "$WT" commit -q -m init
@@ -90,5 +89,5 @@ check "no stamps -> archivable" abcd1234 ""
 set_claim_stamp "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')"
 check "no self sid, fresh stamp -> session live" "" "session live"
 
-echo "lib-state.test.sh: $pass passed, $fail failed"
+printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

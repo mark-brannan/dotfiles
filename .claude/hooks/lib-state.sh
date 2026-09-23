@@ -160,23 +160,14 @@ unpushed_state() {
 # case, and the one Stop fires on every turn -- never pays that cost.
 # Restores the short-circuit the pre-dotfiles#149 archivable() had.
 #
-# session live (dotfiles#167): archiving-by-git-state-alone is exactly how a
-# live session's worktree got removed out from under it (the scar
-# no-foreign-worktree.sh's header names, PR #162) -- a clean, pushed, homed
-# branch can still have a session sitting in it between turns. The liveness
-# signal is the remote claim stamp claim-stamp.sh already posts on the
-# branch's card and refreshes on every Stop (dotfiles#287); this reuses it
-# rather than adding a second, local heartbeat -- claim-stamp.sh's own
-# comment says as much ("supersedes the local-heartbeat shape proposed in
-# dotfiles#167"). A stamp counts as fresh under the same window
-# claim-stamp.sh itself uses to call a stamp live vs stale
-# (CLAIM_STALE_SECS, default 7200s / 2h) -- one constant, not two.
-#
-# <session-id>, when given, is this caller's own session: its own stamp is
-# never a reason, or a session could never become archivable by watching its
-# own refresh. Omit it (as a caller with no session context -- a sweep, a
-# human) and every fresh stamp counts, which is the conservative answer for
-# exactly the "someone else may be live in here" case this exists for.
+# session live (dotfiles#167): git state alone is how a live session's
+# worktree got archived out from under it (PR #162, the scar
+# no-foreign-worktree.sh names). The signal is the claim stamp
+# claim-stamp.sh already posts on the branch's card and refreshes on every
+# Stop (dotfiles#287); it, not this function, decides fresh vs stale
+# (CLAIM_STALE_SECS). <session-id> is the caller's own: its own stamp is
+# never a reason, or a session could never become archivable by watching
+# its own refresh. Omit it (a sweep, a human) and every fresh stamp counts.
 #
 # Not this function's job: "not a git repo" (there is no branch here to
 # judge) and anything that only becomes true after a push is attempted --

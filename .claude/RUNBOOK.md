@@ -33,6 +33,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Audit the `awaiting-human` label](#audit-the-awaiting-human-label)
 - [Find out which session holds a branch](#find-out-which-session-holds-a-branch)
 - [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
+- [Run the PR fixer on a timer](#run-the-pr-fixer-on-a-timer)
 
 **Troubleshooting**
 - [Session state went to `~/.claude/state/global`](#session-state-went-to-claudestateglobal)
@@ -41,7 +42,6 @@ Procedures only. The hook designs and the scars behind them are in
 - [A deleted hook keeps running](#a-deleted-hook-keeps-running)
 - [A grind session keeps printing after it should be done](#a-grind-session-keeps-printing-after-it-should-be-done)
 - [PR checks fail immediately with an empty credential](#pr-checks-fail-immediately-with-an-empty-credential)
-- [The security-review workflow cannot use an OAuth token](#the-security-review-workflow-cannot-use-an-oauth-token)
 
 ---
 
@@ -349,23 +349,14 @@ Roll back with the same `PATCH` and `-f sha="$PREV"`.
 
 ## Set the auth token for the PR review workflows
 
-Two workflows run on every PR, and **they do not authenticate the same way.**
-Check which you are fixing before touching a secret:
+`claude-code-review.yml` runs on every PR via `anthropics/claude-code-action@v1`,
+authenticating through the `claude_code_oauth_token` input, which reads the
+`CLAUDE_CODE_OAUTH_TOKEN` secret. The OAuth token bills against a Claude
+subscription rather than metered API credit.
 
-| workflow | action | input | secret | billing |
-| --- | --- | --- | --- | --- |
-| `claude-code-review.yml` | `anthropics/claude-code-action@v1` | `claude_code_oauth_token` | `CLAUDE_CODE_OAUTH_TOKEN` | subscription |
-| `claude-security-review.yml` | `anthropics/claude-code-security-review@main` | `claude-api-key` | `ANTHROPIC_API_KEY` | API, metered |
-
-The OAuth token bills against a Claude subscription rather than API credit,
-which is why the review workflow uses it. **The security-review action has no
-OAuth input** — its `claude-api-key` is `required: true` — so it cannot be
-converted; it either gets a metered API key or it gets disabled. See
-[the entry below](#the-security-review-workflow-cannot-use-an-oauth-token).
-
-These are **GitHub repo secrets, not sops secrets.** Nothing about them lives
-in this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. They
-are set once per repository, and no machine setup does it for you.
+This is a **GitHub repo secret, not a sops secret.** Nothing about it lives
+in this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. It
+is set once per repository, and no machine setup does it for you.
 
 **1 — Mint the token.** From Claude Code on a machine already logged in:
 
@@ -403,17 +394,15 @@ gh run list --repo mark-brannan/dotfiles --limit 5
 gh run rerun <run-id> --failed --repo mark-brannan/dotfiles
 ```
 
-`review` should now complete and comment on the PR. `security` stays red until
-its own separate decision is made.
+`review` should now complete and comment on the PR.
 
 The token expires. When `review` starts failing on PRs that used to pass and
 nothing about the workflow changed, re-run `claude setup-token` and set the
 secret again — same procedure, no other cleanup.
 
 This repo is public. Actions secrets are not exposed to workflows triggered by
-forked PRs, and the security workflow's own comment says it should only run
-against trusted PRs — true here because only the owner pushes. If that stops
-being true, that workflow needs revisiting before the credential does.
+forked PRs, so this is safe under the current setup — true here because only
+the owner pushes.
 
 CodeRabbit is configured by `.coderabbit.yaml` and authenticates as a GitHub
 App. It needs no secret, so none of this affects it.
@@ -579,6 +568,67 @@ repo yet — create it once:
 gh label create churn-ok --repo mark-brannan/dotfiles --color FBCA04 --description "Waives the churn-diff gate (human-applied only)"
 ```
 
+## Run the PR fixer on a timer
+
+`grind --prs` every four hours, on one repository checkout. Do this **only on
+the machine that holds the signing key** — elsewhere grind refuses the run and
+the wakeup is wasted.
+
+The unit is templated on the path below `$HOME`, with `/` written as `-`:
+
+```bash
+systemd-escape "src/colregs"          # prints src-colregs; a repo at ~/dotfiles is just `dotfiles`
+```
+
+Enable it, then run it once by hand rather than waiting four hours for the
+first answer:
+
+```bash
+systemctl --user daemon-reload
+```
+
+```bash
+systemctl --user enable --now grind-prs@dotfiles.timer
+```
+
+```bash
+systemctl --user start grind-prs@dotfiles.service
+```
+
+**Verify**, and read the log rather than the timer — three of the four ways
+this fails leave the timer looking perfectly healthy:
+
+```bash
+systemctl --user list-timers grind-prs@dotfiles.timer
+```
+
+```bash
+tail -30 ~/.local/state/grind/timer-dotfiles.log
+```
+
+The log ends in a tally — `done: PR queue exhausted. Running total $N / $5.00. N skipped.`
+— or `grind: no unfinished PRs on <repo>`, with a timestamp inside the window.
+Anything else is one of these, and each says so on its own line:
+
+- `needs a signing key` — the key is not on this machine, or the user manager
+  cannot see the agent that holds it. Wrong machine, or enable lingering.
+- `current directory is not a checkout of` — the instance name does not match
+  a repo under `$HOME`. Re-run `systemd-escape`.
+- every item `FAILED` with no result text — `claude` is not on the unit's
+  PATH. Put the real one in `~/.config/grind-prs.env`:
+
+  ```bash
+  printf 'PATH=%s\n' "$PATH" > ~/.config/grind-prs.env
+  ```
+
+Stop it:
+
+```bash
+systemctl --user disable --now grind-prs@dotfiles.timer
+```
+
+---
+
 ## Session state went to `~/.claude/state/global`
 
 `claude_prompts_scratch` is not checked out where `state_repo()` looks, so the
@@ -686,45 +736,13 @@ nothing relevant. The tell is in the job log's env group:
 
 ```bash
 gh run view <run-id> --repo mark-brannan/dotfiles --log \
-  | grep -iE 'ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN'
+  | grep -i 'CLAUDE_CODE_OAUTH_TOKEN'
 ```
 
 A name with nothing after it means that repository secret is unset or empty —
-the workflow is fine, the credential is missing. Check which secret the failing
-workflow actually reads before setting anything; the two workflows use different
-ones, and setting the wrong one changes nothing. Then
+the workflow is fine, the credential is missing. Then
 [set it](#set-the-auth-token-for-the-pr-review-workflows) and rerun the failed
 jobs; a secret does not apply retroactively.
 
 Not this if the failure comes minutes in rather than seconds — that is a real
 finding, a rate limit, or an expired token, not a missing one.
-
-## The security-review workflow cannot use an OAuth token
-
-`anthropics/claude-code-security-review@main` exposes no OAuth input:
-`claude-api-key` is `required: true` in its `action.yml`. There is no way to
-point it at a subscription token, so while `ANTHROPIC_API_KEY` is unset this
-check stays red no matter what is done to `CLAUDE_CODE_OAUTH_TOKEN`.
-
-Three ways out, all deliberate choices rather than fixes:
-
-- **Set `ANTHROPIC_API_KEY`** and accept metered API billing for this one
-  workflow.
-- **Delete `.github/workflows/claude-security-review.yml`.** The general review
-  pass already prompts for secrets handling, sops rules and auto-executing
-  hooks, so the coverage loss is smaller than it looks.
-- **Narrow when it runs** — `on: workflow_dispatch` instead of `on:
-  pull_request` — so it is available on demand without gating every PR.
-
-**Taken: `workflow_dispatch`.** No OAuth billing, and the check no longer
-shows red on every PR for a credential that was never going to be set. Run it
-by hand when wanted:
-
-```bash
-gh workflow run claude-security-review.yml --repo mark-brannan/dotfiles
-gh run list --workflow claude-security-review.yml --repo mark-brannan/dotfiles --limit 1
-```
-
-Verify whichever you pick by re-running the check, not by reading the workflow:
-a green `review` and a still-red `security` is the state that means only half
-the decision has been made.

@@ -105,40 +105,43 @@ usable_claim() {
   return 0
 }
 
-# claim_state <foreign-worktree-root> -- one of: live, stale, unknown.
+# claim_read <foreign-worktree-root> -- sets claim_state to one of live,
+# stale, unknown, and claim_live to the first live stamp line (tab-separated:
+# state, session, machine, age, card url) when the state is live.
 #
 # "live" -- claim-stamp.sh read (dotfiles#307) shows a fresh stamp from some
 # session on the branch's card: another session is genuinely working there.
-# "stale" -- the card was found and carries no fresh stamp (including no
-# stamp at all -- archivable_reasons() in lib-state.sh treats absence of any
-# stamp the same way, dotfiles#307/lib-state.test.sh's "no stamps ->
-# archivable" case): nothing here claims the worktree is live.
-# "unknown" -- claim-stamp.sh could not be asked at all (no gh, CI, the
-# switch is off) or answered "no card" for this branch -- never read as
-# stale. A false "stale" here is exactly how PR #162 lost a worktree: this
-# hook would be recommending the destructive step instead of merely failing
-# to prevent it.
-claim_state() {
-  usable_claim || { printf unknown; return 0; }
-  out=$(sh "$CLAIM_STAMP_BIN" read -C "$1" 2>/dev/null)
-  [ "$out" = 'no card' ] && { printf unknown; return 0; }
-  if printf '%s\n' "$out" | awk -F'\t' '$1 == "live" { f = 1 } END { exit !f }'; then
-    printf live
-  else
-    printf stale
+# "stale" -- the card was found and every stamp on it is stale: a session
+# claimed this worktree and then died without releasing it.
+# "unknown" -- everything else: claim-stamp.sh could not be asked (no gh,
+# CI, the switch is off), answered "no card" or "unverified", or printed
+# nothing. Nothing is deliberately not stale: claim-stamp.sh's read prints
+# nothing both for a card with no stamp and for a gh call that failed, and
+# a session on a machine without gh leaves no stamp at all. A false "stale"
+# here is exactly how PR #162 lost a worktree: this hook would be
+# recommending the destructive step instead of merely failing to prevent
+# it. One read, not two: the state and the line it is reported from must
+# come from the same answer.
+claim_read() {
+  claim_state=unknown; claim_live=""
+  usable_claim || return 0
+  out=$(sh "$CLAIM_STAMP_BIN" read -C "$1" 2>/dev/null) || return 0
+  case "$out" in ''|'no card'|unverified*) return 0 ;; esac
+  claim_live=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "live" { print; exit }')
+  if [ -n "$claim_live" ]; then claim_state=live
+  elif printf '%s\n' "$out" | awk -F'\t' '$1 == "stale" { f = 1 } END { exit !f }'; then claim_state=stale
   fi
 }
 
 deny_path() {
   word=$1; ft=$2
   branch=$(git -C "$ft" symbolic-ref -q --short HEAD 2>/dev/null)
-  state=unknown
-  [ -n "$branch" ] && state=$(claim_state "$ft")
+  claim_state=unknown; claim_live=""
+  [ -n "$branch" ] && claim_read "$ft"
 
-  case "$state" in
+  case "$claim_state" in
     live)
-      live_line=$(sh "$CLAIM_STAMP_BIN" read -C "$ft" 2>/dev/null | awk -F'\t' '$1 == "live" { print; exit }')
-      who=$(printf '%s' "$live_line" | awk -F'\t' '{ printf "session `%s` on `%s`, claimed %s ago", $2, $3, $4 }')
+      who=$(printf '%s' "$claim_live" | awk -F'\t' '{ printf "session `%s` on `%s`, claimed %s ago", $2, $3, $4 }')
       deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. ${who:+$who -- }another session is live in there (claim-stamp.sh, dotfiles#307); it may be archived out from under you mid-turn if you reach in (that is how PR #162 lost its worktree).
 To read that branch, stay here: \`git log/diff/show $branch\`, \`git show $branch:<path>\` -- worktrees of a repo share objects and refs.
 Report it and stop. Do not take the worktree away from them."
