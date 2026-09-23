@@ -49,7 +49,7 @@ fail=0
 check_json() {
   local want=$1 desc=$2 json=$3 out got
   out=$(printf '%s' "$json" | bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then
     pass=$((pass + 1))
   else
@@ -143,10 +143,10 @@ check_claim() {
   out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
       '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
     | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
-  if ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then
+  if ! grep -q '"permissionDecision":"deny"' <<<"$out"; then
     fail=$((fail + 1)); printf 'FAIL (want deny): %s\n  hook output: %s\n' "$desc" "$out"; return
   fi
-  if printf '%s' "$out" | grep -qF "$pattern"; then
+  if grep -qF "$pattern" <<<"$out"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1)); printf 'FAIL (message missing %s): %s\n  hook output: %s\n' "$pattern" "$desc" "$out"
@@ -177,7 +177,7 @@ mv "$STUB.new" "$STUB"; chmod +x "$STUB"; : > "$TMP/reads"
 out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
   | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m ago' \
+if grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m ago' <<<"$out" \
    && [ "$(wc -c < "$TMP/reads")" -eq 1 ]; then
   pass=$((pass + 1))
 else
@@ -190,7 +190,7 @@ set_stub "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1'
 out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
   | CI=true CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -qF 'A hand-off carries a branch'; then
+if grep -qF 'A hand-off carries a branch' <<<"$out"; then
   pass=$((pass + 1))
 else
   fail=$((fail + 1)); printf 'FAIL: under CI the claim path must not run; expected the unknown message\n  hook output: %s\n' "$out"
@@ -201,7 +201,7 @@ fi
 out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
   | CLAIM_STAMP_BIN=/nonexistent/claim-stamp.sh bash "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -qF 'A hand-off carries a branch'; then
+if grep -qF 'A hand-off carries a branch' <<<"$out"; then
   pass=$((pass + 1))
 else
   fail=$((fail + 1)); printf 'FAIL: claim-stamp.sh unusable must fall back to the unknown message\n  hook output: %s\n' "$out"
