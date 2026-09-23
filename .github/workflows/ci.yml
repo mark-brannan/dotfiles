@@ -129,31 +129,44 @@ jobs:
   # macOS ships a third implementation: a gawk-ism that passes locally is a
   # hook that fails closed on every Bash call on the Mac, or -- worse --
   # parses differently.
+  #
+  # One leg per awk, not one job looping over three: the suite is ~75 s of
+  # wall clock per implementation and the three legs share nothing, so
+  # running them serially cost 4 minutes on every PR for no extra coverage.
+  # fail-fast is off because "mawk is fine, original-awk is not" is the
+  # finding this job exists to produce -- cancelling the other legs on the
+  # first red would hide it.
   hook-tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        awk: [mawk, gawk, original-awk]
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install awk implementations
+      - name: Install ${{ matrix.awk }}
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          sudo apt-get install -y -q mawk gawk original-awk jq
+          sudo apt-get install -y -q "$AWK_IMPL" jq
+        env:
+          AWK_IMPL: ${{ matrix.awk }}
       - name: prose-budget engine tests
         run: python3 .local/bin/prose-budget.test.py
-      - name: Run every hook test under each awk
+      - name: Run every hook test under ${{ matrix.awk }}
+        env:
+          AWK_IMPL: ${{ matrix.awk }}
         run: |
           set -euo pipefail
           status=0
-          for impl in mawk gawk original-awk; do
-            d=$(mktemp -d)
-            ln -s "$(command -v $impl)" "$d/awk"
-            for t in .claude/hooks/*.test.sh .local/bin/*.test.sh; do
-              echo "::group::$t under $impl"
-              if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
-              echo "::endgroup::"
-            done
+          d=$(mktemp -d)
+          ln -s "$(command -v "$AWK_IMPL")" "$d/awk"
+          for t in .claude/hooks/*.test.sh .local/bin/*.test.sh; do
+            echo "::group::$t under $AWK_IMPL"
+            if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $AWK_IMPL"; fi
+            echo "::endgroup::"
           done
           exit $status
 

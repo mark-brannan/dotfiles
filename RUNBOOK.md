@@ -1,26 +1,12 @@
 # Dotfiles runbook
 
-Procedures for the machines these dotfiles live on: setting one up, keeping
-it in sync, the sops-encrypted secrets, and the things that go wrong.
+Procedures for the machines these dotfiles live on. Getting started and the
+*why* are in [README.md](README.md); Claude Code's hooks, cloud environments and
+PR workflows are in [.claude/RUNBOOK.md](.claude/RUNBOOK.md).
 
-**Getting started is in [README.md](README.md), not here.** If you just want a
-working `$HOME` on a new box, the three commands at the top of the README are
-the whole job. This file is for everything after that: the procedures that
-repeat and the ones that only happen when something has gone wrong.
-
-**Nothing about Claude Code lives here.** Hooks, cloud environments, the PR
-workflows and their troubleshooting are in
-[.claude/RUNBOOK.md](.claude/RUNBOOK.md). The bar for an entry in this file is
-the bar for the dotfiles themselves: a human runs it on a real machine.
-
-**Deliberately partial.** Only procedures that have been run or read out of the
-scripts they describe are written down. Age-key rotation and the two incident
-responses (a secret committed in plaintext, a lost key) are known gaps — they
-are the ones nobody has exercised, and a guessed procedure is worse than none.
-
-Procedures only. For *why* the repo is shaped the way it is — the yadm
-alternates trap, why the cloud seed is deliberately not yadm — see
-[README.md § Conventions](README.md).
+**Deliberately partial.** Only procedures that have been run are written down.
+Age-key rotation and the two incident responses — a secret committed in
+plaintext, a lost key — are known gaps; a guessed procedure is worse than none.
 
 ## Where things are
 
@@ -44,15 +30,18 @@ alternates trap, why the cloud seed is deliberately not yadm — see
 
 ## Set up a new machine
 
-The README's three commands cover the common case. This is the same path with
-the failure modes spelled out, in the order they bite.
-
-**1 — Tooling.** `yadm` must exist before anything else; `sops` and `age` can
-follow, but nothing decrypts until they do.
+**1 — Tooling.**
 
 ```bash
-sudo apt-get install -y yadm age    # or: brew install yadm age sops
-# sops on Linux: grab a release binary from https://github.com/getsops/sops/releases
+# Linux / WSL
+sudo apt-get install -y yadm age
+# sops has no apt package: grab a release binary from https://github.com/getsops/sops/releases
+command -v yadm age sops            # all three, before continuing
+```
+
+```zsh
+# macOS
+brew install yadm age sops
 command -v yadm age sops            # all three, before continuing
 ```
 
@@ -67,8 +56,7 @@ $EDITOR ~/.config/sops/age/keys.txt
 chmod 600 ~/.config/sops/age/keys.txt
 ```
 
-Confirm it is the key you think it is before trusting it — a truncated paste is
-the realistic failure and is otherwise invisible:
+A truncated paste is the realistic failure and is otherwise invisible:
 
 ```bash
 age-keygen -y ~/.config/sops/age/keys.txt   # must print the recipient in .sops.yaml
@@ -82,8 +70,7 @@ yadm clone git@github.com:mark-brannan/dotfiles.git
 yadm bootstrap      # idempotent; safe to re-run at any time
 ```
 
-**4 — Verify.** The bootstrap prints `==> bootstrap done`. Check what it
-produced and what yadm thinks of `$HOME`:
+**4 — Verify.** The bootstrap prints `==> bootstrap done`. Then:
 
 ```bash
 ls -l ~/.config/secrets/          # one .env per tracked secrets/*.sops.env
@@ -91,26 +78,11 @@ yadm status --short               # expect clean, or only files you know about
 sh ~/.local/bin/dotfiles-triage.sh | head -40   # read-only inventory vs policy
 ```
 
-**Special case — a host that predates the `.npmrc` change.** `.npmrc` used to be
-tracked, so on such a host the pull refuses or deletes the file along with any
-npm auth token in it. Save it first:
-
-```bash
-cp ~/.npmrc /tmp/npmrc.bak
-yadm checkout -- .npmrc
-dotsync
-cp /tmp/npmrc.bak ~/.npmrc   # now gitignored; settings come from the shell
-```
-
 ## Keep machines in sync
 
 ```bash
 dotsync    # alias: yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
-
-`--autostash` is load-bearing, not tidiness — a dirty `$HOME` is the normal
-state, and without it every pull stops on "cannot pull with rebase: You have
-unstaged changes."
 
 Run `yadm alt` by hand after editing any `##`-suffixed file: yadm only relinks
 alternates when it feels like it, and a stale symlink looks exactly like a
@@ -151,18 +123,11 @@ carries its undo. `prune-branches --help` has the rules.
 dotfiles-add-secret.sh <name>
 ```
 
-That is the whole procedure. `<name>` is the only thing you choose: the
-ciphertext lands tracked at `~/secrets/<name>.sops.env`, and `yadm bootstrap`
-decrypts it to `~/.config/secrets/<name>.env`, which is gitignored and outside
-the git working tree so plaintext can never be swept up by a later `yadm add`.
-`.zshrc`/`.bashrc` source everything under `~/.config/secrets/*.env` at startup.
-
-The script opens `$EDITOR` on the new file — write `KEY=value` lines, one per
-line, no `export`, no quotes unless the value contains spaces — then encrypts
-in place, asks before committing, and runs the bootstrap. It refuses to stage
-anything it can't prove is ciphertext, and deletes the plaintext file if you
-quit the editor without writing any values. `--no-commit` stops short of the
-`yadm commit`.
+`<name>` is the only thing you choose. The script opens `$EDITOR` on the new
+file — write `KEY=value` lines, one per line, no `export`, no quotes unless
+the value contains spaces — then encrypts it in place at
+`~/secrets/<name>.sops.env`, asks before committing, and runs the bootstrap.
+`--no-commit` stops short of the `yadm commit`.
 
 *Verify:* it prints `==> encrypted ...` and `==> decrypted to ... (N value(s))`
 with N matching the lines you wrote. Anything else is a failure and it exits
@@ -210,10 +175,9 @@ new one is confirmed working, not before.
 
 ## Clear a pre-commit false positive
 
-`~/.config/yadm/hooks/pre_commit` blocks credential material and secret-shaped
-values in added lines, and **fails closed**: if it cannot read the commit
-(`YADM_HOOK_REPO`/`WORK` unset, i.e. yadm older than 3.2) it aborts rather than
-waving it through.
+`~/.config/yadm/hooks/pre_commit` **fails closed**: an abort naming no path
+means it could not read the commit (`YADM_HOOK_REPO`/`WORK` unset — yadm older
+than 3.2), not that it found something. Upgrade yadm rather than override.
 
 ```bash
 yadm commit -m "..."                       # read exactly which path/line it named
@@ -227,16 +191,11 @@ If the same path trips it repeatedly, fix the policy rather than the commit:
 
 ## `yadm status` shows a permanent typechange
 
-The generated alternate target is tracked as a real file as well. yadm relinks
-it after every command, so status reports a typechange forever.
-
 ```bash
 yadm rm --cached .gitconfig        # stop tracking the generated target
 grep -n '^\.gitconfig$' ~/.gitignore || echo '.gitconfig' >> ~/.gitignore
 yadm alt && yadm status --short    # clean
 ```
-
-Only `.gitconfig##os.Darwin` and `.gitconfig##default` are ever tracked.
 
 ## A pull refuses: local changes would be overwritten
 
@@ -267,26 +226,15 @@ the password manager, or re-encrypt from a machine that still holds the old one.
 
 ## A dev server in WSL2 is unreachable from any other device
 
-A server started inside WSL2 answers on every address from inside WSL —
-loopback, LAN, Tailscale — and times out from a phone, a tablet, or even the
-Windows host it is running on. Nothing is wrong with the server. Under
-mirrored networking WSL shares the Windows network namespace, so Windows
-Firewall governs its inbound traffic and blocks it by default.
+Nothing is wrong with the server. Under mirrored networking WSL shares the
+Windows network namespace, so Windows Firewall governs its inbound traffic and
+blocks it by default. Open the ports once, on Windows.
 
-From the Windows host itself, `localhost` works with no change:
-
-```text
-http://localhost:<port>/
-```
-
-To reach it from another device, open the ports once, on Windows. Mirrored
-mode routes this traffic through the ordinary Windows Firewall, not the
-Hyper-V VM firewall — `New-NetFirewallHyperVRule` looks right but is a no-op
-here; it governs NAT-mode WSL, and mirrored mode ignores it silently (the
-rule shows `Enabled: True` either way, which is what makes this fail quietly
-instead of erroring). `-Profile` is scoped to `Private,Domain` deliberately —
-the unscoped default is `Any`, which would leave these ports open on a
-`Public` profile too, e.g. the laptop on coffee-shop wifi:
+`New-NetFirewallHyperVRule` looks right and is a no-op here: it governs
+NAT-mode WSL, mirrored mode ignores it silently, and the rule reports
+`Enabled: True` either way. `-Profile` is scoped to `Private,Domain` because
+the default `Any` would open these ports on a `Public` profile too — the
+laptop on coffee-shop wifi:
 
 **PowerShell, admin:**
 
@@ -294,25 +242,22 @@ the unscoped default is `Any`, which would leave these ports open on a
 New-NetFirewallRule -DisplayName "WSL dev servers (mirrored)" -Direction Inbound -Protocol TCP -LocalPort 3010,8742 -Profile Private,Domain -Action Allow
 ```
 
-Verify from a *different* device on the LAN or the tailnet — not from the
+*Verify* from a *different* device on the LAN or the tailnet — not from the
 Windows host, whose `localhost` worked before the rule and proves nothing:
 
 ```shell
 curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}\n' http://<lan-or-tailscale-ip>:<port>/
 ```
 
-`--connect-timeout` bounds the TCP handshake, not the whole transfer — a slow
-response otherwise reads the same as a blocked port. Any HTTP status code
-means the rule took, including `401`/`404`/`500`; only a timeout means it did
-not — check `Get-NetFirewallRule -DisplayName "WSL dev servers (mirrored)"`
-exists and that the ports in it match the ones actually listening.
+Any HTTP status code means the rule took, including `401`/`404`/`500`; only a
+timeout means it did not — check `Get-NetFirewallRule -DisplayName "WSL dev
+servers (mirrored)"` exists and that the ports in it match the ones actually
+listening.
 
 Remove it with `Remove-NetFirewallRule -DisplayName "WSL dev servers
 (mirrored)"`, and edit `-LocalPort` rather than adding a second rule when the
 set of ports changes.
 
-If `networkingMode` in `.wslconfig` is `nat` instead of `mirrored`, this rule
-type is wrong for that mode — check
-[`Get-NetFirewallHyperVRule`](https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallhypervrule)
-and the `VMCreatorId` variant instead; not covered here because this fleet
-runs mirrored.
+If `networkingMode` in `.wslconfig` is `nat` rather than `mirrored`, this rule
+type is wrong for it — use the `Get-NetFirewallHyperVRule`/`VMCreatorId`
+variant instead. Not written up here; nothing in the fleet runs `nat`.
