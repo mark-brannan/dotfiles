@@ -19,7 +19,7 @@ check() {
   local want=$1 desc=$2 cwd=$3 cmd=$4 out got json
   json=$(jq -n --arg c "$cmd" --arg d "$cwd" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')
   out=$(printf '%s' "$json" | bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then
     got=deny
   else
     got=allow
@@ -74,7 +74,7 @@ check_home() {
   local want=$1 desc=$2 cwd=$3 cmd=$4 out got json
   json=$(jq -n --arg c "$cmd" --arg d "$cwd" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')
   out=$(printf '%s' "$json" | HOME="$FAKE_HOME" bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1))
     printf 'FAIL (want %s, got %s): %s\n' "$want" "$got" "$desc"

@@ -49,7 +49,7 @@ fail=0
 check_json() {
   local want=$1 desc=$2 json=$3 out got
   out=$(printf '%s' "$json" | bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then
     pass=$((pass + 1))
   else
@@ -143,10 +143,10 @@ check_claim() {
   out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
       '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
     | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
-  if ! printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then
+  if ! grep -q '"permissionDecision":"deny"' <<<"$out"; then
     fail=$((fail + 1)); printf 'FAIL (want deny): %s\n  hook output: %s\n' "$desc" "$out"; return
   fi
-  if printf '%s' "$out" | grep -qF "$pattern"; then
+  if grep -qF "$pattern" <<<"$out"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1)); printf 'FAIL (message missing %s): %s\n  hook output: %s\n' "$pattern" "$desc" "$out"
@@ -168,6 +168,9 @@ check_claim 'branch has no card -> unknown, old fallback message' \
 check_claim 'stamps could not be fetched -> unknown, never stale' \
   'unverified: gh api failed' \
   'A hand-off carries a branch'
+check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
+  'no card' \
+  'git merge --ff-only <branch>'
 
 # The stub counts its invocations: the state and the attributed line must
 # come from one read, not a second call that can disagree with the first.
@@ -177,7 +180,7 @@ mv "$STUB.new" "$STUB"; chmod +x "$STUB"; : > "$TMP/reads"
 out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
   | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m ago' \
+if grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m ago' <<<"$out" \
    && [ "$(wc -c < "$TMP/reads")" -eq 1 ]; then
   pass=$((pass + 1))
 else
@@ -190,7 +193,7 @@ set_stub "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1'
 out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
   | CI=true CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -qF 'A hand-off carries a branch'; then
+if grep -qF 'A hand-off carries a branch' <<<"$out"; then
   pass=$((pass + 1))
 else
   fail=$((fail + 1)); printf 'FAIL: under CI the claim path must not run; expected the unknown message\n  hook output: %s\n' "$out"
@@ -201,7 +204,7 @@ fi
 out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
   | CLAIM_STAMP_BIN=/nonexistent/claim-stamp.sh bash "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -qF 'A hand-off carries a branch'; then
+if grep -qF 'A hand-off carries a branch' <<<"$out"; then
   pass=$((pass + 1))
 else
   fail=$((fail + 1)); printf 'FAIL: claim-stamp.sh unusable must fall back to the unknown message\n  hook output: %s\n' "$out"
@@ -216,6 +219,16 @@ check_json deny 'EnterWorktree(path=own)' \
   "$(jq -n --arg p "$MINE" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')"
 check_json allow 'EnterWorktree(name=...)' \
   "$(jq -n --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{name:"fresh"},cwd:$d}')"
+
+# EnterWorktree(path=foreign)'s recovery advice is the ff-only merge, not
+# checkout -- `git checkout <branch>` is denied by the auto-mode classifier
+# even on a clean tree (dotfiles#233), so the hook must never recommend it.
+out=$(printf '%s' "$(jq -n --arg p "$THEIRS" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')" | bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'git merge --ff-only <branch>' && ! printf '%s' "$out" | grep -qF 'git checkout <branch>'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: EnterWorktree(path=...) must recommend ff-only merge, not checkout\n  hook output: %s\n' "$out"
+fi
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \
