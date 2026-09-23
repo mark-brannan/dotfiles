@@ -23,8 +23,8 @@ run() {
   LAST=$(sh "$LINT" "$@" 2>&1); local rc=$?
   if [ "$rc" = "$want" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (want rc %s, got %s): %s\n  %s\n' "$want" "$rc" "$desc" "$LAST"; fi
 }
-has()   { if printf '%s\n' "$LAST" | grep -Eq -- "$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (output lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
-lacks() { if printf '%s\n' "$LAST" | grep -Eq -- "$2"; then fail=$((fail+1)); printf 'FAIL (output has /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass+1)); fi; }
+has()   { if grep -Eq -- "$2" <<<"$LAST"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (output lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
+lacks() { if grep -Eq -- "$2" <<<"$LAST"; then fail=$((fail+1)); printf 'FAIL (output has /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass+1)); fi; }
 eq()    { if [ "$2" = "$3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s\n  want [%s]\n  got  [%s]\n' "$1" "$2" "$3"; fi; }
 
 gitq() { git -C "$1" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
