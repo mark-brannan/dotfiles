@@ -168,6 +168,9 @@ check_claim 'branch has no card -> unknown, old fallback message' \
 check_claim 'stamps could not be fetched -> unknown, never stale' \
   'unverified: gh api failed' \
   'A hand-off carries a branch'
+check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
+  'no card' \
+  'git merge --ff-only <branch>'
 
 # The stub counts its invocations: the state and the attributed line must
 # come from one read, not a second call that can disagree with the first.
@@ -216,6 +219,16 @@ check_json deny 'EnterWorktree(path=own)' \
   "$(jq -n --arg p "$MINE" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')"
 check_json allow 'EnterWorktree(name=...)' \
   "$(jq -n --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{name:"fresh"},cwd:$d}')"
+
+# EnterWorktree(path=foreign)'s recovery advice is the ff-only merge, not
+# checkout -- `git checkout <branch>` is denied by the auto-mode classifier
+# even on a clean tree (dotfiles#233), so the hook must never recommend it.
+out=$(printf '%s' "$(jq -n --arg p "$THEIRS" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')" | bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'git merge --ff-only <branch>' && ! printf '%s' "$out" | grep -qF 'git checkout <branch>'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: EnterWorktree(path=...) must recommend ff-only merge, not checkout\n  hook output: %s\n' "$out"
+fi
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \
