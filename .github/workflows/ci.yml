@@ -123,20 +123,14 @@ jobs:
           fi
           echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
 
-  # The PreToolUse gates (.claude/hooks/no-*.sh) each ship a *.test.sh next
-  # to them. They run here under Ubuntu's default awk (mawk) and again under
-  # gawk and original-awk, because the hooks are POSIX awk by contract and
-  # macOS ships a third implementation: a gawk-ism that passes locally is a
-  # hook that fails closed on every Bash call on the Mac, or -- worse --
-  # parses differently.
-  #
-  # One leg per awk, not one job looping over three: the suite is ~75 s of
-  # wall clock per implementation and the three legs share nothing, so
-  # running them serially cost 4 minutes on every PR for no extra coverage.
-  # fail-fast is off because "mawk is fine, original-awk is not" is the
-  # finding this job exists to produce -- cancelling the other legs on the
-  # first red would hide it.
-  hook-tests:
+  # Only these 7 guards share the awk tokenizer (lib-shell-words.awk) where
+  # the three-implementation matrix is the actual contract (#94 names them):
+  # a gawk-ism that passes locally is a hook that fails closed on every Bash
+  # call on the Mac (mawk), or -- worse -- parses differently under
+  # original-awk. fail-fast is off because "mawk is fine, original-awk is
+  # not" is the finding this job exists to produce -- cancelling the other
+  # legs on the first red would hide it.
+  guard-tests:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -153,9 +147,7 @@ jobs:
           sudo apt-get install -y -q "$AWK_IMPL" jq
         env:
           AWK_IMPL: ${{ matrix.awk }}
-      - name: prose-budget engine tests
-        run: python3 .local/bin/prose-budget.test.py
-      - name: Run every hook test under ${{ matrix.awk }}
+      - name: Run the lib-shell-words guard suites under ${{ matrix.awk }}
         env:
           AWK_IMPL: ${{ matrix.awk }}
         run: |
@@ -163,12 +155,51 @@ jobs:
           status=0
           d=$(mktemp -d)
           ln -s "$(command -v "$AWK_IMPL")" "$d/awk"
-          for t in .claude/hooks/*.test.sh .local/bin/*.test.sh; do
+          for t in .claude/hooks/no-delete-stacked-base.test.sh \
+                   .claude/hooks/no-git-footguns.test.sh \
+                   .claude/hooks/no-foreign-worktree.test.sh \
+                   .claude/hooks/no-checkout-home.test.sh \
+                   .claude/hooks/prose-budget-commit.test.sh \
+                   .claude/hooks/no-rm-tree.test.sh \
+                   .claude/hooks/public-issue-guard.test.sh; do
             echo "::group::$t under $AWK_IMPL"
             if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $AWK_IMPL"; fi
             echo "::endgroup::"
           done
           exit $status
+
+  # Every other .claude/hooks and .local/bin suite: incidental awk
+  # one-liners, not the tokenizer contract, so one leg under Ubuntu's
+  # default awk (mawk) is full coverage -- running them three times bought
+  # nothing. Each suite makes its own mktemp -d, so they're independent and
+  # run in parallel via xargs -P rather than serially in a loop.
+  tool-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update -q && sudo apt-get install -y -q jq
+      - name: prose-budget engine tests
+        run: python3 .local/bin/prose-budget.test.py
+      - name: Run every other test suite in parallel
+        run: |
+          set -euo pipefail
+          printf '%s\n' .claude/hooks/*.test.sh .local/bin/*.test.sh \
+            | grep -vFf <(printf '%s\n' \
+                .claude/hooks/no-delete-stacked-base.test.sh \
+                .claude/hooks/no-git-footguns.test.sh \
+                .claude/hooks/no-foreign-worktree.test.sh \
+                .claude/hooks/no-checkout-home.test.sh \
+                .claude/hooks/prose-budget-commit.test.sh \
+                .claude/hooks/no-rm-tree.test.sh \
+                .claude/hooks/public-issue-guard.test.sh) \
+            | xargs -P 4 -I{} bash -c '
+                t="$1"
+                echo "::group::$t"
+                if bash "$t"; then echo "ok"; else echo "::error::$t failed"; exit 1; fi
+                echo "::endgroup::"
+              ' _ {}
 
   # The prose guard every consumer repo runs through mark-brannan/.github's
   # reusable workflow, run here on the engine in this checkout rather than a
@@ -212,7 +243,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, shellcheck, seeded, hook-tests, prose-budget, nonempty]
+    needs: [secrets-encrypted, shellcheck, seeded, guard-tests, tool-tests, prose-budget, nonempty]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}
