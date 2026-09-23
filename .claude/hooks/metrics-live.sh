@@ -672,11 +672,23 @@ if [ "$run_engine" -eq 1 ]; then
   # FROZEN -- THAW CAREFULLY.
   # friction -- measured in human turns, so only a prompt can trip it, and it
   # is addressed to the model, which is the thing the capacity rule asks of.
+  #
+  # Work in flight (in_flight(), dotfiles#192) gets the same land-it redirect
+  # as the sitting clock: fric_tripped is left unset, so this line repeats on
+  # every prompt while the window stays over threshold, and the ordinary
+  # capacity-rule line still fires -- unspent -- once the work lands and this
+  # falls to the else branch below. No record_crossing here on purpose: the
+  # real crossing is the one that trips fric_tripped, not each in-flight repeat.
   if [ "$is_prompt" -eq 1 ] && [ "$fric_tripped" -ne 1 ] \
      && [ "$fric_win" -ge "$NAG_FRICTION_N" ]; then
-    fm="$fric_win corrections or rebukes in the last $NAG_FRICTION_TURNS turns. Apply the capacity rule from the standing orders, once."
-    add_model "$fm"; record_crossing friction "$fric_win" "$fm"
-    fric_tripped=1; since_nag=1
+    if in_flight; then
+      fm="$fric_win corrections or rebukes in the last $NAG_FRICTION_TURNS turns, with work in flight. Do not raise capacity or offer a stopping point yet: land this without asking -- commit, push, open the PR -- then apply the capacity rule."
+      add_model "$fm"
+    else
+      fm="$fric_win corrections or rebukes in the last $NAG_FRICTION_TURNS turns. Apply the capacity rule from the standing orders, once."
+      add_model "$fm"; record_crossing friction "$fric_win" "$fm"
+      fric_tripped=1; since_nag=1
+    fi
   fi
 fi
 
