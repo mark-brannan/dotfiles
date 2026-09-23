@@ -587,6 +587,13 @@ TP7="$SCRATCH/sit7.jsonl"; turn "$TP7" 1000
 : > "$REPO7/scratch-file"
 o7=$(clock 61 10; payload "$TP7" sit7 "$REPO7" | bash "$HOOK" prompt 0 2>&1)
 has 'the sitting line shows the dirty tree' '⎇ 1~' "$(msg "$o7")"
+# Sections 8-10 use Stop, which never reads or moves the shared sitting
+# clock, so a leftover 61-minute clock() here rides untouched into section
+# 11's "calm" checks -- silent by day (the hot rung needs r>=4), but past
+# 22:00 Pacific the independent night reason trips on any r>=1 and turns a
+# calm-state assertion into a nightly flake. Clear it like every other
+# section that sets the shared clock does.
+clock_clear
 
 # --- 8. no upstream is only a hazard with something on the branch to lose ----
 # The carve-out this PR's review asked for, mirroring stop-continuity.sh's
@@ -714,7 +721,11 @@ has 'and the rung is a knob like every other' '⏱2h30(⏱️|🌙){5}' "$o11c"
 has 'the sitting reason glyph trips at the hot rung' '⏱️.*propose stopping' "$o11b"
 o11d=$(msg "$(payload "$TP11" calm4 "$SCRATCH" | METRICS_SIT_HOT_RUNG=9 \
   bash "$HOOK" posttooluse 0 show 2>&1)")
-hasnt 'and stays quiet while the rung is raised past it' 'propose stopping' "$o11d"
+# Only the hot-rung reason is under test here -- the independent night
+# reason (any r>=1 past 22:00 Pacific) is a real, separate trigger for
+# "propose stopping" and firing it is not a regression, so the assertion
+# names the reason glyph it's checking rather than the bare verdict text.
+hasnt 'and stays quiet while the rung is raised past it' '⏱️.*propose stopping' "$o11d"
 rm -f "$SITF11"
 
 # --- 12. PostToolUse drives the engine and may carry an injection ------------
