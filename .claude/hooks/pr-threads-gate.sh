@@ -26,12 +26,13 @@
 # state could not be verified. A gate that goes quiet when it can't look is
 # indistinguishable from one that looked and found nothing.
 #
-# EXCEPTION, dotfiles#263: a GraphQL error of type NOT_FOUND on the
-# `repository` field is a fact about the record, not the network -- the repo
-# named in that record does not exist (a typo'd --repo, most often), so the
-# entry was never a PR this session worked. That one entry is dropped and
-# named in a non-blocking note instead of joining the block; timeouts, auth
-# failures and every other fetch failure still fail closed as before.
+# EXCEPTION, dotfiles#263/#309: NOT_FOUND on `repository` over GraphQL is
+# ambiguous by GitHub's own anti-enumeration design -- identical whether the
+# repo doesn't exist or the token merely lacks access to it right now
+# (private, transferred, unattached in a cloud session). So NOT_FOUND alone
+# never drops an entry; it drops only once a second, independent `gh repo
+# view` call also confirms the repo is gone. Any other outcome -- including
+# a repo-view failure -- falls through to the generic failed-closed case.
 #
 # EXCEPTION, dotfiles#224: a "repo" record line carries a third field, read
 # or work, written by pr-ownership-context.sh (kind is empty on an older or
@@ -117,15 +118,19 @@ while [ "$i" -lt "$n" ]; do
   # `gh api graphql` exits non-zero whenever the response carries an `errors`
   # array, even though the body is still valid JSON up to that array -- jq
   # parses the leading value fine and only complains (to its own stderr,
-  # never $out) about the trailing text gh appends. NOT_FOUND on `repository`
-  # specifically means the repo doesn't exist; any other error (auth, rate
-  # limit, a real outage) falls through to the generic failed-closed case
+  # never $out) about the trailing text gh appends. NOT_FOUND handling is the
+  # EXCEPTION note above; every other error falls through to failed-closed
   # right below.
   nf=$(printf '%s' "$out" | jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' 2>/dev/null)
   nf=${nf:-0}
   if [ "$nf" -gt 0 ] 2>/dev/null; then
-    dropped="$dropped
-- $repo#$num: repository not found over GraphQL (NOT_FOUND) -- dropped; this record was never a PR this session worked"
+    if $TO gh repo view "$repo" >/dev/null 2>&1; then
+      failed="$failed
+- $repo#$num: GraphQL reported repository NOT_FOUND but \`gh repo view\` can see it -- an access problem, not a missing repo; not dropped"
+    else
+      dropped="$dropped
+- $repo#$num: repository not found over GraphQL (NOT_FOUND), confirmed by \`gh repo view\` -- dropped; this record was never a PR this session worked"
+    fi
     continue
   fi
   [ "$rc" = 0 ] || { failed="$failed

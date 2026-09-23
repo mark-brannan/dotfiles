@@ -20,6 +20,12 @@ cat > "$SCRATCH/bin/gh" <<'GH'
 echo "$*" >> "$GH_LOG"
 case "$1 $2" in
   "pr view") printf 'https://github.com/o/r/pull/7\n'; exit 0 ;;
+  "repo view")
+    case "$3" in
+      o/notfound) exit 1 ;;
+      o/hidden) printf '{}'; exit 0 ;;
+    esac
+    ;;
 esac
 # dotfiles#263: a repo named "notfound" in the graphql call simulates GitHub's
 # NOT_FOUND-on-`repository` response -- JSON body on stdout, gh's own error
@@ -29,6 +35,13 @@ case "$*" in
   *"name=notfound"*)
     printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/notfound'"'"'."}]}'
     echo "gh: Could not resolve to a Repository with the name 'o/notfound'." >&2
+    exit 1
+    ;;
+  *"name=hidden"*)
+    # dotfiles#309: same NOT_FOUND shape, but `gh repo view` (mocked above)
+    # can still see this one -- an access problem, not a missing repo.
+    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/hidden'"'"'."}]}'
+    echo "gh: Could not resolve to a Repository with the name 'o/hidden'." >&2
     exit 1
     ;;
 esac
@@ -161,6 +174,12 @@ check block 'NOT_FOUND repo + a real open thread -> still blocks on the real one
 reason 'still names the open thread PR' 'o/r#25 has 1 unresolved'
 reason 'and still names the dropped one' 'o/notfound#1'
 reason 'and still says never worked'    'never a PR this session worked'
+
+# --- NOT_FOUND but `gh repo view` still sees it -> access problem, not dropped (dotfiles#309) ---
+record dn3 "$(printf 'repo\to/hidden\t1')"
+check block 'NOT_FOUND repo that gh repo view can still see -> blocks, not dropped' fail "$(stop_input dn3)"
+reason 'says access problem, not missing repo' 'access problem, not a missing repo'
+no_reason 'does not claim it was dropped' 'never a PR this session worked'
 
 # --- a fan-out over many PRs checks every one; none is skipped by count ---------
 for i in 1 2 3 4 5 6 7 8; do record s9 "$(printf 'repo\to/r\t%s' "$i")"; done
