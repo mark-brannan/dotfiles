@@ -888,6 +888,21 @@ run --prs
 has 'nothing to fix up says so' 'no unfinished PRs on'
 eq 'and exits 0' 0 "$RC"
 
+# --- --resume of a --prs session stays on the PR queue --------------------------------
+# The UNVERIFIED line promises a retry on `grind --resume <id>`, with no
+# --prs on it; the session file has to carry the mode or that retry would
+# quietly work the Ready queue on the PR session's budget.
+prs_session=$(basename "$(ls -t "$S/state/grind"/*.json | head -1)" .json)
+eq 'the session file records the mode' 1 "$(jq -r .prs "$S/state/grind/$prs_session.json")"
+run --resume "$prs_session"
+has 'resumed without --prs, it still reads the PR queue' 'no unfinished PRs on'
+lacks 'and not the Ready queue' 'no Ready items'
+# A session file from before the field existed is an issue session.
+jq 'del(.prs)' "$S/state/grind/$prs_session.json" > "$S/state/grind/grind-old.json"
+run --resume grind-old --prs
+eq 'an issue session cannot be resumed as --prs' 1 "$RC"
+has 'and says why' 'worked the Ready queue, not PRs'
+
 unset GRIND_ROOT
 cd "$S/repo" || exit 1
 cat > "$S/bin/gh" <<GH

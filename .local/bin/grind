@@ -172,21 +172,6 @@ if [ "$prs" -eq 1 ]; then
   # rule names, and five of those is a session.
   [ "$item_budget_set" -eq 0 ] && item_budget=1
   [ "$session_budget_set" -eq 0 ] && session_budget=5
-
-  # Every commit a fixup makes has to sign, and the contract forbids the
-  # worker from working around that. A machine without a key cannot finish a
-  # single item, so refuse the run rather than spend the budget rediscovering
-  # it once per PR.
-  if [ -z "$(git config --get user.signingkey 2>/dev/null)" ]; then
-    echo "grind: --prs needs a signing key on this machine (git config user.signingkey is empty)" >&2
-    exit 1
-  fi
-  [ -n "$audit_bin" ] || { echo "grind: --prs needs pr-label-audit; not found beside grind or under \$HOME" >&2; exit 1; }
-  [ -n "$lib_state" ] || { echo "grind: --prs needs .claude/hooks/lib-state.sh for branch_brief" >&2; exit 1; }
-  # No contract means the worker would be handed a PR and no rules at all.
-  if [ -z "$(fixup_contract || true)" ]; then
-    echo "grind: --prs needs the fixup contract in .claude/skills/pickup/SKILL.md" >&2; exit 1
-  fi
 fi
 
 # A logged-out claude fails every item the same way -- a $0, 0-token result
@@ -232,19 +217,46 @@ if [ -n "$resume_id" ]; then
   item_budget=$(jq -r '.item_budget' "$state_file")
   session_budget=$(jq -r '.session_budget' "$state_file")
   pause_every=$(jq -r '.pause_every' "$state_file")
+  # The mode is the session's, not the flag's: a --prs session's UNVERIFIED
+  # line promises a retry on --resume, and that retry has to read the same
+  # queue. A missing field is an older session file, which was always issues.
+  state_prs=$(jq -r '.prs // 0' "$state_file")
+  if [ "$prs" -eq 1 ] && [ "$state_prs" -ne 1 ]; then
+    printf 'grind: session %s worked the Ready queue, not PRs; drop --prs to resume it\n' "$resume_id" >&2; exit 1
+  fi
+  prs=$state_prs
 else
   session_id=grind-$(new_session_id)
   state_file="$state_root/$session_id.json"
   [ -n "$repo" ] || repo=$(cwd_repo) || { printf 'grind: not in a GitHub repo; pass --repo owner/name\n' >&2; exit 1; }
   if [ "$dry_run" -eq 0 ]; then
     jq -n --arg repo "$repo" --arg model "$model" --arg effort "$effort" \
-          --argjson ib "$item_budget" --argjson sb "$session_budget" --argjson pe "$pause_every" \
-      '{repo:$repo, model:$model, effort:$effort, item_budget:$ib, session_budget:$sb, pause_every:$pe, items:[]}' \
+          --argjson ib "$item_budget" --argjson sb "$session_budget" --argjson pe "$pause_every" --argjson prs "$prs" \
+      '{repo:$repo, model:$model, effort:$effort, item_budget:$ib, session_budget:$sb, pause_every:$pe, prs:$prs, items:[]}' \
       > "$state_file"
   fi
 fi
 
 resume_cmd="grind --resume $session_id"
+
+# --prs preconditions, checked once the mode is settled -- a --resume takes it
+# from the session file, so this cannot run before that is read.
+if [ "$prs" -eq 1 ]; then
+  # Every commit a fixup makes has to sign, and the contract forbids the
+  # worker from working around that. A machine without a key cannot finish a
+  # single item, so refuse the run rather than spend the budget rediscovering
+  # it once per PR.
+  if [ -z "$(git config --get user.signingkey 2>/dev/null)" ]; then
+    echo "grind: --prs needs a signing key on this machine (git config user.signingkey is empty)" >&2
+    exit 1
+  fi
+  [ -n "$audit_bin" ] || { echo "grind: --prs needs pr-label-audit; not found beside grind or under \$HOME" >&2; exit 1; }
+  [ -n "$lib_state" ] || { echo "grind: --prs needs .claude/hooks/lib-state.sh for branch_brief" >&2; exit 1; }
+  # No contract means the worker would be handed a PR and no rules at all.
+  if [ -z "$(fixup_contract || true)" ]; then
+    echo "grind: --prs needs the fixup contract in .claude/skills/pickup/SKILL.md" >&2; exit 1
+  fi
+fi
 
 # Worktrees are cut from the current directory's repository, so it must be
 # a checkout of $repo -- otherwise the worker is handed the wrong codebase.
@@ -504,8 +516,11 @@ verify_pr_fixup() {
   case "$moved" in ''|*[!0-9]*) return 1 ;; esac
   [ "$moved" -gt 0 ] || return 1
   git -C "$3" fetch -q origin "$base" 2>/dev/null || return 1
-  bad=$(git -C "$3" log --format='%G?' "origin/$base..$2" 2>/dev/null | grep -cv '^[GU]$') || bad=${bad:-0}
-  [ "${bad:-1}" -eq 0 ]
+  # A range git cannot read, or an empty one, verifies nothing: the previous
+  # form counted zero unreadable lines as zero bad signatures.
+  sigs=$(git -C "$3" log --format='%G?' "origin/$base..$2" 2>/dev/null) || return 1
+  [ -n "$sigs" ] || return 1
+  ! printf '%s\n' "$sigs" | grep -qvx '[GU]'
 }
 
 # verify_carded <issue number> <marker file> <worker start, ISO 8601>
