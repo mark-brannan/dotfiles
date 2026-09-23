@@ -355,8 +355,8 @@ authenticating through the `claude_code_oauth_token` input, which reads the
 subscription rather than metered API credit.
 
 This is a **GitHub repo secret, not a sops secret.** Nothing about it lives
-in this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. They
-are set once per repository, and no machine setup does it for you.
+in this repo: `secrets/`, `.sops.yaml` and the bootstrap are not involved. It
+is set once per repository, and no machine setup does it for you.
 
 **1 — Mint the token.** From Claude Code on a machine already logged in:
 
