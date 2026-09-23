@@ -50,9 +50,8 @@ tracks difficulty, never effort.
     example record, not a description of the fields.
   - a display — statusline, hook note, TUI, log line → a mockup of exactly
     what appears on screen, in a code block, before the code that makes it.
-  - a set or comparison → a table; a trend → a chart; a flow → a diagram.
-  - a page → the bare link; a command → a fenced `bash` block; a file → a
-    clickable path with line number; a change → the diff.
+  - a set or comparison → a table; a trend → a chart; a flow → a diagram;
+    a change → the diff.
 
   Pick the richest rendering the channel can carry: an artifact or image
   where the terminal can't draw it, markdown where it can, a plain-text
