@@ -46,8 +46,8 @@ LAST=""
 check() {
   local want=$1 desc=$2 json=$3 state=${4:-$CLAUDE_STATE_REPO} out got
   out=$(printf '%s' "$json" | CLAUDE_STATE_REPO="$state" sh "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny
-  elif [ -z "$out" ] || printf '%s' "$out" | grep -q '"permissionDecision":"allow"'; then got=allow
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny
+  elif [ -z "$out" ] || grep -q '"permissionDecision":"allow"' <<<"$out"; then got=allow
   else got=invalid; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1)); printf 'FAIL (want %s, got %s): %s\n' "$want" "$got" "$desc"
@@ -55,8 +55,8 @@ check() {
   fi
   LAST=$out
 }
-reason() { if printf '%s' "$LAST" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -- "$2"; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL (reason lacks [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
-no_reason() { if printf '%s' "$LAST" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -- "$2"; then fail=$((fail + 1)); printf 'FAIL (reason has [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass + 1)); fi; }
+reason() { if grep -Fq -- "$2" <<<"$(jq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$LAST")"; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL (reason lacks [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
+no_reason() { if grep -Fq -- "$2" <<<"$(jq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$LAST")"; then fail=$((fail + 1)); printf 'FAIL (reason has [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass + 1)); fi; }
 updated_field() { printf '%s' "$LAST" | jq -r ".hookSpecificOutput.updatedInput$1 // empty"; }
 
 # bash_in <cwd> <command>
@@ -250,12 +250,12 @@ reason 'names the file'              'mut.md'
 # denylist missing: a state repo with no private-terms.txt, and no repo at all
 EMPTY="$SCRATCH/empty"; mkdir -p "$EMPTY/.git" "$EMPTY/state/global"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1); LAST=$out
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: denylist missing should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: denylist missing should deny: $out"; fi
 reason 'says the denylist is unreadable' 'denylist is unreadable'
 reason 'asks about the state repo'   'state repo checked out'
 reason 'offers the private repo'     "--repo $PRIVATE"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO='' sh "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: no state repo anywhere should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: no state repo anywhere should deny: $out"; fi
 out=$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -b Wanderlust" | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1)
 if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: private repo needs no denylist: $out"; fi
 out=$(bash_in "$PUB" 'gh issue list' | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1)
@@ -266,7 +266,7 @@ if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: 
 BLANK="$SCRATCH/blank"; mkdir -p "$BLANK/.git" "$BLANK/state/global"
 printf '# comments only\n\n   \n' > "$BLANK/state/global/private-terms.txt"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO=$BLANK sh "$HOOK" 2>&1); LAST=$out
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: empty denylist should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: empty denylist should deny: $out"; fi
 reason 'says the denylist has no terms' 'no terms in it'
 out=$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -b Wanderlust" | CLAUDE_STATE_REPO=$BLANK sh "$HOOK" 2>&1)
 if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: private repo needs no denylist terms: $out"; fi
@@ -359,7 +359,7 @@ reason 'still names the other term' 'Wanderlust'
 # no awk: deny, do not crash quiet
 mkdir -p "$SCRATCH/noawk"; for b in jq cat dirname mktemp rm sed grep tr git head; do ln -s "$(command -v $b)" "$SCRATCH/noawk/$b"; done
 out=$(bash_in "$PUB" 'gh issue create -t x -b hi' | PATH="$SCRATCH/noawk" /bin/sh "$HOOK" 2>&1); LAST=$out
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: awk absent should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: awk absent should deny: $out"; fi
 reason 'names awk as missing'        'awk missing'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
