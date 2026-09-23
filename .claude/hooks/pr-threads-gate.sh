@@ -103,6 +103,22 @@ $prs
 EOF
 wait
 
+# Second pass, same wall-clock reasoning as the first fetch above: every
+# NOT_FOUND-on-`repository` result needs a confirmatory `gh repo view`, and a
+# session that touched several now-missing repos pays that timeout once,
+# total, rather than once per entry serially in the results loop below.
+i=0
+while [ "$i" -lt "$n" ]; do
+  i=$((i + 1))
+  out=$(cat "$WORK/$i.out" 2>/dev/null)
+  nf=$(printf '%s' "$out" | jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' 2>/dev/null)
+  [ "${nf:-0}" -gt 0 ] 2>/dev/null || continue
+  IFS="$(printf '\t')" read -r repo num < "$WORK/$i.pr"
+  ( $TO gh repo view "$repo" > "$WORK/$i.view.out" 2>&1
+    echo $? > "$WORK/$i.view.rc" ) &
+done
+wait
+
 open=""
 stale=""
 failed=""
@@ -124,12 +140,22 @@ while [ "$i" -lt "$n" ]; do
   nf=$(printf '%s' "$out" | jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' 2>/dev/null)
   nf=${nf:-0}
   if [ "$nf" -gt 0 ] 2>/dev/null; then
-    if $TO gh repo view "$repo" >/dev/null 2>&1; then
+    view_out=$(cat "$WORK/$i.view.out" 2>/dev/null)
+    view_rc=$(cat "$WORK/$i.view.rc" 2>/dev/null)
+    if [ "$view_rc" = 0 ]; then
       failed="$failed
 - $repo#$num: GraphQL reported repository NOT_FOUND but \`gh repo view\` can see it -- an access problem, not a missing repo; not dropped"
-    else
+    elif printf '%s' "$view_out" | grep -qi 'HTTP 404\|Could not resolve to a Repository'; then
       dropped="$dropped
-- $repo#$num: repository not found over GraphQL (NOT_FOUND), confirmed by \`gh repo view\` -- dropped; this record was never a PR this session worked"
+- $repo#$num: repository not found over GraphQL (NOT_FOUND), confirmed 404 by \`gh repo view\` -- dropped; this record was never a PR this session worked"
+    else
+      # A repo-view failure that isn't a confirmed 404 -- timeout, rate
+      # limit, or the same proxy/token block that produced the ambiguous
+      # NOT_FOUND in the first place -- proves nothing either way, so it
+      # falls through to the generic failed-closed case per the EXCEPTION
+      # note above, not to dropped.
+      failed="$failed
+- $repo#$num: repository NOT_FOUND over GraphQL, and \`gh repo view\` failed without confirming it is gone ($(printf '%s' "$view_out" | head -1 | tr -d '\n')) -- unverified, not dropped"
     fi
     continue
   fi

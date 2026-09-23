@@ -22,8 +22,13 @@ case "$1 $2" in
   "pr view") printf 'https://github.com/o/r/pull/7\n'; exit 0 ;;
   "repo view")
     case "$3" in
-      o/notfound) exit 1 ;;
+      o/notfound) echo "gh: HTTP 404: Not Found" >&2; exit 1 ;;
       o/hidden) printf '{}'; exit 0 ;;
+      # dotfiles#342: repo-view itself fails, but not with a confirmed 404 --
+      # a timeout, rate limit, or the same proxy/token block that produced
+      # the ambiguous NOT_FOUND in the first place. Proves nothing either
+      # way, so it must not read as "confirmed gone".
+      o/flaky) echo "gh: HTTP 403: rate limit exceeded" >&2; exit 1 ;;
     esac
     ;;
 esac
@@ -42,6 +47,11 @@ case "$*" in
     # can still see this one -- an access problem, not a missing repo.
     printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/hidden'"'"'."}]}'
     echo "gh: Could not resolve to a Repository with the name 'o/hidden'." >&2
+    exit 1
+    ;;
+  *"name=flaky"*)
+    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/flaky'"'"'."}]}'
+    echo "gh: Could not resolve to a Repository with the name 'o/flaky'." >&2
     exit 1
     ;;
 esac
@@ -179,6 +189,12 @@ reason 'and still says never worked'    'never a PR this session worked'
 record dn3 "$(printf 'repo\to/hidden\t1')"
 check block 'NOT_FOUND repo that gh repo view can still see -> blocks, not dropped' fail "$(stop_input dn3)"
 reason 'says access problem, not missing repo' 'access problem, not a missing repo'
+no_reason 'does not claim it was dropped' 'never a PR this session worked'
+
+# --- NOT_FOUND and `gh repo view` fails too, but not with a confirmed 404 -> unverified, not dropped (dotfiles#342) ---
+record dn4 "$(printf 'repo\to/flaky\t1')"
+check block 'NOT_FOUND repo where gh repo view fails without confirming 404 -> blocks, not dropped' fail "$(stop_input dn4)"
+reason 'says unverified, not dropped'   'unverified, not dropped'
 no_reason 'does not claim it was dropped' 'never a PR this session worked'
 
 # --- a fan-out over many PRs checks every one; none is skipped by count ---------
