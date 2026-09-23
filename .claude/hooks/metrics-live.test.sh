@@ -406,7 +406,7 @@ has 'the first crossing at/above the stop line offers to stop' \
 turn "$TP6" 260000
 ctx6c=$(payload "$TP6" "$SID6" "$SCRATCH" \
         | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
-has  'a later crossing says it was already raised'  'Already raised at 125k' "$ctx6c"
+has  'a later crossing names the rung last offered'  'last offered at 125k' "$ctx6c"
 hasnt 'and does not repeat the stopping-point offer' 'a stopping point'      "$ctx6c"
 
 # dotfiles#282: a prompt that crosses no new rung carries no context line.
@@ -424,7 +424,7 @@ turn "$TP6b" 300000
 ctx6d=$(payload "$TP6b" "$SID6b" "$SCRATCH" \
         | bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
 t 'one jump across three stop-eligible rungs still sends one line' \
-  1 "$(printf '%s' "$ctx6d" | grep -c 'stopping point\|Already raised')"
+  1 "$(printf '%s' "$ctx6d" | grep -c 'stopping point\|last offered')"
 
 # --- 6b. model injection: sitting clock, mirrors section 6 --------------------
 # Same shape as the context ladder, on the sitting clock; a restart of the
@@ -442,7 +442,7 @@ has 'the first sitting crossing offers a break' \
 clock 121 10
 out6g=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 has 'a later sitting crossing names the earlier rung raised' \
-    'Already raised at 1h00' "$(ctx "$out6g")"
+    'last offered at 1h00' "$(ctx "$out6g")"
 hasnt 'and does not repeat the break offer' 'offer a break' "$(ctx "$out6g")"
 
 # dotfiles#282: still past 2h, no new rung -- silence, not a re-nag.
@@ -478,10 +478,10 @@ hasnt 'and never offers the break' 'Say so and offer a break' "$(ctx "$out6j")"
 
 clock 121 10
 out6k=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
-hasnt 'the in-flight rung is not spent -- no "already raised"' \
-      'Already raised' "$(ctx "$out6k")"
-hasnt 'and two hours in flight still does not order /wrapup' \
-      'Stop here and run /wrapup' "$(ctx "$out6k")"
+hasnt 'the in-flight rung is not spent -- no "last offered"' \
+      'last offered' "$(ctx "$out6k")"
+hasnt 'and two hours in flight still does not offer to stop' \
+      'good place to stop' "$(ctx "$out6k")"
 
 # dotfiles#282: unspent is not the same as unlimited -- the in-flight line
 # still fires once per rung, not on every prompt.
@@ -495,7 +495,7 @@ git -C "$WT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 rm -f "$WT/dirty.txt"
 out6k3=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
 has 'and once the work lands the unspent offer fires' \
-    'Stop here and run /wrapup' "$(ctx "$out6k3")"
+    'good place to stop' "$(ctx "$out6k3")"
 clock_clear
 
 # --- 6c. model injection: decision load, mirrors section 6 --------------------
@@ -528,7 +528,7 @@ for _ in 1 2; do askturn "$TP6c"; done
 ctx6l=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
         | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
 has 'a later decision crossing names the earlier rung raised' \
-    'past 5\. Already raised at 3 and not acted on\.' "$ctx6l"
+    'past 5 \(last noted at 3\)\.' "$ctx6l"
 hasnt 'and does not repeat the front-load offer' 'Front-load or card the rest\.' "$ctx6l"
 
 # dotfiles#282: no new decision, no line.
@@ -703,7 +703,7 @@ for n in 2 3; do
   o12c=$(payload "$TP12" ptu "$SCRATCH" \
          | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)
 done
-has 'a raised rung is said again after the repeat count'     'for 3 tool calls and not acted on' "$(ctx "$o12c")"
+has 'a raised rung is said again after the repeat count'     'for 3 tool calls\. If' "$(ctx "$o12c")"
 turn "$TP12" 154000
 o12d=$(payload "$TP12" ptu "$SCRATCH" \
        | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)
