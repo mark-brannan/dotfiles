@@ -34,12 +34,7 @@ SCRATCH="$S"
 
 eq() { # eq <what> <expected> <got>
   if [ "$2" = "$3" ]; then pass=$((pass + 1))
-  else fail=$((fail + 1)); echo "FAIL: $1: expected [$2], got [$3]"; fi
-}
-
-t() {  # t <desc> <want> <got>
-  if [ "$2" = "$3" ]; then pass=$((pass+1))
-  else fail=$((fail+1)); printf 'FAIL: %s\n  want [%s]\n  got  [%s]\n' "$1" "$2" "$3"; fi
+  else fail=$((fail + 1)); printf 'FAIL: %s\n  want [%s]\n  got  [%s]\n' "$1" "$2" "$3"; fi
 }
 
 # One assistant message on $1, with 1M tokens in every usage bucket, so the
@@ -125,25 +120,25 @@ peak() {  # peak <transcript>
 # --- resident: every part of the prompt, and the response -------------------
 tp="$SCRATCH/resident.jsonl"; : > "$tp"
 amsg "$tp" 100 5000 400 60
-t "prompt parts and response all count" 5560 "$(peak "$tp")"
+eq "prompt parts and response all count" 5560 "$(peak "$tp")"
 
 # --- main chain: a subagent's window is not this session's ------------------
 tp="$SCRATCH/sidechain.jsonl"; : > "$tp"
 amsg "$tp" 0 20000 0 0
 amsg "$tp" 0 900000 0 0 true
-t "a sidechain request never sets the peak" 20000 "$(peak "$tp")"
+eq "a sidechain request never sets the peak" 20000 "$(peak "$tp")"
 
 # --- peak: the fullest request, not the last -------------------------------
 tp="$SCRATCH/peak.jsonl"; : > "$tp"
 amsg "$tp" 0 150000 0 0
 amsg "$tp" 0 12000 0 0
-t "a reset window still reports its peak" 150000 "$(peak "$tp")"
+eq "a reset window still reports its peak" 150000 "$(peak "$tp")"
 
 # --- no usage: 0, never null ----------------------------------------------
 tp="$SCRATCH/empty.jsonl"
 jq -nc '{type:"queue-operation", operation:"enqueue",
          timestamp:"2026-09-09T10:00:00.000Z", sessionId:"t", content:"go on"}' > "$tp"
-t "no assistant usage reads 0" 0 "$(peak "$tp")"
+eq "no assistant usage reads 0" 0 "$(peak "$tp")"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
