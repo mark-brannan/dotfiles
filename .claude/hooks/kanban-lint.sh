@@ -36,8 +36,10 @@
 #       above it -- rulings are grouped by the project that owns them, so
 #       a session in one repo can see its own without reading the rest
 #   L8  a card under ## Needs ruling missing any of "default:", "undo:",
-#       "until:", "risk:" -- the agent's evaluation travels on the card so
-#       the ruling is one word; a bare question is hedging written down
+#       "until:", "risk:", "judgment:" -- the agent's evaluation travels on
+#       the card so the ruling is one word; a bare question is hedging
+#       written down. judgment: names the kind -- values, risk, direction,
+#       legal or people -- and a card that cannot is toil, not a ruling
 #   L9  a card under ## Solace's missing "why you:" (the mechanism an agent
 #       lacks, or "learn"), or missing "why this:" (the evidence this is the
 #       confirmed fix) when "why you:" is not "learn" -- click work with no
@@ -149,8 +151,11 @@ run_lint() {
         if (!has_field(t, "undo")) miss = miss ", undo:"
         if (!has_field(t, "until")) miss = miss ", until:"
         if (!has_field(t, "risk")) miss = miss ", risk:"
+        if (!has_field(t, "judgment")) miss = miss ", judgment:"
         if (miss != "")
-          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong) so the ruling is one word; without a default it is hedging, not a one-way door")
+          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong, judgment: values, risk, direction, legal or people) so the ruling is one word; without a default it is hedging, not a one-way door")
+        else if (t !~ /judgment:[ \t]*(values|risk|direction|legal|people)([^a-z]|$)/)
+          report(cstart, "L8", "judgment: must be values, risk, direction, legal or people -- a call that is none of those is toil: take the default, record it where the work lands, and delete the card")
       } else if (cursec == solaces) {
         if (!has_field(t, "why you"))
           report(cstart, "L9", "click-work card missing why you: -- name the mechanism an agent lacks (no API, a consent screen, a USB bus), or \"learn\" when the user has chosen to do it by hand; \"needs a credential\" is not a reason unless the credential cannot be given to an agent")
@@ -290,7 +295,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk: -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk:/judgment: -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }
