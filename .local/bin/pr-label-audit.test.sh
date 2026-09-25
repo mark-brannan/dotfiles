@@ -97,15 +97,19 @@ case "$*" in
     esac
     exit 0 ;;
 esac
-# repos/<owner>/<repo> --jq .default_branch: always "main".
-case "$*" in *"--jq .default_branch"*) echo main; exit 0 ;; esac
-# repos/<owner>/<repo>/commits/<branch>/check-runs: the gate is FAILURE for
-# any repo named in GH_BASE_RED, SUCCESS otherwise.
+# repos/<owner>/<repo>/commits/HEAD/check-runs: a REST-shaped payload, lower
+# case as the real API spells it, run through the caller's own --jq filter so
+# a filter or casing mistake fails here rather than only against GitHub. The
+# gate fails for any repo named in GH_BASE_RED; without `check_name` the gate
+# is off the first page, as it can be for real.
 case "$*" in
   *check-runs*)
     repo=$(printf '%s' "$*" | sed -n 's#.*repos/[^ ]*/\([^/]*\)/commits/.*#\1#p')
-    for r in ${GH_BASE_RED:-}; do [ "$repo" = "$r" ] && { echo FAILURE; exit 0; }; done
-    echo SUCCESS; exit 0 ;;
+    concl=success
+    for r in ${GH_BASE_RED:-}; do [ "$repo" = "$r" ] && concl=failure; done
+    case "$*" in *"check_name=ci-gate / gate"*) runs='[{"name":"ci-gate / gate","conclusion":"'$concl'"}]' ;; *) runs='[]' ;; esac
+    filter=$(for a; do [ "${prev:-}" = --jq ] && printf '%s' "$a"; prev=$a; done)
+    printf '{"check_runs":%s}' "$runs" | jq -r "$filter"; exit ;;
 esac
 # repos/<owner>/<repo>/labels: only `alpha` defines it, and any repo named in
 # GH_LABEL_FAIL cannot be read at all.
@@ -482,9 +486,9 @@ eq 'and the section matches, so grind does not pick it up as unfinished' \
 eq 'the json trailing fact names the repo' 'alpha' \
   "$(printf '%s\n' "$OUT" | jq -r 'select(has("repos_base_red")) | .repos_base_red[]' | grep -x alpha)"
 GH_BASE_RED=alpha runargs
-has 'text mode prints it as the very first heading' \
-  '^## The base branch own `ci-gate / gate` is red'
-GH_BASE_RED= runargs --json
+eq 'text mode leads with it' 0 "$(printf '%s\n' "$OUT" | grep -m1 '^## ' | grep -q 'is red'; echo $?)"
+has 'and lists the held pull request under it, not nowhere' 'alpha#40 \[base-red\]'
+GH_BASE_RED="" runargs --json
 eq 'and a green base leaves the ordinary verdict alone' \
   'unfinished' "$(row 'alpha#40' | jq -r .section)"
 

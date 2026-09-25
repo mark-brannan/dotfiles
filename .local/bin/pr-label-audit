@@ -238,11 +238,15 @@ for repo in $repos; do
     unchecked="$unchecked $repo"
   fi
   # main's own gate, not any PR's -- dotfiles#359: a red base makes every
-  # open PR misread as broken for a reason that is not the PR's own.
-  def_branch=$(gh api "repos/$OWNER/$repo" --jq .default_branch 2>/dev/null) || def_branch=""
-  if [ -n "$def_branch" ] && base_gate=$(gh api "repos/$OWNER/$repo/commits/$def_branch/check-runs" \
-       --jq --arg gate "$GATE" 'first(.check_runs[] | select(.name == $gate) | .conclusion) // empty' 2>/dev/null) \
-       && [ "$base_gate" = FAILURE ]; then
+  # open PR misread as broken for a reason that is not the PR's own. `HEAD`
+  # is the default branch, so no second call to learn its name; `check_name`
+  # filters server-side, since the gate need not be on the first page of 30.
+  # REST spells the conclusion in lower case, unlike GraphQL. A lookup that
+  # fails, or a gate still running, reads as not red: a guess must not hold
+  # every PR in the repository back.
+  if base_gate=$(gh api -X GET "repos/$OWNER/$repo/commits/HEAD/check-runs" -f check_name="$GATE" \
+       --jq '.check_runs[0].conclusion // empty' 2>/dev/null) \
+       && [ "$base_gate" = failure ]; then
     base_red="$base_red $repo"
   fi
 done
@@ -347,9 +351,10 @@ audit_jq='
     else
 
   ( section(
-        "The base branch own `\($gate)` is red -- nothing below is a fixup";
-        "main itself is failing, not these pull requests. Fix that first;\n`grind --prs` will not touch these repositories until it is green again.";
-        $base_red_repos)
+        "The base branch own `\($gate)` is red -- these are not fixups";
+        "main itself is failing, not these pull requests. Fix that first;\n`grind --prs` will not touch these pull requests until it is green again.";
+        [ $base_red_repos[] as $r
+          | $r, ($prs[] | select(.repo == $r and .verdict == "base-red") | "  " + vline) ])
 
     + section(
         "Repositories whose labels could not be read";
