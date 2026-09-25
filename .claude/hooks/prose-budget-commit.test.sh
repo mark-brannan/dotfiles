@@ -39,7 +39,7 @@ CLEAN=$(mkrepo)
 printf 'seed plus one\n' > "$CLEAN/README.md"; git -C "$CLEAN" add README.md
 NOCONF=$(mktemp -d); git -C "$NOCONF" init -q -b main; printf 'x\n' > "$NOCONF/a.md"; git -C "$NOCONF" add a.md
 mkdir -p "$DIRTY/sub"
-trap 'rm -rf "$DIRTY" "$CLEAN" "$NOCONF"' EXIT
+trap 'rm -rf "$DIRTY" "$CLEAN" "$NOCONF" "${MERGING:-}"' EXIT
 
 check deny  'plain commit'                    'git commit -m "docs: more"'
 check deny  'after a separator'               'git add README.md && git commit -m x'
@@ -57,6 +57,23 @@ check allow 'commit mentioned in a message'   'git add x && git commit -m "git c
 check allow 'commit as prose'                 'echo "run git commit -m x"'
 check allow 'commit in a heredoc body'        $'cat <<EOF\ngit commit -m x\nEOF'
 check allow 'a different tool'                'gh pr create --title x'
+
+# A merge in progress (MERGE_HEAD present): the engine's own is_merging()
+# skip (prose-budget, Checker.run) treats --staged as clean mid-merge, since
+# it would otherwise diff the whole merged index against the pre-merge HEAD
+# and flag main's own already-merged prose as new. Stage an over-budget
+# diff -- like $DIRTY's -- and leave it staged (never commit it) so `allow`
+# here is actually proof of the merge skip, not just an empty diff: without
+# MERGE_HEAD the very same staged content must deny.
+MERGING=$(mkrepo)
+{ echo '## A'; echo; for _ in $(seq 60); do printf 'word '; done; echo; } > "$MERGING/README.md"
+git -C "$MERGING" add README.md
+git -C "$MERGING" rev-parse HEAD > "$MERGING/.git/MERGE_HEAD"
+check allow 'git commit, MERGE_HEAD present, over-budget staged'     'git commit -m x' "$MERGING"
+check allow 'git merge --continue, MERGE_HEAD present, over-budget'  'git merge --continue' "$MERGING"
+rm -f "$MERGING/.git/MERGE_HEAD"
+check deny  'same over-budget staging, MERGE_HEAD gone'              'git commit -m x' "$MERGING"
+check deny  'git merge --continue, no MERGE_HEAD, dirty staging'     'git merge --continue' "$DIRTY"
 
 # Fail-open: no jq, and no engine.
 BARE=$(mktemp -d); for t in bash sh awk cat cut dirname git timeout; do p=$(command -v $t) && ln -s "$p" "$BARE/$t"; done
