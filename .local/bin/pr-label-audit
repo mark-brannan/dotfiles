@@ -237,13 +237,9 @@ for repo in $repos; do
   else
     unchecked="$unchecked $repo"
   fi
-  # main's own gate, not any PR's -- dotfiles#359: a red base makes every
-  # open PR misread as broken for a reason that is not the PR's own. `HEAD`
-  # is the default branch, so no second call to learn its name; `check_name`
-  # filters server-side, since the gate need not be on the first page of 30.
-  # REST spells the conclusion in lower case, unlike GraphQL. A lookup that
-  # fails, or a gate still running, reads as not red: a guess must not hold
-  # every PR in the repository back.
+  # The default branch's own gate (dotfiles#359): red there misreads every PR.
+  # `check_name` filters server-side (the gate may be off page one); REST's
+  # conclusion is lower case. A failed lookup or a running gate is not red.
   if base_gate=$(gh api -X GET "repos/$OWNER/$repo/commits/HEAD/check-runs" -f check_name="$GATE" \
        --jq '.check_runs[0].conclusion // empty' 2>/dev/null) \
        && [ "$base_gate" = failure ]; then
