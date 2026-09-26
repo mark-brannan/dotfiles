@@ -124,47 +124,51 @@ jobs:
           echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
 
   # Only these 7 guards share the awk tokenizer (lib-shell-words.awk) where
-  # the three-implementation matrix is the actual contract (#94 names them):
-  # a gawk-ism that passes locally is a hook that fails closed on every Bash
-  # call on the Mac (mawk), or -- worse -- parses differently under
-  # original-awk. fail-fast is off because "mawk is fine, original-awk is
-  # not" is the finding this job exists to produce -- cancelling the other
-  # legs on the first red would hide it.
+  # the three-implementation contract is real (#94 names them): a gawk-ism
+  # that passes locally is a hook that fails closed on every Bash call on the
+  # Mac (mawk), or -- worse -- parses differently under original-awk. All
+  # three implementations still run on every PR; they run inside one job
+  # rather than as a three-leg matrix because the cost that hurts is queued
+  # jobs against the account's concurrent-job cap (#337), and three legs that
+  # each spent most of their wall time on the same apt-get bought two more
+  # slots in that queue and nothing else. Every implementation is reported
+  # even after one fails -- "mawk is fine, original-awk is not" is the finding
+  # this job exists to produce, so the loop records the failure and carries on
+  # rather than stopping at the first red (what fail-fast: false bought the
+  # matrix).
   guard-tests:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        awk: [mawk, gawk, original-awk]
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Install ${{ matrix.awk }}
+      - name: Install mawk, gawk and original-awk
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          sudo apt-get install -y -q "$AWK_IMPL" jq
-        env:
-          AWK_IMPL: ${{ matrix.awk }}
-      - name: Run the lib-shell-words guard suites under ${{ matrix.awk }}
-        env:
-          AWK_IMPL: ${{ matrix.awk }}
+          # Co-installable: each package Provides: awk through
+          # update-alternatives and none of them Conflicts with the others,
+          # so /usr/bin/{mawk,gawk,original-awk} all exist side by side and
+          # the symlink below picks one per pass.
+          sudo apt-get install -y -q mawk gawk original-awk jq
+      - name: Run the lib-shell-words guard suites under each awk
         run: |
           set -euo pipefail
           status=0
-          d=$(mktemp -d)
-          ln -s "$(command -v "$AWK_IMPL")" "$d/awk"
-          for t in .claude/hooks/no-delete-stacked-base.test.sh \
-                   .claude/hooks/no-git-footguns.test.sh \
-                   .claude/hooks/no-foreign-worktree.test.sh \
-                   .claude/hooks/no-checkout-home.test.sh \
-                   .claude/hooks/prose-budget-commit.test.sh \
-                   .claude/hooks/no-rm-tree.test.sh \
-                   .claude/hooks/public-issue-guard.test.sh; do
-            echo "::group::$t under $AWK_IMPL"
-            if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $AWK_IMPL"; fi
-            echo "::endgroup::"
+          for impl in mawk gawk original-awk; do
+            d=$(mktemp -d)
+            ln -s "$(command -v "$impl")" "$d/awk"
+            for t in .claude/hooks/no-delete-stacked-base.test.sh \
+                     .claude/hooks/no-git-footguns.test.sh \
+                     .claude/hooks/no-foreign-worktree.test.sh \
+                     .claude/hooks/no-checkout-home.test.sh \
+                     .claude/hooks/prose-budget-commit.test.sh \
+                     .claude/hooks/no-rm-tree.test.sh \
+                     .claude/hooks/public-issue-guard.test.sh; do
+              echo "::group::$t under $impl"
+              if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
+              echo "::endgroup::"
+            done
           done
           exit $status
 
