@@ -45,8 +45,15 @@ mk wt-dirty;          commit_old "$R" d; gitq "$R" push -u origin wt-dirty; gitq
 # but the same diff lands on main under a different commit -- the normal
 # state of a squash merge (see #185, grind-96).
 mk old-squash;        echo squash > "$R/squash.txt"; gitq "$R" add squash.txt; commit_old "$R" "squash source"
+# Two commits on the branch, one combined commit on main: no single `-`.
+mk old-squash-multi;  echo 1 > "$R/m1"; gitq "$R" add m1; commit_old "$R" m1
+                      echo 2 > "$R/m2"; gitq "$R" add m2; commit_old "$R" m2
 gitq "$R" checkout -q main
 echo squash > "$R/squash.txt"; gitq "$R" add squash.txt; gitq "$R" commit -q -m "squash: old-squash (simulated merge)"
+echo 1 > "$R/m1"; echo 2 > "$R/m2"; gitq "$R" add m1 m2; gitq "$R" commit -q -m "squash: old-squash-multi"
+# An unrelated empty commit on main shares a patch id with every empty
+# commit, so old-unique and old-ahead-of-main must still be kept.
+gitq "$R" commit -q --allow-empty -m "unrelated empty"
 gitq "$R" push origin main
 gitq "$R" worktree add "$S/wt-clean" wt-clean
 gitq "$R" worktree add "$S/wt-dirty" wt-dirty; echo junk > "$S/wt-dirty/junk"
@@ -60,16 +67,17 @@ has 'would delete old-contained .*contained in origin/main'       "$out" dry
 has 'would delete old-tracks-main .*contained in origin/main'     "$out" dry
 has 'would delete wt-clean .*+worktree'                           "$out" dry
 has 'would delete old-squash .*patch-equivalent to origin/main'   "$out" dry
+has 'would delete old-squash-multi .*squash-merged into origin/main' "$out" dry
 has 'keep old-unique -- 1 commit(s) not on any remote'            "$out" dry
 has 'keep old-ahead-of-main -- 1 commit(s) not on any remote'     "$out" dry
 has 'keep wt-dirty -- worktree dirty'                             "$out" dry
 hasnt 'old-on-remote'                                             "$out" dry
 hasnt 'new-merged'                                                "$out" dry
 hasnt ' main '                                                    "$out" dry
-has 'would delete 5 branch(es), kept 3'                           "$out" dry
+has 'would delete 6 branch(es), kept 3'                           "$out" dry
 has 'undo: git -C .* branch old-merged [0-9a-f]\{12\}'            "$out" dry
 before=$(git -C "$R" for-each-ref refs/heads | wc -l)
-[ "$before" = 11 ] && ok || bad "dry run changed branches: $before"
+[ "$before" = 12 ] && ok || bad "dry run changed branches: $before"
 
 # --- --days moves the line -----------------------------------------------------
 out=$("$PB" --no-fetch --repo "$R" --days 0 2>&1)
@@ -80,10 +88,9 @@ sha=$(git -C "$R" rev-parse old-merged)
 out=$("$PB" --no-fetch --delete --repo "$R" 2>&1); rc=$?
 undo=$(printf '%s\n' "$out" | sed -n 's/.*deleted old-merged .*undo: //p')
 [ "$rc" = 0 ] && ok || bad "delete exit $rc" "$out"
-has 'deleted 5 branch(es), kept 3' "$out" delete
+has 'deleted 6 branch(es), kept 3' "$out" delete
 left=$(git -C "$R" for-each-ref --format='%(refname:short)' refs/heads | sort | tr '\n' ' ')
 [ "$left" = "main new-merged old-ahead-of-main old-on-remote old-unique wt-dirty " ] && ok || bad "branches after delete: $left"
-git -C "$R" rev-parse --verify -q old-squash >/dev/null 2>&1 && bad "old-squash (patch-equivalent) survived delete" || ok
 [ ! -e "$S/wt-clean" ] && ok || bad "clean worktree not removed"
 [ -e "$S/wt-dirty/junk" ] && ok || bad "dirty worktree was touched"
 (cd / && eval "$undo" >/dev/null 2>&1) && [ "$(git -C "$R" rev-parse old-merged)" = "$sha" ] \
