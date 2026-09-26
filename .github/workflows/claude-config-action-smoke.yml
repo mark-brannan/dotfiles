@@ -13,7 +13,8 @@ on:
   pull_request:
     paths:
       - .github/actions/claude-config/**
-      - .local/bin/cloud-session-setup.sh
+      - .local/bin/**
+      - .claude/settings.json
       - .claude/CLAUDE.md
       - .claude/rules/**
       - .claude/hooks/**
@@ -52,6 +53,7 @@ jobs:
           diff "$HOME/.claude/CLAUDE.md" .claude/CLAUDE.md
           test -f "$HOME/.claude/hooks/public-issue-guard.sh"
           test -f "$HOME/.claude/.sync-status.json"
+          test ! -e .dotfiles-claude-config-seed
           if [ "$COMPLETE" != "true" ]; then
             echo "::error::action reported complete=$COMPLETE, expected true"
             exit 1

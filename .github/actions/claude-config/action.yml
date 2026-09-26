@@ -55,6 +55,16 @@ runs:
       run: |
         CLOUD_SESSION=1 sh "$DOTFILES_SEED/.local/bin/cloud-session-setup.sh"
 
+    # The installer stages its own copy under $HOME/.claude-config, so the
+    # seed is spent. Left in the caller's workspace it is a second copy of
+    # dotfiles -- CLAUDE.md, hooks and all -- inside the repo a Claude run is
+    # about to search and review.
+    - name: Remove the spent seed checkout
+      shell: sh
+      env:
+        DOTFILES_SEED: ${{ github.workspace }}/.dotfiles-claude-config-seed
+      run: rm -rf "$DOTFILES_SEED"
+
     - name: Report install status
       id: status
       shell: sh
