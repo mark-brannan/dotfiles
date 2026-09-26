@@ -22,6 +22,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Wire the hooks on a real machine](#wire-the-hooks-on-a-real-machine)
 - [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
 - [Check a repo's prose budgets](#check-a-repos-prose-budgets)
+- [Prune stale Stop-hook salvage refs](#prune-stale-stop-hook-salvage-refs)
 
 **GitHub repository**
 - [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
@@ -74,13 +75,9 @@ verbatim instead; it ends with the same clone-and-delegate. Neither variant is
 executed by the platform — both files exist only so the pasted text has an
 authoritative copy in git. Keep them in sync by hand if either changes.
 
-Measured cost on a cold VM: about 5s, against a ~5 minute window.
-
 Paste the matching variant into **every** environment, not just the one in
-front of you. An environment created before this existed has no seed at all,
-and a session started in it is indistinguishable from one that has it until
-something is missing — which was the whole failure. As of 2026-08-21 that
-means `Default (with tailscale)`, `Trusted` and `Full network access`.
+front of you — an environment with no seed is indistinguishable from one that
+has it until something is missing.
 
 **The setup script runs once, when the container is created**, and the
 container is then checkpointed and reused. So the blob's `git clone` is the
@@ -315,6 +312,20 @@ prose-budget --base origin/main | grep ': config:'   # empty unless a weakening 
 ```bash
 prose-budget --tree; echo "exit $?"     # 0, and one "OK" line
 ```
+
+## Prune stale Stop-hook salvage refs
+
+The Stop hook's salvage pushes `refs/heads/wip/<session-id>` to origin, and
+nothing else deletes them. Run on a machine with the state repo checked out:
+the checkpoint is how a ref is proven landed.
+
+```bash
+prune-wip-refs           # preview
+prune-wip-refs --delete
+```
+
+Verify: exit 0 and a final `deleted N wip ref(s)` line; each deletion line
+carries its undo. `prune-wip-refs --help` has the rules.
 
 ## Cut and promote a prose-budget engine version
 

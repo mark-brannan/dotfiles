@@ -24,6 +24,10 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   on an ephemeral cloud VM.
 - `.local/bin/prune-branches` — deletes merged or dead local branches across
   every repo on the machine; `/sweep` calls it.
+- `.local/bin/prune-wip-refs` — deletes the Stop hook's salvage refs
+  (`refs/heads/wip/<session-id>`) on origin once their checkpoint says the
+  work landed or they're past the floor and patch-equivalent to the
+  default branch.
 - `.local/bin/prose-budget` — the documentation-bloat guard every repo with a
   `docs/budgets.json` runs; `prose-budget.test.py` beside it is its suite.
 - `.claude/cloud-setup.sh` — writes `deniedMcpServers` at user scope.

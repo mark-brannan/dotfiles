@@ -155,6 +155,46 @@ EOF
 lock_check "stale lock (dead pid, same host) is reclaimed" 0
 rm -rf "$LOCKDIR"
 
+# dotfiles#161: a kill between mkdir and the meta write leaves a lock dir
+# with no meta at all -- no pid to check stale-reclaim's usual way. Age of
+# the dir itself is the only signal left, so one older than
+# STATE_LOCK_STALE_SECS must reclaim, and a dir that just appeared (another
+# state_lock plausibly still mid-acquire) must not.
+mkdir -p "$LOCKDIR"
+AGE_CUTOFF=$(( $(date +%s) - 30 ))
+AGE_TS=$(date -d "@$AGE_CUTOFF" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$AGE_CUTOFF" +%Y%m%d%H%M.%S)
+touch -t "$AGE_TS" "$LOCKDIR"
+cat > "$CASE" <<EOF
+. "$HOOKS/lib-state.sh"
+state_lock "$LOCKDIR" && grep -q "^pid=\$\$" "$LOCKDIR/meta"
+EOF
+lock_check "meta-less lock dir aged past threshold is reclaimed" 0
+rm -rf "$LOCKDIR"
+
+mkdir -p "$LOCKDIR"
+cat > "$CASE" <<EOF
+. "$HOOKS/lib-state.sh"
+state_lock "$LOCKDIR"
+EOF
+lock_check "fresh meta-less lock dir is not reclaimed" 1
+rm -rf "$LOCKDIR"
+
+# PR #379 review thread: if `: > "$ref"` succeeds but `touch -t` fails, the
+# meta-less-reclaim path must not leak the "$dir.age.$$" reference file.
+mkdir -p "$LOCKDIR"
+cat > "$CASE" <<EOF
+touch() { if [ "\$1" = "-t" ]; then return 1; fi; command touch "\$@"; }
+. "$HOOKS/lib-state.sh"
+state_lock "$LOCKDIR"
+EOF
+lock_check "touch -t failure on meta-less dir still fails" 1
+if find "$SCRATCH" -maxdepth 1 -name "x.lock.age.*" | grep -q .; then
+  fail=$((fail+1)); echo "FAIL touch -t failure leaks the age reference file"
+else
+  pass=$((pass+1))
+fi
+rm -rf "$LOCKDIR" "$SCRATCH"/x.lock.age.*
+
 
 # --- day_decisions -----------------------------------------------------------
 # The machine-wide decision store (dotfiles#301). CLAUDE_STATE_REPO points

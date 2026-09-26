@@ -53,6 +53,8 @@ set -uo pipefail
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-state.sh
 . "$HOOK_DIR/lib-state.sh"
+# shellcheck source=metrics-format.sh
+. "$HOOK_DIR/metrics-format.sh"
 
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -85,6 +87,11 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 #             line that goes to the model rather than to the screen, since the
 #             standing orders' capacity rule is what it is asking for
 #   gate      gate decisions pushed to the user, every GATE_EVERY
+#   day       decisions pushed to Solace machine-wide, across every session
+#             since the last break past DECISION_GAP_MIN (#301) -- the day
+#             total is the number the standing orders' capacity rule is
+#             about, not any one chat's. junk (a decision followed by a
+#             correction) rides beside the total and counts toward the rung
 NAG_CONTEXT_LINES="${METRICS_CONTEXT_LINES:-60000 90000 120000 150000 185000}"
 NAG_CONTEXT_STOP_AT="${METRICS_CONTEXT_STOP_AT:-150000}"
 NAG_CONTEXT_STEP="${METRICS_CONTEXT_STEP:-35000}"
@@ -109,6 +116,13 @@ NAG_MODEL_CONTEXT_STEP="${METRICS_MODEL_CONTEXT_STEP:-50000}"
 NAG_MODEL_CONTEXT_REPEAT="${METRICS_MODEL_CONTEXT_REPEAT:-20}"
 NAG_MODEL_DECISION_LINES="${METRICS_MODEL_DECISION_LINES:-3 5 8 13 21}"
 NAG_MODEL_DECISION_STEP="${METRICS_MODEL_DECISION_STEP:-21}"
+# Machine-wide, across every session since the last break (#301), not this
+# session alone -- day_decisions() in lib-state.sh holds the store. The gap
+# that starts a fresh day is deliberately its own knob, distinct from the
+# 15-minute sitting gap: a late night at the keyboard keeps one counter.
+NAG_DAY_DECISION_LINES="${METRICS_DAY_DECISION_LINES:-20 40 60}"
+NAG_DAY_DECISION_STEP="${METRICS_DAY_DECISION_STEP:-20}"
+NAG_DECISION_GAP_MIN="${METRICS_DECISION_GAP_MIN:-180}"
 # Local hour from which a Stop on an archivable session is worth interrupting,
 # and the hour night ends. The block's night glyph reads the same two, so
 # "when is it night" is one pair of knobs and the tests can force either side.
@@ -236,6 +250,10 @@ fi
 # of a session and the crossings have to outlive it.
 NAGF="$LIVE/$sid.nag.json"
 CROSSD="$(state_dir)/metrics/crossings"
+# state_lock installs no trap of its own (a caller's is easily clobbered);
+# this one covers every save_nag write below and every exit path, including
+# the Stop `block` decision's early `exit 0`.
+trap 'state_unlock' EXIT TERM INT
 
 # The sitting clock is the one piece of this state that is NOT per session.
 # A person with three chats open is one person in one chair: when the clock
@@ -304,10 +322,11 @@ save_sitting() {
 ctx_line=0; ctx_rungs=0; ctx_stop_line=0; time_line=0; tl_sitting=0; gate_line=0; fric_tripped=0
 since_nag=0; resume_ts=0; nag_pending=0; late_nagged=0
 m_ctx_at=0; m_sit_at=0; m_sit_said=0; m_dec_at=0; m_ctx_tools=0
+day_dec_line=0; m_day_dec_at=0
 if [ -f "$NAGF" ]; then
   IFS=$'\t' read -r ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tripped \
                     since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said m_dec_at \
-                    m_ctx_tools \
+                    m_ctx_tools day_dec_line m_day_dec_at \
     <<<"$(jq -r '[(.context_line // 0), (.context_rungs // 0), (.context_stop_line // 0),
                   (.time_line // 0), (.time_line_sitting // -1),
                   (.gate_line // 0),
@@ -319,11 +338,13 @@ if [ -f "$NAGF" ]; then
                   (.model_context_at // 0), (.model_sitting_at // 0),
                   (.model_sitting_said // .model_sitting_at // 0),
                   (.model_decision_at // 0),
-                  (.model_context_tools // 0)] | @tsv' "$NAGF" 2>/dev/null)"
+                  (.model_context_tools // 0),
+                  (.day_decision_line // 0),
+                  (.model_day_decision_at // 0)] | @tsv' "$NAGF" 2>/dev/null)"
 fi
 for v in ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tripped \
          since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said m_dec_at \
-         m_ctx_tools; do
+         m_ctx_tools day_dec_line m_day_dec_at; do
   [ -n "${!v}" ] || eval "$v=0"
 done
 # -1 is a nag file written before the clock moved out of it: its time_line
@@ -356,6 +377,10 @@ fi
 [ "$ctx_stop_line" -eq 0 ] && [ "$ctx_line" -ge "$NAG_CONTEXT_STOP_AT" ] && ctx_stop_line=$ctx_line
 
 save_nag() {
+  # Never blocks the hook: a lock already held by a concurrent invocation
+  # of this same session (dotfiles#161 findings 1/2/4) just skips this
+  # write rather than waiting or failing the hook.
+  state_lock "$LIVE/$sid.lock" || return 0
   jq -n --argjson cl "$ctx_line" --argjson cr "$ctx_rungs" --argjson cs "$ctx_stop_line" \
         --argjson tl "$time_line" --argjson ts "$tl_sitting" \
         --argjson gl "$gate_line" --argjson ft "$fric_tripped" \
@@ -364,6 +389,7 @@ save_nag() {
         --argjson mc "$m_ctx_at" --argjson ms "$m_sit_at" \
         --argjson mss "$m_sit_said" --argjson md "$m_dec_at" \
         --argjson mct "$m_ctx_tools" \
+        --argjson ddl "$day_dec_line" --argjson mdd "$m_day_dec_at" \
     '{context_line: $cl, context_rungs: $cr, context_stop_line: $cs,
       time_line: $tl, time_line_sitting: $ts, gate_line: $gl,
       friction_tripped: ($ft == 1),
@@ -371,9 +397,11 @@ save_nag() {
       late_nagged: ($ln == 1),
       model_context_at: $mc, model_sitting_at: $ms,
       model_sitting_said: $mss, model_decision_at: $md,
-      model_context_tools: $mct}' \
+      model_context_tools: $mct,
+      day_decision_line: $ddl, model_day_decision_at: $mdd}' \
     > "$NAGF.$$" 2>/dev/null \
     && mv -f "$NAGF.$$" "$NAGF" 2>/dev/null || rm -f "$NAGF.$$" 2>/dev/null
+  state_unlock
 }
 
 # Only the four wired events drive the engine. The statusline reaches this
@@ -678,6 +706,40 @@ if [ "$run_engine" -eq 1 ]; then
     fi
   fi
 
+  # Machine-wide decision count across every session since the last break
+  # (#301) -- folds this session's own total into day_decisions()'s store
+  # (lib-state.sh) and reads back the day's sum. Gated on is_prompt like the
+  # sitting clock: decision load is wound by the user's own rhythm, not by a
+  # tool call, and the gap that starts a fresh day is measured between
+  # prompts anywhere on the machine.
+  #
+  # junk rides beside the total and is never subtracted here -- the default
+  # is "junk still counts" (a decision that landed badly still spent the
+  # capacity to make it), per #364's open question for this PR. Excluding it
+  # from the rung is a one-line flip: compare $((dtotal - djunk)) instead.
+  dtotal=0; djunk=0
+  if [ "$is_prompt" -eq 1 ]; then
+    IFS=$'\t' read -r dtotal djunk \
+      <<<"$(day_decisions "$sid" "$decisions" 0 "$now_ts" $((NAG_DECISION_GAP_MIN * 60)))"
+    [ -n "${dtotal:-}" ] || dtotal=0
+    [ -n "${djunk:-}" ] || djunk=0
+
+    r=$(rung_of "$NAG_DAY_DECISION_LINES" "$NAG_DAY_DECISION_STEP" "$dtotal")
+    if [ "$r" -gt 0 ] && [ "$r" -gt "$day_dec_line" ]; then
+      t="☀ $dtotal decisions today ($djunk junk), past $r — land it, or offer a break."
+      add_line "$t"; record_crossing day_decision "$r" "$t"
+      day_dec_line=$r
+    fi
+    if [ "$r" -gt "$m_day_dec_at" ]; then
+      if [ "$m_day_dec_at" -eq 0 ]; then
+        add_model "$dtotal decisions today across sessions ($djunk junk), past $r. Offer to land and stop, once."
+      else
+        add_model "$dtotal decisions today across sessions ($djunk junk), past $r (last offered at $m_day_dec_at)."
+      fi
+      m_day_dec_at=$r
+    fi
+  fi
+
   # FROZEN -- THAW CAREFULLY.
   # friction -- measured in human turns, so only a prompt can trip it, and it
   # is addressed to the model, which is the thing the capacity rule asks of.
@@ -901,10 +963,11 @@ if [ "$SHOW" = show ] && [ -n "$metrics" ]; then
     bl_main="$bl_main — ${bl_reason:+$bl_reason }propose stopping."
   fi
 
-  bl_second=$(printf '%s\n' "$merged" | jq -r -L "$HOOK_DIR" \
-    'include "lib-metrics-fmt";
-     turns + ((work // "") as $w | if $w == "" then "" else " " + $w end)' \
-    2>/dev/null)
+  IFS=$'\t' read -r bl_turns bl_toolcalls <<<"$(printf '%s\n' "$metrics" | jq -r \
+    '"\(.session.user_turns // 0)\t\(.session.tool_calls // 0)"')"
+  bl_second=$(fmt_turns "$bl_turns" "$bl_toolcalls")
+  bl_work=$(fmt_work "${ncommits:-0}" "${dirty:-0}" "${unpushed:-0}")
+  [ -n "$bl_work" ] && bl_second="$bl_second $bl_work"
   bl_block="$bl_main"
   [ -n "$bl_second" ] && bl_block="$bl_block
 $bl_second"
