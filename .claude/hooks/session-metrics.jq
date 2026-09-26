@@ -496,19 +496,35 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
 #               whole session at that model's rate is wrong for all of them.
 #               Priced per model and summed instead.
 #   cache TTL   cache writes cost 1.25x base input at the 5-minute TTL and 2x
-#               at the 1-hour TTL. Every write in these transcripts is 1h, so
-#               a flat 1.25x under-reports input by ~8%. Split by TTL.
-# Cache reads are 0.1x base input; output is priced at the output rate.
+#               at the 1-hour TTL, and the mix moves: measured over 50,035
+#               assistant messages in the transcripts on this machine since
+#               2026-09-15, 45% of written cache tokens were 5m and 55% 1h.
+#               A flat multiplier either way is wrong by ~6% on the total.
+#               Split by TTL, which the transcript gives exactly.
+#   fable       the table below had no fable entry, so every fable session fell
+#               through to the Opus rate -- half the real one. Fable is the
+#               second-most-used model in this corpus (237 of 1213 records at
+#               the time of writing) and 32% of the dollars this script has
+#               reported since it started reporting any, so the whole series
+#               was understated. Fable 5.1 and Mythos 5.1 also price cache
+#               reads at a flat $0.25/MTok, not 0.1x base input.
+# Cache reads are `r` per MTok where the model names one, else 0.1x base input;
+# output is priced at the output rate.
 #
 # List prices per MTok, and they will drift. This is an estimate for comparing
 # sessions to each other, not an invoice -- an unrecognised model falls back to
-# the Opus rate rather than to zero, so a new model reads as expensive rather
-# than free.
+# the most expensive tier rather than to zero, so a new model reads as
+# expensive rather than free. Falling back to Opus is what hid fable: a model
+# above the fallback tier is silently discounted, and nothing in the record
+# says so.
 def price:
-    if   test("opus")   then {i: 5, o: 25}
-    elif test("sonnet") then {i: 2, o: 10}
-    elif test("haiku")  then {i: 1, o: 5}
-    else {i: 5, o: 25} end;
+    if   test("fable-5-1|mythos-5-1") then {i: 10, o: 50, r: 0.25}
+    elif test("fable|mythos")         then {i: 10, o: 50}
+    elif test("opus")                 then {i: 5,  o: 25}
+    elif test("sonnet-4-6")           then {i: 3,  o: 15}
+    elif test("sonnet")               then {i: 2,  o: 10}
+    elif test("haiku")                then {i: 1,  o: 5}
+    else                                   {i: 10, o: 50} end;
 
 ([ $amsgs[] | {m: (.message.model // "unknown"), u: (.message.usage // {})} ]
    | group_by(.m)
@@ -517,7 +533,7 @@ def price:
              | ( (map(.u.input_tokens // 0) | add) * $p.i
                + (map(.u.cache_creation.ephemeral_5m_input_tokens // 0) | add) * $p.i * 1.25
                + (map(.u.cache_creation.ephemeral_1h_input_tokens  // 0) | add) * $p.i * 2
-               + (map(.u.cache_read_input_tokens // 0) | add) * $p.i * 0.1
+               + (map(.u.cache_read_input_tokens // 0) | add) * ($p.r // ($p.i * 0.1))
                + (map(.u.output_tokens // 0) | add) * $p.o
                ) / 1000000
              | . * 10000 | round | . / 10000) })
@@ -563,9 +579,28 @@ def price:
       cache_churn_pct: (sumu(.cache_read_input_tokens) as $r
         | if $r > 0 then ((sumu(.cache_creation_input_tokens) / $r * 100) | round)
           else null end),
-      context_peak: (([ $amsgs[] | .message.usage
+      # How full the window got, not what the session spent. Three things this
+      # is careful about, each measured on the transcripts on this machine
+      # (1,758 sessions, 91k assistant messages) rather than reasoned about:
+      #   the sum      input + cache_read + cache_creation is one request's
+      #                prompt, and it tracks a live window: across 7,541
+      #                consecutive main-chain requests it grew 7,534 times and
+      #                fell 7. The peaks well past 200k are real windows on a
+      #                million-token model, not a double count of the cached
+      #                part; the seven falls are a window that was reset.
+      #   the response output_tokens sits in the window from the next request
+      #                on, so occupancy at a request includes it.
+      #   sidechains   a Task agent's requests land in this transcript with
+      #                isSidechain set on some Claude Code versions. That is
+      #                the subagent's window, not this session's.
+      # Still an absolute count: no transcript record carries the model's
+      # window size, so the fraction a reader actually wants cannot be derived
+      # here, and any rung compared against this is a rung in tokens. See #294.
+      context_peak: (([ $amsgs[] | select((.isSidechain // false) | not)
+                        | .message.usage
                         | ((.input_tokens // 0) + (.cache_read_input_tokens // 0)
-                           + (.cache_creation_input_tokens // 0)) ] | max) // 0),
+                           + (.cache_creation_input_tokens // 0)
+                           + (.output_tokens // 0)) ] | max) // 0),
       files_written: (([ $tools[] | select(.name | IN("Write","Edit","NotebookEdit"))
                          | .input.file_path // .input.notebook_path ]
                        + [ $tools[] | select(.name == "Bash")
