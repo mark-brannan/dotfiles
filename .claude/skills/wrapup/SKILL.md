@@ -92,12 +92,7 @@ does not.
 
 ## 3. No board sweep here
 
-`/sweep --dry-run` used to run at the end of every wrap-up. Dropped
-(Solace, 2026-09-25): the per-card proof-hunt (~4s/card, more once comment
-content is read; dotfiles#211) got too expensive on long-running sessions
-and caused problems near the end of a session, exactly when budget is
-tightest. `/sweep` still exists — run it standalone, on request, never as
-a wrap-up step.
+`/sweep` is a standalone command, run on request. Not a wrap-up step.
 
 ## 4. Release the branch
 
