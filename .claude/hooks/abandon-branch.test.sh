@@ -120,15 +120,27 @@ ln -s "$(command -v dirname)" "$NOGH_DIR/dirname"
 setup_repo claude/nogh
 OUT=$(PATH="$NOGH_DIR" sh "$SCRIPT" -C "$WORK" 2>&1); RC=$?
 ok  'refuses without gh on PATH' [ "$RC" -ne 0 ]
-ok  'it says gh is missing' says "$OUT" 'gh is not installed'
+ok  'it says it could not check' says "$OUT" 'could not check open PRs'
 ok  'the branch is untouched' gitq "$WORK" rev-parse --verify claude/nogh
 
 # --- fails closed: the PR list could not be read ----------------------------
 setup_repo claude/ghfails
 OUT=$(GH_FAIL=1 sh "$SCRIPT" -C "$WORK" 2>&1); RC=$?
 ok  'refuses when the PR list is unreadable' [ "$RC" -ne 0 ]
-ok  'it says the list could not be read' says "$OUT" 'could not read the open-PR list'
+ok  'it says it could not check' says "$OUT" 'could not check open PRs'
 ok  'the branch is untouched' gitq "$WORK" rev-parse --verify claude/ghfails
+
+# --- fails closed: a list long enough to have been truncated ---------------
+setup_repo claude/many
+OUT=$(GH_PRS="$(jq -nc '[range(1000) | {number: ., title: "t", baseRefName: "main", headRefName: "x\(.)"}]')" \
+      sh "$SCRIPT" -C "$WORK" 2>&1); RC=$?
+ok  'refuses when the PR list may be truncated' [ "$RC" -ne 0 ]
+ok  'the branch is untouched' gitq "$WORK" rev-parse --verify claude/many
+
+# --- a never-pushed branch needs no PR check: gh down, still deleted ---------
+setup_repo claude/localonly 0
+OUT=$(GH_FAIL=1 sh "$SCRIPT" -C "$WORK" claude/localonly 2>&1)
+no  'the local-only branch is gone with gh down' gitq "$WORK" rev-parse --verify claude/localonly
 
 # --- no open PR: the delete proceeds as before ------------------------------
 setup_repo claude/clear

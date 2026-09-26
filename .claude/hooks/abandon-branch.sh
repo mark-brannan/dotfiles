@@ -8,10 +8,7 @@
 #
 # Refuses in $HOME (yadm gate); only deletes the local branch once the
 # remote side is a confirmed absence or a confirmed deletion, never on an
-# indeterminate ls-remote (network, auth, a dead remote). Also refuses when
-# an open PR names the branch as base or head (dotfiles#227) -- and refuses
-# whenever that can't be confirmed (gh/jq missing, the PR list unreadable),
-# since an indeterminate answer here is "could not check", not "not there".
+# indeterminate ls-remote (network, auth, a dead remote).
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -47,42 +44,11 @@ if [ "$work_root" = "$HOME" ]; then
   exit 1
 fi
 
-# Refuse to delete the remote branch of an open PR. GitHub retargets a
-# stacked PR only when its base disappears because the base PR merged, and
-# deleting a PR's own head branch closes it outright either way; recovery is
-# reopen-and-retarget, one PR at a time (dotfiles#226). The Bash tool call
-# here is `abandon-branch.sh <branch>`, which no-delete-stacked-base.sh's
-# command scanner does not recognize -- this script has to ask GitHub
-# itself, before it ever reaches `git push --delete`. Fails closed: gh or jq
-# missing, or the PR list unreadable/unparseable, all refuse.
-command -v gh >/dev/null 2>&1 \
-  || { printf 'abandon-branch: refused -- gh is not installed, so open PRs on `%s` cannot be checked.\n' "$branch" >&2; exit 1; }
-command -v jq >/dev/null 2>&1 \
-  || { printf 'abandon-branch: refused -- jq is not installed, so open PRs on `%s` cannot be checked.\n' "$branch" >&2; exit 1; }
-
-open_prs=$(cd "$work_root" && gh pr list --state open --json number,title,baseRefName,headRefName 2>/dev/null)
-if [ -z "$open_prs" ]; then
-  printf 'abandon-branch: refused -- could not read the open-PR list (no auth, no network, or not a GitHub repo), so PRs on `%s` cannot be checked.\n' "$branch" >&2
-  exit 1
-fi
-hits=$(printf '%s' "$open_prs" | jq -r --arg b "$branch" \
-  '.[] | select(.baseRefName == $b or .headRefName == $b) | "#\(.number) \(.title)"' 2>/dev/null)
-jq_rc=$?
-if [ "$jq_rc" -ne 0 ]; then
-  printf 'abandon-branch: refused -- could not parse the open-PR list, so PRs on `%s` cannot be checked.\n' "$branch" >&2
-  exit 1
-fi
-if [ -n "$hits" ]; then
-  printf 'abandon-branch: refused -- `%s` is the base or head branch of open PR(s):\n%s\nDeleting it closes every one of them; merge or retarget first.\n' \
-    "$branch" "$hits" >&2
-  exit 1
-fi
-
 # Same lock stop-continuity.sh takes before it commits and pushes, so the
 # two never interleave and a salvage push cannot resurrect the branch we are
 # deleting. Best effort: a machine without flock proceeds unlocked.
 if command -v flock >/dev/null 2>&1; then
-  exec 9>"${TMPDIR:-/tmp}/claude-state-push.lock" 2>/dev/null && flock -w 90 9 2>/dev/null
+  { exec 9>"${TMPDIR:-/tmp}/claude-state-push.lock"; } 2>/dev/null && flock -w 90 9 2>/dev/null
 fi
 
 sha=$(git -C "$work_root" rev-parse --short "$branch" 2>/dev/null || echo '?')
@@ -94,6 +60,20 @@ remote_rc=$?
 # dead remote) is "could not check", not "not there" -- and must not be
 # treated as license to delete the only copy.
 if [ "$remote_rc" -eq 0 ]; then
+  # Deleting the base or head of an open PR closes it, and the stacked-base
+  # scanner never sees this push (dotfiles#227). Fail closed: gh or jq
+  # missing, no auth, or a list long enough to be truncated all refuse.
+  prs=$(cd "$work_root" && gh pr list --state open --limit 1000 \
+    --json number,title,baseRefName,headRefName 2>/dev/null) || prs=
+  hits=$([ -n "$prs" ] && printf '%s' "$prs" | jq -r --arg b "$branch" \
+    'if length >= 1000 then error("truncated") else .[]
+     | select(.baseRefName == $b or .headRefName == $b)
+     | "#\(.number) \(.title)" end' 2>/dev/null) \
+    || { printf 'abandon-branch: refused -- could not check open PRs on `%s` (gh/jq missing, no auth, no network).\n' "$branch" >&2; exit 1; }
+  if [ -n "$hits" ]; then
+    printf 'abandon-branch: refused -- `%s` is the base or head of open PR(s):\n%s\nMerge or retarget first.\n' "$branch" "$hits" >&2
+    exit 1
+  fi
   # Refspec form, not --delete: a ref name is never mistaken for a flag.
   if run_to 60 git -C "$work_root" push -q origin ":refs/heads/$branch" >/dev/null 2>&1; then
     remote=deleted
