@@ -1,1 +1,6 @@
-add Depends-On/Refs/Verified lines to the commit message for the PR body
+Revision history for #387:
+
+rev 2 (rebase) 2026-09-26 09:50 UTC — add Depends-On/Refs/Verified lines to the commit message for the PR body
+rev 1 (initial) 2026-09-26 09:50 UTC
+
+<!-- mergify-revision-data: {"schema_version":1,"pull_number":387,"entries":[{"number":1,"change_type":"initial","old_sha":null,"new_sha":"b6bd19e6748e1c3cb427143bb8dba27718208511","timestamp_iso":"2026-09-26T09:50:50Z","reason":"","replay_sha":null,"compare_url":null},{"number":2,"change_type":"rebase","old_sha":"b6bd19e6748e1c3cb427143bb8dba27718208511","new_sha":"ec9bb08c27573698974608cf16c3ad205c7fb33e","timestamp_iso":"2026-09-26T09:50:50Z","reason":"add Depends-On/Refs/Verified lines to the commit message for the PR body","replay_sha":null,"compare_url":"https://github.com/mark-brannan/dotfiles/compare/b6bd19e6748e1c3cb427143bb8dba27718208511...ec9bb08c27573698974608cf16c3ad205c7fb33e"}]} -->
