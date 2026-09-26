@@ -45,6 +45,19 @@ brew install yadm age sops
 command -v yadm age sops            # all three, before continuing
 ```
 
+Claude Code itself has no apt package on Debian/Ubuntu; it's signed and served
+from Anthropic's own repo:
+
+```bash
+sudo apt update && sudo apt install -y curl gnupg
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL https://downloads.claude.ai/keys/claude-code.asc -o /etc/apt/keyrings/claude-code.asc
+echo "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/stable stable main" | sudo tee /etc/apt/sources.list.d/claude-code.list
+sudo apt update
+sudo apt install -y claude-code
+command -v claude                   # confirm it's on PATH
+```
+
 **2 — The age key, before the clone.** It is never in git — restore it from the
 password manager. Without it the clone still works and the bootstrap still
 runs; you just get plaintext-less secrets and a warning.
