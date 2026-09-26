@@ -103,8 +103,11 @@ resume. That is the amnesia this step exists to prevent.
 
 So every wrap-up that produced a hand-off in step 2 — the one-line
 `continue <link>` form included — also writes the block, after the push and
-before the closing message. Same four lines as `/pickup`'s spec, filled from
-the prompt you just wrote:
+before the closing message. Same four lines as `/pickup`'s spec. `link` is
+the home step 2 found and `next` is the prompt's first action — one
+derivation, not a second one that can drift from the prose. If the
+checkpoint already holds a block (the Stop nag may have asked for one before
+`/wrapup` ran), replace it; one block per checkpoint, never two:
 
 ```
 ## Resume
