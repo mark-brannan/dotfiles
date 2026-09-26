@@ -248,6 +248,12 @@ printf 'pid=%s\nhostname=%s\n' "$$" "$(uname -n)" > "$DAYF.lock/meta"
 dcheck "no store, no lock -> 0 0" 0 0 "$(day sess-r 3 0 41300 10800)"
 rm -rf "$DAYF.lock"
 
+# no metrics dir can be made (a file squats on its path): still a usable pair,
+# not empty output -- PR B's caller splits this on a tab
+BADREPO="$SCRATCH/bad-repo"; mkdir -p "$BADREPO/.git" "$BADREPO/state/global"
+: > "$BADREPO/state/global/metrics"
+dcheck "no metrics dir -> 0 0" 0 0 "$(CLAUDE_STATE_REPO="$BADREPO" day sess-s 3 0 41400 10800)"
+
 unset CLAUDE_STATE_REPO
 
 printf '%d passed, %d failed\n' "$pass" "$fail"

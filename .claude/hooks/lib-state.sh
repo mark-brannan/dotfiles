@@ -252,7 +252,7 @@ state_unlock() {
 day_decisions() {
   local f next
   f="$(state_dir)/metrics/day-decisions.json"
-  mkdir -p "${f%/*}" 2>/dev/null || return 0
+  mkdir -p "${f%/*}" 2>/dev/null || { printf '0\t0\n'; return 0; }
   if state_lock "$f.lock"; then
     # Read, modify and write all inside the lock -- a read before it is the race
     # the lock closes: a second session's write in between would be overwritten.
