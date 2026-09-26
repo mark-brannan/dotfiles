@@ -153,6 +153,39 @@ has 'L8 names only the missing ones, across a continuation line, any case' '^9: 
 lacks 'L8 does not name a present field' '^9: L8 ruling card missing [^\n]*(default|undo|risk)'
 gitq "$NR" checkout -- kanban.md
 
+# L10: a "kind: tentative ADR" card carries gates:/settle:/repos: instead of
+# a ruling card's default:/undo:/until:/risk:, and is exempt from L8.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite settle: a load test under real traffic repos: colregs-engine judgment: direction
+EOF
+run 0 'a complete tentative-ADR card passes L7, skips L8, passes L10' --diff "$NR" kanban.md
+gitq "$NR" checkout -- kanban.md
+
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite
+EOF
+run 1 'a tentative-ADR card missing fields fails L10, not L8' --diff "$NR" kanban.md
+has 'L10 names the missing fields' '^8: L10 tentative-ADR card missing settle:, repos:, judgment:'
+lacks 'L8 does not also fire for a tentative-ADR card' 'L8'
+gitq "$NR" checkout -- kanban.md
+
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) Kind:Tentative  ADR gates: the queue rewrite settle: a load test repos: colregs-engine judgment: tidiness
+EOF
+run 1 'kind: tolerates spacing and case; a toil judgment: fails L10' --diff "$NR" kanban.md
+has 'L10 names the toil exit' '^8: L10 judgment: must be values, risk, direction, legal or people'
+lacks 'a loosely-spaced kind: is still not read as an L8 card' 'L8'
+gitq "$NR" checkout -- kanban.md
+
 # L8: judgment: names a kind of judgment; anything else is toil.
 cat >> "$NR/kanban.md" <<'EOF2'
 
