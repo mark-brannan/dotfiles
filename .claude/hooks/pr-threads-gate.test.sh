@@ -20,15 +20,30 @@ cat > "$SCRATCH/bin/gh" <<'GH'
 echo "$*" >> "$GH_LOG"
 case "$1 $2" in
   "pr view") printf 'https://github.com/o/r/pull/7\n'; exit 0 ;;
+  "repo view")
+    case "$3" in
+      o/notfound) echo "gh: HTTP 404: Not Found" >&2; exit 1 ;;
+      o/hidden) printf '{}'; exit 0 ;;
+      # dotfiles#342: repo-view itself fails, but not with a confirmed 404 --
+      # a timeout, rate limit, or the same proxy/token block that produced
+      # the ambiguous NOT_FOUND in the first place. Proves nothing either
+      # way, so it must not read as "confirmed gone".
+      o/flaky) echo "gh: HTTP 403: rate limit exceeded" >&2; exit 1 ;;
+      o/slow) sleep 5 ;;
+    esac
+    ;;
 esac
 # dotfiles#263: a repo named "notfound" in the graphql call simulates GitHub's
 # NOT_FOUND-on-`repository` response -- JSON body on stdout, gh's own error
 # text appended after it with no separator (that's really how gh behaves; see
 # the issue), non-zero exit.
+# Every one of these gets the identical NOT_FOUND reply; what separates them
+# is only what `gh repo view` above says when the gate goes to confirm it.
 case "$*" in
-  *"name=notfound"*)
-    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'o/notfound'"'"'."}]}'
-    echo "gh: Could not resolve to a Repository with the name 'o/notfound'." >&2
+  *"name=notfound"*|*"name=hidden"*|*"name=flaky"*|*"name=slow"*)
+    r=${*#*name=}; r=o/${r%% *}
+    printf '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve to a Repository with the name '"'"'%s'"'"'."}]}' "$r"
+    echo "gh: Could not resolve to a Repository with the name '$r'." >&2
     exit 1
     ;;
 esac
@@ -64,8 +79,8 @@ check() {
   if [ "$got" = "$want" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (want %s, got %s): %s\n  %s\n' "$want" "$got" "$desc" "$out"; fi
   LAST=$out
 }
-reason() { if printf '%s' "$LAST" | jq -r '.reason // .systemMessage // empty' | grep -Eq -- "$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (reason lacks /%s/): %s\n' "$2" "$1"; fi; }
-no_reason() { if printf '%s' "$LAST" | jq -r '.reason // .systemMessage // empty' | grep -Eq -- "$2"; then fail=$((fail+1)); printf 'FAIL (reason has /%s/): %s\n' "$2" "$1"; else pass=$((pass+1)); fi; }
+reason() { if grep -Eq -- "$2" <<<"$(jq -r '.reason // .systemMessage // empty' <<<"$LAST")"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (reason lacks /%s/): %s\n' "$2" "$1"; fi; }
+no_reason() { if grep -Eq -- "$2" <<<"$(jq -r '.reason // .systemMessage // empty' <<<"$LAST")"; then fail=$((fail+1)); printf 'FAIL (reason has /%s/): %s\n' "$2" "$1"; else pass=$((pass+1)); fi; }
 
 # --- nothing to check --------------------------------------------------------
 check silent 'no record for session'   open "$(stop_input s0)"
@@ -76,14 +91,14 @@ check silent 'empty payload'           open ''
 rec() { printf '%s' "$2" | sh "$RECORDER" >/dev/null; cat "$TMPDIR/claude-pr-threads.$1" 2>/dev/null | tail -1; }
 bash_in() { jq -n --arg s "$1" --arg c "$2" '{session_id:$s,cwd:"/work/here",tool_name:"Bash",tool_input:{command:$c}}'; }
 t() { if [ "$2" = "$3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s\n  want [%s]\n  got  [%s]\n' "$1" "$2" "$3"; fi; }
-t 'gh pr view N --repo'      "$(printf 'repo\to/r\t25')"  "$(rec r1 "$(bash_in r1 'gh pr view 25 --repo o/r --comments')")"
-t 'gh pr checks -R'          "$(printf 'repo\to/r\t3')"   "$(rec r1 "$(bash_in r1 'gh pr checks 3 -R o/r')")"
-t 'gh api pulls url'         "$(printf 'repo\to/r\t4')"   "$(rec r1 "$(bash_in r1 'gh api repos/o/r/pulls/4/comments')")"
+t 'gh pr view N --repo'      "$(printf 'repo\to/r\t25\tread')"  "$(rec r1 "$(bash_in r1 'gh pr view 25 --repo o/r --comments')")"
+t 'gh pr checks -R'          "$(printf 'repo\to/r\t3\tread')"   "$(rec r1 "$(bash_in r1 'gh pr checks 3 -R o/r')")"
+t 'gh api pulls url'         "$(printf 'repo\to/r\t4\tread')"   "$(rec r1 "$(bash_in r1 'gh api repos/o/r/pulls/4/comments')")"
 t 'gh pr view no number'     "$(printf 'cwd\t/work/here')" "$(rec r1 "$(bash_in r1 'gh pr view --json url')")"
 t 'gh pr N without repo'     "$(printf 'cwd\t/work/here')" "$(rec r1 "$(bash_in r1 'gh pr view 9')")"
-t 'MCP pull_request_read'    "$(printf 'repo\to/r\t8')"   "$(rec r1 "$(jq -n '{session_id:"r1",tool_name:"mcp__github__pull_request_read",tool_input:{owner:"o",repo:"r",pullNumber:8}}')")"
-t 'MCP without a PR number'  "$(printf 'repo\to/r\t8')"   "$(rec r1 "$(jq -n '{session_id:"r1",tool_name:"mcp__github__get_pull_request_review",tool_input:{owner:"o",repo:"r"}}')")"
-t 'second call still records' "$(printf 'repo\to/r\t26')" "$(rec r1 "$(bash_in r1 'gh pr merge 26 --repo o/r')")"
+t 'MCP pull_request_read'    "$(printf 'repo\to/r\t8\tread')"   "$(rec r1 "$(jq -n '{session_id:"r1",tool_name:"mcp__github__pull_request_read",tool_input:{owner:"o",repo:"r",pullNumber:8}}')")"
+t 'MCP without a PR number'  "$(printf 'repo\to/r\t8\tread')"   "$(rec r1 "$(jq -n '{session_id:"r1",tool_name:"mcp__github__get_pull_request_review",tool_input:{owner:"o",repo:"r"}}')")"
+t 'second call still records' "$(printf 'repo\to/r\t26\twork')" "$(rec r1 "$(bash_in r1 'gh pr merge 26 --repo o/r')")"
 
 # --- open thread blocks, once --------------------------------------------------
 record s1 "$(printf 'repo\to/r\t25')"
@@ -162,6 +177,18 @@ reason 'still names the open thread PR' 'o/r#25 has 1 unresolved'
 reason 'and still names the dropped one' 'o/notfound#1'
 reason 'and still says never worked'    'never a PR this session worked'
 
+# --- NOT_FOUND but `gh repo view` still sees it -> access problem, not dropped (dotfiles#309) ---
+record dn3 "$(printf 'repo\to/hidden\t1')"
+check block 'NOT_FOUND repo that gh repo view can still see -> blocks, not dropped' fail "$(stop_input dn3)"
+reason 'says access problem, not missing repo' 'access problem, not a missing repo'
+no_reason 'does not claim it was dropped' 'never a PR this session worked'
+
+# --- NOT_FOUND and `gh repo view` fails too, but not with a confirmed 404 -> unverified, not dropped (dotfiles#342) ---
+record dn4 "$(printf 'repo\to/flaky\t1')"
+check block 'NOT_FOUND repo where gh repo view fails without confirming 404 -> blocks, not dropped' fail "$(stop_input dn4)"
+reason 'says unverified, not dropped'   'unverified, not dropped'
+no_reason 'does not claim it was dropped' 'never a PR this session worked'
+
 # --- a fan-out over many PRs checks every one; none is skipped by count ---------
 for i in 1 2 3 4 5 6 7 8; do record s9 "$(printf 'repo\to/r\t%s' "$i")"; done
 : > "$GH_LOG"
@@ -170,6 +197,45 @@ t 'all eight queried' 8 "$(grep -c 'api graphql' "$GH_LOG")"
 check block 'eight PRs, one open thread each -> block' open "$(stop_input s9)"
 reason 'names the eighth PR'            'o/r#8 has 1 unresolved'
 no_reason 'no count cap'                'not checked'
+
+# --- several NOT_FOUND repos confirm concurrently, not one timeout each ---------
+# dotfiles#345: the confirming `gh repo view` runs inside the backgrounded
+# fetch job. Serially, four hung confirmations would cost four timeout windows.
+if command -v timeout >/dev/null 2>&1; then
+  for i in 1 2 3 4; do record s11 "$(printf 'repo\to/slow\t%s' "$i")"; done
+  start=$(date +%s)
+  out=$(stop_input s11 | PR_THREADS_GATE_TIMEOUT=1 sh "$HOOK" 2>&1); LAST=$out
+  elapsed=$(( $(date +%s) - start ))
+  if [ "$elapsed" -lt 4 ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL: four confirmations took ${elapsed}s, so they ran serially"; fi
+  reason 'all four reported unverified' 'o/slow#4: repository NOT_FOUND over GraphQL'
+  no_reason 'and none of them dropped'  'never a PR this session worked'
+fi
+
+# --- dotfiles#224: a read never gates the Stop, whatever threads it has --------
+record rd1 "$(printf 'repo\to/r\t25\tread')"
+check silent 'read-only record, open thread on that PR -> gate ignores it' open "$(stop_input rd1)"
+: > "$GH_LOG"
+check silent 'read is never even fetched' resolved "$(stop_input rd1)"
+t 'no graphql call made for a read-only record' 0 "$(grep -c 'api graphql' "$GH_LOG")"
+
+record rd2 "$(printf 'repo\to/r\t25\twork')"
+check block 'work record, open thread on that PR -> still blocks' open "$(stop_input rd2)"
+reason 'names the PR'                  'o/r#25 has 1 unresolved'
+
+record rd3 "$(printf 'repo\to/r\t25\tread')"
+record rd3 "$(printf 'repo\to/r\t26\twork')"
+check block 'a read (open threads) plus a clean work PR -> blocks only if the work PR is not clean' open "$(stop_input rd3)"
+no_reason 'the read PR never appears' 'o/r#25'
+reason 'the work PR does'             'o/r#26'
+
+record rd4 "$(printf 'repo\to/r\t25\tread')"
+record rd4 "$(printf 'repo\to/r\t26\twork')"
+check silent 'a read (open threads) plus a clean work PR, work PR clean -> silent' resolved "$(stop_input rd4)"
+
+# a record line with no third field at all (hand-written, or from an older
+# recorder) is treated as work -- fail closed, never a silent downgrade.
+record rd5 "$(printf 'repo\to/r\t25')"
+check block 'no kind field -> defaults to work' open "$(stop_input rd5)"
 
 # --- a hung fetch is reported as unverified, not skipped ------------------------
 if command -v timeout >/dev/null 2>&1; then

@@ -181,7 +181,16 @@ yadm commit -m "secrets: rotate <name>"
 ```
 
 Then on every other machine: `dotsync && yadm bootstrap`, and restart shells so
-the new value is sourced. Revoke the old credential at the provider *after* the
+the new value is sourced.
+
+*Verify:* the restarted shell has the new value, not the old one:
+
+```bash
+printenv <KEY>    # must match what you just wrote into ~/secrets/<name>.sops.env
+```
+
+A stale value means the shell wasn't actually restarted, or bootstrap didn't
+run — fix that first. Revoke the old credential at the provider *after* the
 new one is confirmed working, not before.
 
 ## Clear a pre-commit false positive
@@ -219,6 +228,9 @@ yadm checkout -- <file>
 dotsync
 cp /tmp/<file>.bak ~/<file>
 ```
+
+Verify: `diff /tmp/<file>.bak ~/<file>` — no output means the restore matched
+exactly; any diff means the copy silently failed and `~/<file>` is still wrong.
 
 If it is not a de-tracked file, `yadm status --short` and `yadm diff <file>`
 first — do not blanket-checkout a file you have not read.

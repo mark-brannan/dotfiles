@@ -212,6 +212,76 @@ archivable_reasons() {
   printf '%s' "$reasons"
 }
 
+# state_lock <dir> / state_unlock -- mkdir atomic test-and-set, copied from
+# grind's per-repo lock (no flock: macOS has none). meta carries pid+host; a
+# same-host dead pid is reclaimed via rename-then-rm. Installs no trap of its
+# own: `trap` overwrites rather than chains, and a caller (stop-continuity.sh
+# already arms one, e.g. `trap restore_board EXIT`) would have it silently
+# clobbered. The caller adds `state_unlock` to its own EXIT/TERM/INT traps.
+# A dir with no meta at all (a kill between mkdir and the meta write) has no
+# pid to check; one older than STATE_LOCK_STALE_SECS is reclaimed regardless
+# -- no `stat` (flags differ GNU/BSD), so age comes from `-ot` against a
+# reference file touched to the cutoff.
+STATE_LOCK_DIR=""
+STATE_LOCK_STALE_SECS="${STATE_LOCK_STALE_SECS:-5}"
+
+state_lock() {
+  local dir="$1" meta="" host pid ref cutoff rc
+  [ -n "$dir" ] || return 1
+  meta="$dir/meta"
+  host=$(uname -n 2>/dev/null || echo unknown)
+  if ! mkdir "$dir" 2>/dev/null; then
+    if [ -f "$meta" ]; then
+      pid=$(awk -F= '$1 == "pid" { print $2 }' "$meta" 2>/dev/null)
+      { [ "$(awk -F= '$1 == "hostname" { print $2 }' "$meta" 2>/dev/null)" = "$host" ] \
+          && [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; } || return 1
+    else
+      ref="$dir.age.$$"; cutoff=$(( $(date +%s) - STATE_LOCK_STALE_SECS ))
+      : > "$ref" 2>/dev/null && touch -t "$(date -d "@$cutoff" +%Y%m%d%H%M.%S 2>/dev/null \
+        || date -r "$cutoff" +%Y%m%d%H%M.%S)" "$ref" 2>/dev/null || return 1
+      [ "$dir" -ot "$ref" ]; rc=$?; rm -f "$ref"; [ "$rc" -eq 0 ] || return 1
+    fi
+    mv "$dir" "$dir.stale.$$" 2>/dev/null && rm -rf "$dir.stale.$$" && mkdir "$dir" 2>/dev/null \
+      || return 1
+  fi
+  printf 'pid=%s\nhostname=%s\n' "$$" "$host" > "$meta" 2>/dev/null
+  STATE_LOCK_DIR="$dir"
+}
+
+state_unlock() {
+  [ -n "$STATE_LOCK_DIR" ] && rm -rf "$STATE_LOCK_DIR"
+  STATE_LOCK_DIR=""
+}
+
+# day_decisions <sid> <total> <junk> <now> <gap-seconds> -- fold this session's
+# decision counts into the machine-wide store beside sitting.json and print the
+# day's totals as "<total>\t<junk>". Decision load is spent across a day, not
+# per chat (#99); a prompt gap past <gap-seconds> anywhere on the machine starts
+# a fresh day. Keyed by session id, holding each session's own running counts
+# rather than a delta, so a replayed hook cannot double-count. junk rides beside
+# the total, never subtracted -- exclude it by subtracting field two. No trap
+# here: it would clobber the caller's (#361).
+day_decisions() {
+  local f next
+  f="$(state_dir)/metrics/day-decisions.json"
+  mkdir -p "${f%/*}" 2>/dev/null || { printf '0\t0\n'; return 0; }
+  if state_lock "$f.lock"; then
+    # Read, modify and write all inside the lock -- a read before it is the race
+    # the lock closes: a second session's write in between would be overwritten.
+    [ -f "$f" ] || printf '{}\n' > "$f" 2>/dev/null
+    next=$(jq --arg sid "$1" --argjson t "$2" --argjson j "$3" \
+      --argjson now "$4" --argjson gap "$5" \
+      'if (.last_prompt // 0) > 0 and ($now - .last_prompt) > $gap
+       then {day_start: $now, sessions: {}} else . end
+       | .last_prompt = $now | .day_start //= $now
+       | .sessions[$sid] = {total: $t, junk: $j}' "$f" 2>/dev/null)
+    if [ -n "$next" ] && printf '%s\n' "$next" > "$f.$$" 2>/dev/null \
+       && mv -f "$f.$$" "$f" 2>/dev/null; then :; else rm -f "$f.$$" 2>/dev/null; fi
+    state_unlock
+  fi
+  jq -r '[([.sessions[]?.total] | add // 0), ([.sessions[]?.junk] | add // 0)] | @tsv' "$f" 2>/dev/null || printf '0\t0\n'
+}
+
 # pr_base_refs <repo-path> <branch> [<remote>] -- base branch names of the
 # open PRs whose head is <branch>, one per line.
 #
