@@ -72,6 +72,8 @@ the failure modes spelled out, in the order they bite.
 **1 — Tooling.** `yadm` must exist before anything else; `sops` and `age` can
 follow, but nothing decrypts until they do.
 
+Note: we need to spell out the sops install process. Unfortunately, there's not a nice package for it on the RPi os's from what I see...but we should note where to get the latest and what a valid download command looks like.  Somewhere in this runbook we should also recommend installing gitleaks or anything our hooks might need. jq is another thing that suddenly comes to mind!
+
 ```bash
 sudo apt-get install -y yadm age    # or: brew install yadm age sops
 # sops on Linux: grab a release binary from https://github.com/getsops/sops/releases
@@ -125,6 +127,7 @@ cp /tmp/npmrc.bak ~/.npmrc   # now gitignored; settings come from the shell
 ```
 
 ## Keep machines in sync
+Note for claude: this section is low value.  Just merge it into the prior one and note that it is an alias.  Too much explanation AND the text is AI slop!  (e.g. "load bearing" where we are just talking about dot file and $HOME hygiene)
 
 ```bash
 dotsync    # alias: yadm pull --rebase --autostash && yadm alt && yadm status --short
@@ -158,6 +161,7 @@ means cron is not running the line: `crontab -l | grep dotfiles-sync`, and on
 WSL `systemctl is-active cron`.
 
 ## Create a cloud environment
+Note for claude: clean this up!  This section and all the ones after it that are about ephemeral claude sessions.  it's confusing and probably belongs in a separate cloud setup file.  Especially when you have a copy/pastable snippet with "exit 0" in it...that's begging for someone to make a mistake and curse you.  There's too much background here and not enough "what do I do with this?" -> actions.
 
 A Claude Code cloud environment configures exactly four things: **name, network
 access, environment variables, and a setup script.** Repositories are *not*
@@ -185,6 +189,9 @@ delegate to, so it can't be a bare clone-and-delegate — paste
 verbatim instead; it ends with the same clone-and-delegate. Neither variant is
 executed by the platform — both files exist only so the pasted text has an
 authoritative copy in git. Keep them in sync by hand if either changes.
+
+*Note for claude: the line below this is first class slop.  You're talking about background and provenance in a runbook.  No.  That's dead wrong.  A runbook is about commands to run, not background, not provenance, not design, and most certainly not AI slop.
+PRECISE.*
 
 Measured cost on a cold VM: about 5s, against a ~5 minute window.
 
@@ -927,3 +934,19 @@ type is wrong for that mode — check
 [`Get-NetFirewallHyperVRule`](https://learn.microsoft.com/en-us/powershell/module/netsecurity/get-netfirewallhypervrule)
 and the `VMCreatorId` variant instead; not covered here because this fleet
 runs mirrored.
+
+## Other installs
+```bash
+sudo apt update && sudo apt install -y curl gnupg
+
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL https://downloads.claude.ai/keys/claude-code.asc -o /etc/apt/keyrings/claude-code.asc
+
+echo "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/stable stable main" | sudo tee /etc/apt/sources.list.d/claude-code.list
+sudo apt update
+sudo apt install -y claude-code
+
+```
+
+tmux
+
