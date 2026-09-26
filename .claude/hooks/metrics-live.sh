@@ -53,6 +53,8 @@ set -uo pipefail
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-state.sh
 . "$HOOK_DIR/lib-state.sh"
+# shellcheck source=metrics-format.sh
+. "$HOOK_DIR/metrics-format.sh"
 
 command -v jq >/dev/null 2>&1 || exit 0
 
@@ -248,6 +250,10 @@ fi
 # of a session and the crossings have to outlive it.
 NAGF="$LIVE/$sid.nag.json"
 CROSSD="$(state_dir)/metrics/crossings"
+# state_lock installs no trap of its own (a caller's is easily clobbered);
+# this one covers every save_nag write below and every exit path, including
+# the Stop `block` decision's early `exit 0`.
+trap 'state_unlock' EXIT TERM INT
 
 # The sitting clock is the one piece of this state that is NOT per session.
 # A person with three chats open is one person in one chair: when the clock
@@ -371,6 +377,10 @@ fi
 [ "$ctx_stop_line" -eq 0 ] && [ "$ctx_line" -ge "$NAG_CONTEXT_STOP_AT" ] && ctx_stop_line=$ctx_line
 
 save_nag() {
+  # Never blocks the hook: a lock already held by a concurrent invocation
+  # of this same session (dotfiles#161 findings 1/2/4) just skips this
+  # write rather than waiting or failing the hook.
+  state_lock "$LIVE/$sid.lock" || return 0
   jq -n --argjson cl "$ctx_line" --argjson cr "$ctx_rungs" --argjson cs "$ctx_stop_line" \
         --argjson tl "$time_line" --argjson ts "$tl_sitting" \
         --argjson gl "$gate_line" --argjson ft "$fric_tripped" \
@@ -391,6 +401,7 @@ save_nag() {
       day_decision_line: $ddl, model_day_decision_at: $mdd}' \
     > "$NAGF.$$" 2>/dev/null \
     && mv -f "$NAGF.$$" "$NAGF" 2>/dev/null || rm -f "$NAGF.$$" 2>/dev/null
+  state_unlock
 }
 
 # Only the four wired events drive the engine. The statusline reaches this
@@ -952,10 +963,11 @@ if [ "$SHOW" = show ] && [ -n "$metrics" ]; then
     bl_main="$bl_main — ${bl_reason:+$bl_reason }propose stopping."
   fi
 
-  bl_second=$(printf '%s\n' "$merged" | jq -r -L "$HOOK_DIR" \
-    'include "lib-metrics-fmt";
-     turns + ((work // "") as $w | if $w == "" then "" else " " + $w end)' \
-    2>/dev/null)
+  IFS=$'\t' read -r bl_turns bl_toolcalls <<<"$(printf '%s\n' "$metrics" | jq -r \
+    '"\(.session.user_turns // 0)\t\(.session.tool_calls // 0)"')"
+  bl_second=$(fmt_turns "$bl_turns" "$bl_toolcalls")
+  bl_work=$(fmt_work "${ncommits:-0}" "${dirty:-0}" "${unpushed:-0}")
+  [ -n "$bl_work" ] && bl_second="$bl_second $bl_work"
   bl_block="$bl_main"
   [ -n "$bl_second" ] && bl_block="$bl_block
 $bl_second"
