@@ -70,7 +70,7 @@ $body"
     git --git-dir="$GD" update-ref "refs/heads/$branch" "$new"
     printf '%s\n' "$new"
     ;;
-  *"api repos/"*"/commits/"*) printf 'true\n' ;;
+  *"api repos/"*"/commits/"*) if [ -f "$T/gh.verify" ]; then cat "$T/gh.verify"; else printf 'true\n'; fi ;;
   *--head*) cat "$T/gh.out" 2>/dev/null ;;
   *--base*) cat "$T/gh.children" 2>/dev/null ;;
 esac
@@ -216,6 +216,28 @@ ok  'API fallback mode change: refuses' [ $rc -eq 1 ]
 has 'API fallback mode change: says why' "the GitHub API fallback can only create or delete plain 100644 blobs"
 git -C "$W" fetch -q origin
 ok  'API fallback mode change: remote untouched' [ "$(git -C "$W" rev-parse origin/feat-d)" = "$old_d" ]
+
+# --- 11. no local signing key, GitHub fails final verification: the scratch
+# branch is left on the remote for inspection, not deleted by the EXIT trap.
+# This is the failure-path case the success-only cleanup fix (below) covers --
+# a die() after the scratch branch exists must not have it swept out from
+# under the die() message's own promise that it's "left on $remote".
+git -C "$W" checkout -q -b feat-e main
+echo e1 > "$W/e" && git -C "$W" add e && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-e 1"
+git -C "$W" push -q origin feat-e
+echo false > "$T/gh.verify"
+run feat-e
+ok  'API fallback verify fails: refuses' [ $rc -eq 1 ]
+has 'API fallback verify fails: names the branch as untouched' 'feat-e is untouched'
+has 'API fallback verify fails: says the scratch branch is left for inspection' 'is left on origin for inspection'
+git -C "$W" fetch -q origin
+ok  'API fallback verify fails: scratch branch survives on the remote' \
+  [ -n "$(git -C "$T/origin.git" for-each-ref 'refs/heads/resign-tmp/feat-e.*' --format='%(refname)')" ]
+ok  'API fallback verify fails: real branch untouched' \
+  [ "$(git -C "$W" log -1 --format=%s origin/feat-e)" = "feat-e 1" ]
+git -C "$T/origin.git" for-each-ref 'refs/heads/resign-tmp/feat-e.*' --format='%(refname)' \
+  | while IFS= read -r r; do git -C "$T/origin.git" update-ref -d "$r"; done
+rm -f "$T/gh.verify"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

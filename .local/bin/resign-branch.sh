@@ -205,10 +205,18 @@ GITDIRS
 # runs from — which cron and other sessions may be using — never changes
 # branch and never needs to be clean.
 wt=$(mktemp -d)
+succeeded=0
 cleanup() {
   git worktree remove --force "$wt" 2>/dev/null
   rm -rf "$wt" ${tmpsigners:+"$tmpsigners"} ${reauthor:+"$reauthor"}
-  [ -z "${tmpremotebranch:-}" ] || git push -q "$remote" ":refs/heads/$tmpremotebranch" 2>/dev/null || true
+  # Only delete the scratch branch on success. The die() messages on the
+  # API-fallback path below tell the user it is "left on $remote for
+  # inspection" so they can look at the partial API-built commits after a
+  # failure -- an unconditional delete here would have already removed it
+  # by the time those messages print, since die()'s exit fires this trap.
+  if [ -n "${tmpremotebranch:-}" ] && [ "$succeeded" -eq 1 ]; then
+    git push -q "$remote" ":refs/heads/$tmpremotebranch" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 git worktree add -q --detach "$wt" "$old"
@@ -391,6 +399,7 @@ new=$head_oid
 fi
 
 g push --force-with-lease="refs/heads/$branch:$old" "$remote" "$new:refs/heads/$branch"
+succeeded=1
 while IFS= read -r d; do
   git --git-dir="$d" rev-parse --verify -q "refs/heads/$branch" >/dev/null || continue
   git --git-dir="$d" cat-file -e "$new^{commit}" 2>/dev/null || git --git-dir="$d" fetch -q "$remote" || true
