@@ -80,15 +80,10 @@ for repo in "${repos[@]}"; do
       if [ -n "$holder" ]; then
         reason="contained in $holder"
       else
-        # Not contained by sha, but every commit's diff may already be
-        # upstream under a different sha -- the normal state of a
-        # squash-merged branch. `git cherry` marks each commit `-` when an
-        # equivalent patch exists in $base, `+` when it doesn't; any `+`
-        # means real unpublished work, so keep. A multi-commit branch
-        # squashed into one commit matches no single `-`, so also compare
-        # the branch's whole diff against each commit on $base since it
-        # forked. Patch ids ignore messages: an empty diff matches any
-        # empty commit, so a branch with no net change proves nothing.
+        # Not contained by sha; compare patch ids. `git cherry` marks each
+        # commit `-` when its diff is on $base (any `+` is real work); the
+        # whole branch's diff on $base is a multi-commit squash. Ids ignore
+        # messages, so a branch with no net diff proves nothing: keep it.
         cherry='' squashed=''
         mb=$("${g[@]}" merge-base "$base" "$branch" 2>/dev/null) || mb=''
         if [ -n "$mb" ] && ! "${g[@]}" diff --quiet "$mb" "$branch" 2>/dev/null; then
