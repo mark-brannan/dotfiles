@@ -539,14 +539,11 @@ build_prompt() {
 # Runs right after the worker exits, before anything checks whether a PR
 # exists, so the push this makes is what a same-run verify_pr sees.
 #
-# stage_claude_files <worktree path> <ref>. Every step is explicitly guarded
-# so a failure here returns 1 rather than tripping `set -e` for the whole
-# run: one item's staged files should never take the rest of the queue down.
-# Return codes: 0 nothing staged (silent, the common case), 1 failed (a
-# WARN, staging dir left for inspection), 2 staged content was moved,
-# committed and pushed (an INFO line at the call site).
+# stage_claude_files <worktree path> <ref> <branch>. Every step is guarded so
+# a failure returns 1 rather than tripping `set -e` for the whole run.
+# Returns 0 nothing staged, 1 failed, 2 moved, committed and pushed.
 stage_claude_files() {
-  wt=$1; sref=$2
+  wt=$1; sref=$2; sbranch=$3
   sdir="$wt/.claude-staging"
   [ -d "$sdir" ] || return 0
   found=$(find "$sdir" -type f 2>/dev/null | head -1) || return 0
@@ -567,7 +564,9 @@ stage_claude_files() {
   # only empty directories, or content identical to what's already tracked.
   git -C "$wt" diff --cached --quiet -- .claude .claude-staging && return 0
   git -C "$wt" commit -q -m "grind: move staged .claude/ files into place for $sref" || return 1
-  git -C "$wt" push -q || return 1
+  # By name, not bare `push`: a grind-<n> branch has no upstream unless the
+  # worker happened to push with -u.
+  git -C "$wt" push -q origin "HEAD:refs/heads/$sbranch" || return 1
   return 2
 }
 
@@ -890,9 +889,9 @@ while [ "$i" -lt "$count" ]; do
   write_lock
 
   stage_rc=0
-  stage_claude_files "$wt_path" "$ref" || stage_rc=$?
+  stage_claude_files "$wt_path" "$ref" "$branch" || stage_rc=$?
   case "$stage_rc" in
-    1) warn "could not move staged .claude/ files into place for $ref; left under .claude-staging/ for inspection" ;;
+    1) warn "could not move staged .claude/ files into place and push them for $ref" ;;
     2) info "moved staged .claude/ files into place and pushed for $ref" ;;
   esac
 
@@ -956,6 +955,11 @@ while [ "$i" -lt "$count" ]; do
       fi
       ;;
   esac
+  # The worker's PR can exist without the .claude/ change it needed.
+  if [ "$status" = "done" ] && [ "$stage_rc" -eq 1 ]; then
+    unverified_why="its staged .claude/ files were never pushed"
+    status=unverified
+  fi
   rm -f "$marker"
 
   # An unverified item keeps its worktree: it is the only remaining record of

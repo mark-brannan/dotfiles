@@ -115,7 +115,7 @@ for a in "\$@"; do
 done
 if [ "\$subcmd" = push ]; then
   printf '%s\n' "\$*" >> "$GIT_PUSH_LOG"
-  exit 0
+  [ -z "\${GIT_PUSH_FAIL:-}" ]; exit
 fi
 exec "$REAL_GIT" "\$@"
 GITSHIM
@@ -444,6 +444,8 @@ assert 'the staged file landed under .claude/ on the branch' \
 assert 'nothing is left under .claude-staging/ on the branch' \
   bash -c '! git -C "'"$S"'/repo" show grind-5:.claude-staging >/dev/null 2>&1'
 eq 'grind pushed exactly once for the staged files' 1 "$(wc -l < "$GIT_PUSH_LOG" | tr -d ' ')"
+assert 'it pushes to the item branch by name -- grind-<n> has no upstream' \
+  grep -q 'push -q origin HEAD:refs/heads/grind-5$' "$GIT_PUSH_LOG"
 rm -rf "$S/claude-stage"
 
 # a .claude-staging/<x> path that was itself already tracked (a stale leftover
@@ -472,6 +474,19 @@ rm -rf "$S/claude-stage"
 # undo the legacy-tracked-path commit on the base branch so it doesn't leak
 # into the scenarios that follow.
 git -C "$S/repo" reset -q --hard "$main_before"
+
+# a push that fails leaves the item unverified and its worktree kept: the
+# worker's PR exists, but without the .claude/ change the item needed
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
+mkdir -p "$S/claude-stage/1/hooks"
+echo 'echo staged' > "$S/claude-stage/1/hooks/example.test.sh"
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+GIT_PUSH_FAIL=1 run --session-budget 100 --pause-every 1
+has 'a failed staging push warns' 'could not move staged \.claude/ files into place and push them for o/alpha#5'
+has 'and the item is UNVERIFIED, saying why' '^UNVERIFIED: o/alpha#5 -- First item -- worker claimed success but its staged \.claude/ files were never pushed'
+has 'and its worktree is kept' 'keeping worktree .*grind-worktrees/5 on branch grind-5 for inspection'
+rm -rf "$S/claude-stage"
 
 # an item with nothing staged is unaffected -- no move, no extra push, no log line
 rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
