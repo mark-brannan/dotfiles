@@ -446,6 +446,33 @@ assert 'nothing is left under .claude-staging/ on the branch' \
 eq 'grind pushed exactly once for the staged files' 1 "$(wc -l < "$GIT_PUSH_LOG" | tr -d ' ')"
 rm -rf "$S/claude-stage"
 
+# a .claude-staging/<x> path that was itself already tracked (a stale leftover
+# from before this move-and-commit logic, or a legacy force-add) must not
+# survive the move as a permanently-stale tracked entry -- `git add .claude`
+# alone never stages a deletion outside its own pathspec, so the fix stages
+# both pathspecs (or an explicit `git rm -r .claude-staging`).
+main_before=$(git -C "$S/repo" rev-parse HEAD)
+mkdir -p "$S/repo/.claude-staging/hooks"
+echo 'echo old' > "$S/repo/.claude-staging/hooks/example.test.sh"
+git -C "$S/repo" add .claude-staging/hooks/example.test.sh
+git -C "$S/repo" commit -q -m "test setup: legacy tracked .claude-staging path"
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+rm -rf "$S/claude-stage"; : > "$GIT_PUSH_LOG"
+mkdir -p "$S/claude-stage/1/hooks"
+echo 'echo staged' > "$S/claude-stage/1/hooks/example.test.sh"
+reply 0.50 "done" 1
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 1
+has 'the item still reports a plain success (legacy tracked staging path)' '^o/alpha#5: First item -- sonnet, \$0\.50,'
+assert 'the fresh staged content landed under .claude/ on the branch' \
+  bash -c 'git -C "'"$S"'/repo" show grind-5:.claude/hooks/example.test.sh 2>/dev/null | grep -q "echo staged"'
+assert 'the previously-tracked .claude-staging path does not survive the move as stale content' \
+  bash -c '! git -C "'"$S"'/repo" show grind-5:.claude-staging/hooks/example.test.sh >/dev/null 2>&1'
+rm -rf "$S/claude-stage"
+# undo the legacy-tracked-path commit on the base branch so it doesn't leak
+# into the scenarios that follow.
+git -C "$S/repo" reset -q --hard "$main_before"
+
 # an item with nothing staged is unaffected -- no move, no extra push, no log line
 rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
 reply 0.50 "done" 1
