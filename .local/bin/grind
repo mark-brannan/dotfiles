@@ -964,7 +964,8 @@ while [ "$i" -lt "$count" ]; do
 
   # An unverified item keeps its worktree: it is the only remaining record of
   # what the worker did, and the next attempt at this item clears it anyway.
-  if [ "$status" = unverified ]; then
+  # So does any item whose staged .claude/ files were never pushed.
+  if [ "$status" = unverified ] || [ "$stage_rc" -eq 1 ]; then
     warn "keeping worktree $wt_path on branch $branch for inspection"
   else
     git worktree remove -f "$wt_path" >/dev/null 2>&1 || true

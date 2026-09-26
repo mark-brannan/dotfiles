@@ -486,6 +486,13 @@ GIT_PUSH_FAIL=1 run --session-budget 100 --pause-every 1
 has 'a failed staging push warns' 'could not move staged \.claude/ files into place and push them for o/alpha#5'
 has 'and the item is UNVERIFIED, saying why' '^UNVERIFIED: o/alpha#5 -- First item -- worker claimed success but its staged \.claude/ files were never pushed'
 has 'and its worktree is kept' 'keeping worktree .*grind-worktrees/5 on branch grind-5 for inspection'
+# blocked keeps its status -- retrying it would only block again -- but the
+# worktree holding the unpushed .claude/ change is still kept
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
+reply 0.50 "blocked" 1
+GIT_PUSH_FAIL=1 run --session-budget 100 --pause-every 1
+has 'a blocked item with a failed staging push stays blocked' '^blocked: o/alpha#5 -- First item'
+has 'and still keeps its worktree' 'keeping worktree .*grind-worktrees/5 on branch grind-5 for inspection'
 rm -rf "$S/claude-stage"
 
 # an item with nothing staged is unaffected -- no move, no extra push, no log line
