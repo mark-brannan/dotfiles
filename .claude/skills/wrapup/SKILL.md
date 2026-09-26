@@ -23,9 +23,11 @@ Read the verdict line at the top of this session's auto-checkpoint
 - **`archivable`** — the branch has a PR or a pointer, the worktree is clean,
   nothing is unpushed, the state repo pushed — **and** every open loop has a
   home (an issue, a PR or a card): say so in one line, name where the work
-  lives, write the resume block (step 2b) if a next session should continue
-  there, and **stop**. No log, no hand-off prompt. Archivable means archive;
-  it does not mean silent — the block is how the next session finds it.
+  lives, and **stop**. No log, no hand-off prompt. Archivable means archive;
+  it does not mean silent: if a next session should continue there, write
+  the four-line block (spec in step 2b) with `link` = where the work lives
+  and `next` = the one thing that session does there first. There is no
+  step-2 prompt on this path to derive from, and none is needed.
 - **`not archivable: <reasons>`**, or a loop with no home: continue below.
   The reasons name what to fix; fixing them is usually cheaper than the
   wrap-up and sometimes turns it into an archive.
@@ -102,8 +104,11 @@ not also there is a hand-off to nobody — the next session runs
 resume. That is the amnesia this step exists to prevent.
 
 So every wrap-up that produced a hand-off in step 2 — the one-line
-`continue <link>` form included — also writes the block, after the push and
-before the closing message. Same four lines as `/pickup`'s spec. `link` is
+`continue <link>` form included — also writes the block, before the closing
+message. **Push the branch first** (`git push -u origin <branch>`): the block
+points at a branch, `pickup-list` reads the local worktree and cannot tell,
+and a `/pickup` on another machine fetches a branch that is not on origin
+and finds nothing. Same four lines as `/pickup`'s spec. `link` is
 the home step 2 found and `next` is the prompt's first action — one
 derivation, not a second one that can drift from the prose. If the
 checkpoint already holds a block (the Stop nag may have asked for one before
