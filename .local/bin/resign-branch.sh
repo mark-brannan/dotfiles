@@ -32,7 +32,8 @@
 #      GitHub's "Update branch" button; a conflict aborts the rebase and
 #      exits 1, branch untouched. Refuses if linearizing would drop content
 #      from a hand-resolved merge.
-#      Without a local key: replays each commit as a GitHub-API-signed
+#      Without a local key: rebases onto the base locally, unsigned (a
+#      conflict exits 1, branch untouched), then replays each commit as a GitHub-API-signed
 #      commit (GraphQL createCommitOnBranch) on a scratch branch, one API
 #      commit per original commit, each attributed to the `gh` token's
 #      account with the original author kept as a Co-Authored-By trailer
@@ -237,14 +238,35 @@ count_unverified() {
 count_foreign() {
   g log --pretty='%ae%n%ce' "$1" | grep -vxcF -- "$localemail" || true
 }
-unverified=$(count_unverified "$target..HEAD")
+# The API fallback's commits carry GitHub's signature, which %G? can't
+# check locally, and the gh account's email, which it can't change -- so
+# without a key, GitHub's own verdict is the only test, and "foreign" is
+# not something a rerun could fix. Without this, every rerun rewrites.
+count_unverified_gh() {
+  n=0
+  for c in $(g rev-list "$1"); do
+    v=$(gh api "repos/$nameWithOwner/commits/$c" --jq .commit.verification.verified 2>/dev/null) || v=""
+    [ "$v" = "true" ] || n=$((n+1))
+  done
+  echo "$n"
+}
+nameWithOwner=$(norm_url "$url"); nameWithOwner=${nameWithOwner#*/}
 foreign=$(count_foreign "$target..HEAD")
+if [ -n "$signingkey" ]; then
+  unverified=$(count_unverified "$target..HEAD"); fixable_foreign=$foreign
+else
+  unverified=$(count_unverified_gh "$target..HEAD"); fixable_foreign=0
+fi
 merges=$(g rev-list --count --merges "$target..HEAD")
 total=$(g rev-list --count "$target..HEAD")
 behind=$(g rev-list --count "HEAD..$target")
 
-if [ "$unverified" -eq 0 ] && [ "$foreign" -eq 0 ] && [ "$merges" -eq 0 ] && [ "$behind" -eq 0 ]; then
-  echo "resign-branch: all $total commit(s) on $branch verify, all authored as $localemail, no merge commits, up to date with $target — nothing to do"
+if [ "$unverified" -eq 0 ] && [ "$fixable_foreign" -eq 0 ] && [ "$merges" -eq 0 ] && [ "$behind" -eq 0 ]; then
+  if [ -n "$signingkey" ]; then
+    echo "resign-branch: all $total commit(s) on $branch verify, all authored as $localemail, no merge commits, up to date with $target — nothing to do"
+  else
+    echo "resign-branch: all $total commit(s) on $branch verify on GitHub, no merge commits, up to date with $target — nothing to do"
+  fi
   exit 0
 fi
 
@@ -317,17 +339,29 @@ else
 # real branch is only touched by the final force-with-lease push below.
 [ "$merges" -eq 0 ] || die "$merges merge commit(s) on $branch; the GitHub API fallback (createCommitOnBranch) can't replay a merge. Resolve by hand, or run this from a machine with a local user.signingkey."
 
-nameWithOwner=$(norm_url "$url"); nameWithOwner=${nameWithOwner#*/}
+# Rebase locally first, unsigned, so each replayed commit's diff is against
+# the base tip and not its old parent. Replaying the old diffs' whole-file
+# blobs onto a newer base would overwrite any base-side edit to the same
+# file -- silently, since the API has no merge. A conflict stops here, the
+# same way it does on the key path, before anything is staged on GitHub.
+if ! GIT_SEQUENCE_EDITOR=true g -c commit.gpgsign=false rebase -q --force-rebase "$target"; then
+  g rebase --abort 2>/dev/null || true
+  die "rebase onto $target conflicted; $branch is untouched. Resolve by hand: git rebase $target $branch, push, then re-run this"
+fi
 commits=$(g rev-list --reverse "$target..HEAD")
 
 # Validate every commit before making any API call, so a violation partway
-# through the branch fails before anything is staged on GitHub.
+# through the branch fails before anything is staged on GitHub. A path git
+# still quotes with quotePath off has a tab, newline, quote or backslash in
+# it, and the name-status parse below would get it wrong.
 for c in $commits; do
   bad=$(g diff-tree --no-commit-id --no-renames --raw -r "$c" | awk '
     { om=$1; sub(/^:/,"",om); nm=$2
       if ((om!="000000" && om!="100644") || (nm!="000000" && nm!="100644")) print
     }')
   [ -z "$bad" ] || die "commit $(g rev-parse --short "$c") changes a file's executable bit, or adds/removes a symlink or submodule -- the GitHub API fallback can only create or delete plain 100644 blobs: $bad. Resolve by hand, or run this from a machine with a local user.signingkey."
+  quoted=$(g -c core.quotePath=false diff-tree --no-commit-id --no-renames --name-only -r "$c" | grep '^"' || true)
+  [ -z "$quoted" ] || die "commit $(g rev-parse --short "$c") touches a path with a tab, newline, quote or backslash in it ($quoted), which the GitHub API fallback doesn't handle. Resolve by hand, or run this from a machine with a local user.signingkey."
 done
 
 tmpremotebranch="resign-tmp/$branch.$$"
@@ -335,7 +369,10 @@ base_oid=$(g rev-parse "$target")
 git push -q "$remote" "$base_oid:refs/heads/$tmpremotebranch" \
   || die "could not create the scratch branch $tmpremotebranch on $remote to stage the API-signed commits"
 
+# File contents go through temp files, never argv: a base64 blob past
+# ~128 KiB is over Linux's per-argument limit and jq --arg would fail.
 query='mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }'
+statuses=$(mktemp); changes=$(mktemp); blob=$(mktemp); payload=$(mktemp)
 head_oid=$base_oid
 for c in $commits; do
   headline=$(g log -1 --format=%s "$c")
@@ -348,56 +385,56 @@ for c in $commits; do
 $trailer"; else body="$trailer"; fi ;;
   esac
 
-  statuses=$(mktemp)
-  g diff-tree --no-commit-id --no-renames --name-status -r "$c" > "$statuses"
-  changes=$(mktemp)
+  g -c core.quotePath=false diff-tree --no-commit-id --no-renames --name-status -r "$c" > "$statuses"
   : > "$changes"
   while IFS="$(printf '\t')" read -r status path; do
     case "$status" in
       A|M)
-        contents=$(g show "$c:$path" | base64 | tr -d '\n')
-        jq -n --arg path "$path" --arg contents "$contents" '{op:"add", path:$path, contents:$contents}' >> "$changes"
+        g show "$c:$path" | base64 | tr -d '\n' > "$blob"
+        jq -n --arg path "$path" --rawfile contents "$blob" '{op:"add", path:$path, contents:$contents}' >> "$changes"
         ;;
       D)
         jq -n --arg path "$path" '{op:"del", path:$path}' >> "$changes"
         ;;
       *)
-        rm -f "$statuses" "$changes"
-        die "commit $(g rev-parse --short "$c") has diff-tree status '$status' for $path, which the GitHub API fallback doesn't handle. Resolve by hand, or run this from a machine with a local user.signingkey."
+        rm -f "$statuses" "$changes" "$blob" "$payload"
+        die "commit $(g rev-parse --short "$c") has diff-tree status '$status' for $path, which the GitHub API fallback doesn't handle. $branch is untouched. $tmpremotebranch is left on $remote for inspection."
         ;;
     esac
   done < "$statuses"
-  rm -f "$statuses"
-  additions=$(jq -s '[.[] | select(.op=="add") | {path, contents}]' "$changes")
-  deletions=$(jq -s '[.[] | select(.op=="del") | {path}]' "$changes")
-  rm -f "$changes"
 
-  payload=$(jq -n \
+  jq -n \
     --arg query "$query" \
     --arg repo "$nameWithOwner" \
     --arg branch "$tmpremotebranch" \
     --arg headline "$headline" \
     --arg body "$body" \
     --arg oid "$head_oid" \
-    --argjson additions "$additions" \
-    --argjson deletions "$deletions" \
+    --slurpfile changes "$changes" \
     '{query:$query, variables:{input:{
         branch:{repositoryNameWithOwner:$repo, branchName:$branch},
         message:{headline:$headline, body:$body},
-        fileChanges:{additions:$additions, deletions:$deletions},
-        expectedHeadOid:$oid}}}')
+        fileChanges:{
+          additions:[$changes[] | select(.op=="add") | {path, contents}],
+          deletions:[$changes[] | select(.op=="del") | {path}]},
+        expectedHeadOid:$oid}}}' > "$payload"
 
-  head_oid=$(printf '%s' "$payload" | gh api graphql --input - --jq '.data.createCommitOnBranch.commit.oid') \
-    || die "GitHub API failed to create a commit for $(g rev-parse --short "$c") on $tmpremotebranch (see error above); $branch is untouched. $tmpremotebranch is left on $remote for inspection: git push $remote :refs/heads/$tmpremotebranch to clean it up"
-  [ -n "$head_oid" ] || die "GitHub API returned no commit oid for $(g rev-parse --short "$c") on $tmpremotebranch; $branch is untouched."
+  head_oid=$(gh api graphql --input - --jq '.data.createCommitOnBranch.commit.oid' < "$payload") \
+    || { rm -f "$statuses" "$changes" "$blob" "$payload"; die "GitHub API failed to create a commit for $(g rev-parse --short "$c") on $tmpremotebranch (see error above); $branch is untouched. $tmpremotebranch is left on $remote for inspection: git push $remote :refs/heads/$tmpremotebranch to clean it up"; }
+  [ -n "$head_oid" ] || { rm -f "$statuses" "$changes" "$blob" "$payload"; die "GitHub API returned no commit oid for $(g rev-parse --short "$c") on $tmpremotebranch; $branch is untouched. $tmpremotebranch is left on $remote for inspection."; }
 done
-
-verified=$(gh api "repos/$nameWithOwner/commits/$head_oid" --jq .commit.verification.verified 2>/dev/null) \
-  || die "could not confirm verification of the final API-built commit $head_oid via the GitHub API; $branch is untouched. $tmpremotebranch is left on $remote for inspection."
-[ "$verified" = "true" ] || die "GitHub reports the final API-built commit $head_oid as unverified (verification.verified=$verified) -- not pushing. $branch is untouched. $tmpremotebranch is left on $remote for inspection."
+rm -f "$statuses" "$changes" "$blob" "$payload"
 
 g fetch -q "$remote" "refs/heads/$tmpremotebranch" \
-  || die "could not fetch the staged commits from $tmpremotebranch on $remote; $branch is untouched."
+  || die "could not fetch the staged commits from $tmpremotebranch on $remote; $branch is untouched. $tmpremotebranch is left on $remote for inspection."
+
+# The API built each tree from our additions/deletions; the rebase built
+# the same tree locally. Any difference is content the replay got wrong.
+[ "$(g rev-parse "$head_oid^{tree}")" = "$(g rev-parse 'HEAD^{tree}')" ] \
+  || die "the API-built tip $head_oid has a different tree from the local rebase -- not pushing. $branch is untouched. $tmpremotebranch is left on $remote for inspection."
+
+unverified=$(count_unverified_gh "$base_oid..$head_oid")
+[ "$unverified" -eq 0 ] || die "GitHub reports $unverified API-built commit(s) on $tmpremotebranch as unverified -- not pushing. $branch is untouched. $tmpremotebranch is left on $remote for inspection."
 new=$head_oid
 
 fi
@@ -439,6 +476,6 @@ GITDIRS
 if [ -n "$signingkey" ]; then
   echo "resign-branch: pushed $branch to $remote; every commit verifies locally. Confirm on GitHub:"
 else
-  echo "resign-branch: pushed $branch to $remote; GitHub reports the final commit's verification.verified as $verified. Confirm every commit on GitHub:"
+  echo "resign-branch: pushed $branch to $remote; GitHub reports every API-built commit verified. Confirm on GitHub:"
 fi
 echo "  gh api repos/{owner}/{repo}/pulls/<n>/commits --jq '.[]|\"\\(.sha[0:7]) \\(.commit.verification.verified)\"'"

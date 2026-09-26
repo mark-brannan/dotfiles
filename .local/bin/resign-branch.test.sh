@@ -36,7 +36,8 @@ G
 # gh api graphql --input -: fakes createCommitOnBranch by replaying the
 # addition/deletion payload onto expectedHeadOid directly in origin.git and
 # moving the named branch, the same side effect the real mutation has.
-# gh api repos/.../commits/<oid>: fakes GitHub's verification check as true
+# gh api repos/.../commits/<oid>: fakes GitHub's verification check -- true
+# only for a commit the fake mutation built (GitHub signs those)
 # (or whatever "$T/gh.verify" says, when a test wants it to fail).
 cat > "$T/bin/gh" <<'G'
 #!/bin/sh
@@ -78,9 +79,11 @@ case "$*" in
 $body"
     new=$(printf '%s' "$msg" | git --git-dir="$GD" commit-tree "$tree" -p "$oid")
     git --git-dir="$GD" update-ref "refs/heads/$branch" "$new"
-    printf '%s\n' "$new"
+    printf '%s\n' "$new" >> "$T/gh.signed"; printf '%s\n' "$new"
     ;;
-  *"api repos/"*"/commits/"*) if [ -f "$T/gh.verify" ]; then cat "$T/gh.verify"; else printf 'true\n'; fi ;;
+  *"api repos/"*"/commits/"*)
+    if [ -f "$T/gh.verify" ]; then cat "$T/gh.verify"
+    elif grep -qx "${2##*/}" "$T/gh.signed" 2>/dev/null; then echo true; else echo false; fi ;;
   *--head*) cat "$T/gh.out" 2>/dev/null ;;
   *--base*) cat "$T/gh.children" 2>/dev/null ;;
 esac
@@ -288,6 +291,46 @@ ok  'API fallback verify fails: real branch untouched' \
 git -C "$T/origin.git" for-each-ref 'refs/heads/resign-tmp/feat-e.*' --format='%(refname)' \
   | while IFS= read -r r; do git -C "$T/origin.git" update-ref -d "$r"; done
 rm -f "$T/gh.verify"
+
+# --- 13. no local signing key, branch behind its base with the base editing
+# the same file: the replay must carry both edits, not overwrite the base's ---
+git -C "$W" checkout -q main
+printf '1\n2\n3\n4\n5\n' > "$W/f" && git -C "$W" add f && git -C "$W" -c commit.gpgsign=false commit -q -m "main f" && git -C "$W" push -q origin main
+git -C "$W" checkout -q -b feat-f main
+sed -i 's/^1$/1-branch/' "$W/f" && git -C "$W" add f && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-f 1"
+git -C "$W" push -q origin feat-f
+git -C "$W" checkout -q main
+sed -i 's/^5$/5-main/' "$W/f" && git -C "$W" add f && git -C "$W" -c commit.gpgsign=false commit -q -m "main f 2" && git -C "$W" push -q origin main
+run feat-f
+ok  'API fallback behind base: exits 0' [ $rc -eq 0 ]
+git -C "$W" fetch -q origin
+ok  'API fallback behind base: keeps the base edit and the branch edit' \
+  [ "$(git -C "$W" show origin/feat-f:f)" = "$(printf '1-branch\n2\n3\n4\n5-main\n')" ]
+ok  'API fallback behind base: sits on the base tip' \
+  [ "$(git -C "$W" rev-parse origin/feat-f~1)" = "$(git -C "$W" rev-parse origin/main)" ]
+
+# --- 14. no local signing key, a second run after the fallback succeeded:
+# GitHub says every commit verifies, so nothing to do -- not another rewrite ---
+tip_f=$(git -C "$W" rev-parse origin/feat-f)
+run feat-f
+ok  'API fallback rerun: exits 0' [ $rc -eq 0 ]
+has 'API fallback rerun: nothing to do' 'nothing to do'
+git -C "$W" fetch -q origin
+ok  'API fallback rerun: branch not rewritten' [ "$(git -C "$W" rev-parse origin/feat-f)" = "$tip_f" ]
+
+# --- 15. no local signing key, a rebase conflict: refuses, nothing staged ---
+git -C "$W" checkout -q -b feat-g main
+sed -i 's/^3$/3-branch/' "$W/f" && git -C "$W" add f && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-g 1"
+git -C "$W" push -q origin feat-g
+git -C "$W" checkout -q main
+sed -i 's/^3$/3-main/' "$W/f" && git -C "$W" add f && git -C "$W" -c commit.gpgsign=false commit -q -m "main f 3" && git -C "$W" push -q origin main
+old_g=$(git -C "$W" rev-parse origin/feat-g)
+run feat-g
+ok  'API fallback conflict: refuses' [ $rc -eq 1 ]
+has 'API fallback conflict: says why' 'conflicted'
+git -C "$W" fetch -q origin
+ok  'API fallback conflict: remote untouched' [ "$(git -C "$W" rev-parse origin/feat-g)" = "$old_g" ]
+ok  'API fallback conflict: no scratch branch' [ -z "$(git -C "$T/origin.git" for-each-ref 'refs/heads/resign-tmp/feat-g.*' --format='%(refname)')" ]
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
