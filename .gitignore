@@ -73,6 +73,14 @@
 # unignored on machines without claude_prompts_scratch. (#130)
 .claude/state/
 boards/
+
+# --- grind's staging route to .claude/ (#172): the harness refuses every
+# write under .claude/ from a sandboxed worker, whatever the permission
+# mode, so a worker that needs to change something there writes it under
+# .claude-staging/<path-under-.claude> instead. grind -- the orchestrator,
+# not the sandboxed session -- moves it into place and commits it. Never
+# meant to hold anything past that move. ---
+.claude-staging/
 *.local.json
 *.local.yml
 *.local.yaml
