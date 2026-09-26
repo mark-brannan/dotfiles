@@ -226,6 +226,7 @@ repos=$(printf '%s' "$raw" | jq -r '[.data.search.nodes[]?.repository.name] | un
 defines=""
 defines_fixup=""
 unchecked=""
+base_red=""
 for repo in $repos; do
   # One label list read per repository serves both labels -- a second
   # round-trip per repo per label would double the rate-limit cost for no
@@ -235,6 +236,14 @@ for repo in $repos; do
     printf '%s\n' "$labels" | grep -qx "$FIXUP_LABEL" && defines_fixup="$defines_fixup $repo"
   else
     unchecked="$unchecked $repo"
+  fi
+  # The default branch's own gate (dotfiles#359): red there misreads every PR.
+  # `check_name` filters server-side (the gate may be off page one); REST's
+  # conclusion is lower case. A failed lookup or a running gate is not red.
+  if base_gate=$(gh api -X GET "repos/$OWNER/$repo/commits/HEAD/check-runs" -f check_name="$GATE" \
+       --jq '.check_runs[0].conclusion // empty' 2>/dev/null) \
+       && [ "$base_gate" = failure ]; then
+    base_red="$base_red $repo"
   fi
 done
 
@@ -254,7 +263,7 @@ mode=text
 # target list is the same computation the report shows, selected by $mode --
 # never a second copy of the verdict logic that could drift from the first.
 audit() {  # audit <jq-flags> <mode>
-  printf '%s' "$raw" | jq "$1" --arg defines "$defines" --arg unchecked "$unchecked" --arg defines_fixup "$defines_fixup" --arg label "$LABEL" --arg fixup_label "$FIXUP_LABEL" --arg claim_label "$CLAIM_LABEL" --arg gate "$GATE" --arg owner "$OWNER" --arg mode "$2" --argjson single_pr "$single_pr" "$audit_jq"
+  printf '%s' "$raw" | jq "$1" --arg defines "$defines" --arg unchecked "$unchecked" --arg defines_fixup "$defines_fixup" --arg base_red "$base_red" --arg label "$LABEL" --arg fixup_label "$FIXUP_LABEL" --arg claim_label "$CLAIM_LABEL" --arg gate "$GATE" --arg owner "$OWNER" --arg mode "$2" --argjson single_pr "$single_pr" "$audit_jq"
 }
 audit_jq='
   # A CheckRun still queued or running has a null conclusion; fall through to
@@ -262,6 +271,7 @@ audit_jq='
   def checks: [.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
                | {name: (.name // .context), result: (.conclusion // .status // .state), url: (.detailsUrl // .targetUrl // null)}];
   def not_failed: ["SUCCESS", "NEUTRAL", "SKIPPED", "QUEUED", "IN_PROGRESS", "PENDING", "EXPECTED", null];
+  def failing: [checks[] | select([.result] | inside(not_failed) | not)];
   def gate_result: (first(checks[] | select(.name == $gate) | .result) // "absent");
   def unresolved: [.reviewThreads.nodes[]? | select(.isResolved | not)] | length;
 
@@ -271,11 +281,12 @@ audit_jq='
     else [] end;
 
   def line: "\(.repo)#\(.number) \(.title[0:58])\n    \(.url)";
-  def vline: "\(.repo)#\(.number) [\(.verdict)] \(.title[0:58])\n    \(.url)";
+  def vline: "\(.repo)#\(.number) [\(.verdict)\(if .verdict == "checks-red" then ": " + ([.failing_checks[].name] | join(" ")) else "" end)] \(.title[0:58])\n    \(.url)";
 
   ( ($defines | split(" ") | map(select(. != ""))) ) as $defines_label
   | ( ($unchecked | split(" ") | map(select(. != ""))) ) as $unchecked_label
   | ( ($defines_fixup | split(" ") | map(select(. != ""))) ) as $defines_fixup_label
+  | ( ($base_red | split(" ") | map(select(. != ""))) ) as $base_red_repos
   | ( [ .data.search.nodes[]
       | select(.isDraft | not)
       | .repository.name as $repo
@@ -289,27 +300,39 @@ audit_jq='
           gate: gate_result, unresolved: unresolved,
           unresolved_threads: [ .reviewThreads.nodes[]? | select(.isResolved | not)
             | { id: .id, path: .path, first_line: (.comments.nodes[0].body // "" | split("\n")[0]) } ],
-          failing_checks: [ checks[] | select([.result] | inside(not_failed) | not)
-            | {name: .name, url: .url} ],
+          failing_checks: [ failing[] | {name: .name, url: .url} ],
+          # A gate that never ran (cancelled, not failed) is not a signal a
+          # fixup session can act on -- grind --prs reruns it instead of
+          # spending a worker budget watching the same cancellation again.
+          cancelled_only: ((failing | length) > 0 and (failing | all(.result == "CANCELLED"))),
           last_comment: (.lastComments.nodes[0] // null),
           labelled: (([.labels.nodes[].name] | index($label)) != null),
           claimed: (([.labels.nodes[].name] | index($claim_label)) != null),
           mergeable: .mergeable,
           defines_label: (($defines_label | index($repo)) != null),
           unchecked_label: (($unchecked_label | index($repo)) != null),
-          defines_fixup: (($defines_fixup_label | index($repo)) != null) } ]
+          defines_fixup: (($defines_fixup_label | index($repo)) != null),
+          base_red: (($base_red_repos | index($repo)) != null) } ]
     | unique_by("\(.repo)#\(.number)")
     | map(. + { verdict:
         (if .gate == "absent" then "no-gate"
          elif .mergeable == "CONFLICTING" then "conflicted"
+         # Environmental, not the PR own fault (dotfiles#359) -- named
+         # separately from not-green so a fixup session is not sent at it.
+         elif .gate != "SUCCESS" and .base_red then "base-red"
          elif .gate != "SUCCESS" then "not-green"
+         # The Mergify rule also wants `#check-failure=0`: a red check outside
+         # the gate (churn-guard, secret-scan) holds the label back correctly,
+         # and reporting that PR as "green" would indict a rule that is right.
+         elif (.failing_checks | length) > 0 then "checks-red"
          elif .unresolved > 0 then "threads-open"
          else "green" end) })
     | map(. + { section:
         (if (.labelled and .verdict == "green") then "your-turn"
          elif .verdict == "no-gate" then "no-gate"
+         elif .verdict == "base-red" then "base-red"
          elif (.labelled and .verdict != "green") then "stale-label"
-         elif (.verdict == "not-green" or .verdict == "conflicted" or .verdict == "threads-open") then "unfinished"
+         elif (.verdict == "not-green" or .verdict == "conflicted" or .verdict == "checks-red" or .verdict == "threads-open") then "unfinished"
          elif (.verdict == "green" and (.labelled | not) and .defines_label) then "green-unlabelled"
          else "no-label-repo" end) })
     | map(. + { refresh_target: (.section == "stale-label" or .section == "green-unlabelled") }) ) as $prs
@@ -320,10 +343,16 @@ audit_jq='
       ( $prs[] | select(.refresh_target) | {owner, repo, number, last_comment} )
     elif $mode == "json" then
       ( $prs[] | del(.unresolved, .defines_label, .unchecked_label, .refresh_target, .defines_fixup) )
-      , ( if $single_pr == 1 then empty else { repos_missing_fixup_hard: $fixup_missing } end )
+      , ( if $single_pr == 1 then empty else { repos_missing_fixup_hard: $fixup_missing, repos_base_red: $base_red_repos } end )
     else
 
   ( section(
+        "The base branch own `\($gate)` is red -- these are not fixups";
+        "main itself is failing, not these pull requests. Fix that first;\n`grind --prs` will not touch these pull requests until it is green again.";
+        [ $base_red_repos[] as $r
+          | $r, ($prs[] | select(.repo == $r and .verdict == "base-red") | "  " + vline) ])
+
+    + section(
         "Repositories whose labels could not be read";
         "The label lookup failed, so these are neither confirmed missing nor\nconfirmed present -- do NOT create the label here on the strength of this\nreport. Re-run; if it persists, check `gh auth status` and whether the\nrepository was renamed, archived or lost its permission.";
         [$prs[] | select(.unchecked_label) | .repo] | unique)
@@ -346,7 +375,7 @@ audit_jq='
     + section(
         "Gated, unlabelled -- a session left these unfinished";
         "Not handed over, so nothing updates them and nobody is waiting on you.\nEach needs a session to pick it up and finish it.";
-        [$prs[] | select(.verdict == "not-green" or .verdict == "conflicted" or .verdict == "threads-open") | vline])
+        [$prs[] | select(.verdict == "not-green" or .verdict == "conflicted" or .verdict == "checks-red" or .verdict == "threads-open") | vline])
 
     + section(
         "Green and thread-free but NOT labelled";

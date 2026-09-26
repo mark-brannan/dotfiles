@@ -36,12 +36,21 @@
 #       above it -- rulings are grouped by the project that owns them, so
 #       a session in one repo can see its own without reading the rest
 #   L8  a card under ## Needs ruling missing any of "default:", "undo:",
-#       "until:", "risk:" -- the agent's evaluation travels on the card so
-#       the ruling is one word; a bare question is hedging written down
+#       "until:", "risk:", "judgment:" -- the agent's evaluation travels on
+#       the card so the ruling is one word; a bare question is hedging
+#       written down. judgment: names the kind -- values, risk, direction,
+#       legal or people -- and a card that cannot is toil, not a ruling.
+#       Skipped for a "kind: tentative ADR" card -- L10 checks that one
 #   L9  a card under ## Solace's missing "why you:" (the mechanism an agent
 #       lacks, or "learn"), or missing "why this:" (the evidence this is the
 #       confirmed fix) when "why you:" is not "learn" -- click work with no
 #       proof sent the user to rotate a secret sops already held
+#   L10 a "kind: tentative ADR" card under ## Needs ruling missing any of
+#       "gates:", "settle:", "repos:", "judgment:" -- a tentative
+#       colregs-family design decision carries what it gates, what would
+#       settle it and the repo(s) it touches, in place of a ruling card's
+#       default/undo/until/risk; the decision itself is the card's own
+#       sentence, and judgment: gates it exactly as L8 does
 #
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
@@ -141,16 +150,30 @@ run_lint() {
     # L8/L9: the fields a ruling or click-work card must carry, matched as
     # "<name>:" anywhere on the folded card, case-insensitive.
     function has_field(t, name) { return index(t, " " name ":") || index(t, "(" name ":") || substr(t, 1, length(name) + 1) == name ":" }
+    function judged(t) { return t ~ /judgment:[ \t]*(values|risk|direction|legal|people)([^a-z]|$)/ }
     function fields(text,   t, miss) {
       t = " " tolower(text)
-      if (cursec == ruling) {
+      if (cursec == ruling && t ~ /[ (]kind:[ \t]*tentative[ \t]+adr/) {
+        miss = ""
+        if (!has_field(t, "gates")) miss = miss ", gates:"
+        if (!has_field(t, "settle")) miss = miss ", settle:"
+        if (!has_field(t, "repos")) miss = miss ", repos:"
+        if (!has_field(t, "judgment")) miss = miss ", judgment:"
+        if (miss != "")
+          report(cstart, "L10", "tentative-ADR card missing " substr(miss, 3) " -- a kind: tentative ADR card carries gates: (what it gates), settle: (what would settle it), repos: (the repo(s) it touches) and judgment: (values, risk, direction, legal or people) in place of a ruling card\047s default:/undo:/until:/risk:; the decision itself is the card\047s own sentence")
+        else if (!judged(t))
+          report(cstart, "L10", "judgment: must be values, risk, direction, legal or people -- a design call that is none of those is toil: make it, record it where the work lands, and delete the card")
+      } else if (cursec == ruling) {
         miss = ""
         if (!has_field(t, "default")) miss = miss ", default:"
         if (!has_field(t, "undo")) miss = miss ", undo:"
         if (!has_field(t, "until")) miss = miss ", until:"
         if (!has_field(t, "risk")) miss = miss ", risk:"
+        if (!has_field(t, "judgment")) miss = miss ", judgment:"
         if (miss != "")
-          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong) so the ruling is one word; without a default it is hedging, not a one-way door")
+          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong, judgment: values, risk, direction, legal or people) so the ruling is one word; without a default it is hedging, not a one-way door")
+        else if (!judged(t))
+          report(cstart, "L8", "judgment: must be values, risk, direction, legal or people -- a call that is none of those is toil: take the default, record it where the work lands, and delete the card")
       } else if (cursec == solaces) {
         if (!has_field(t, "why you"))
           report(cstart, "L9", "click-work card missing why you: -- name the mechanism an agent lacks (no API, a consent screen, a USB bus), or \"learn\" when the user has chosen to do it by hand; \"needs a credential\" is not a reason unless the credential cannot be given to an agent")
@@ -290,7 +313,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk: -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk:/judgment: (or, for a kind: tentative ADR card, gates:/settle:/repos:/judgment:) -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }

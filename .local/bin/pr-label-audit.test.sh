@@ -97,6 +97,20 @@ case "$*" in
     esac
     exit 0 ;;
 esac
+# repos/<owner>/<repo>/commits/HEAD/check-runs: a REST-shaped payload, lower
+# case as the real API spells it, run through the caller's own --jq filter so
+# a filter or casing mistake fails here rather than only against GitHub. The
+# gate fails for any repo named in GH_BASE_RED; without `check_name` the gate
+# is off the first page, as it can be for real.
+case "$*" in
+  *check-runs*)
+    repo=$(printf '%s' "$*" | sed -n 's#.*repos/[^ ]*/\([^/]*\)/commits/.*#\1#p')
+    concl=success
+    for r in ${GH_BASE_RED:-}; do [ "$repo" = "$r" ] && concl=failure; done
+    case "$*" in *"check_name=ci-gate / gate"*) runs='[{"name":"ci-gate / gate","conclusion":"'$concl'"}]' ;; *) runs='[]' ;; esac
+    filter=$(for a; do [ "${prev:-}" = --jq ] && printf '%s' "$a"; prev=$a; done)
+    printf '{"check_runs":%s}' "$runs" | jq -r "$filter"; exit ;;
+esac
 # repos/<owner>/<repo>/labels: only `alpha` defines it, and any repo named in
 # GH_LABEL_FAIL cannot be read at all.
 for r in ${GH_LABEL_FAIL:-}; do
@@ -332,6 +346,28 @@ page false "$(pr alpha 9 'mixed checks' false MERGEABLE '[]' '[]' "$mixed")" > "
 runargs --json
 eq 'a running, skipped or pending check is not a failing one' '["lint"]' "$(row 'alpha#9' | jq -c '[.failing_checks[].name]')"
 eq 'and a failing check carries its url' 'https://example.test/lint' "$(row 'alpha#9' | jq -r '.failing_checks[0].url')"
+run
+eq 'a red check outside the gate is unfinished work -- Mergify wants #check-failure=0' \
+  '## Gated, unlabelled -- a session left these unfinished' "$(section_of 'alpha#9')"
+has 'and the report names the check' 'alpha#9 \[checks-red: lint\]'
+hasnt 'rather than indicting the rule' 'Green and thread-free but NOT labelled'
+runargs --json
+eq 'a real failure is not cancelled_only' false "$(row 'alpha#9' | jq -r '.cancelled_only')"
+
+# --- cancelled_only: true only when every failing check was cancelled, not merely absent of failures ---
+all_cancelled='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"CANCELLED"},{"name":"lint","conclusion":"CANCELLED"}]}}'
+page false "$(pr alpha 10 'all cancelled' false MERGEABLE '[]' '[]' "$all_cancelled")" > "$S/search.json"
+runargs --json
+eq 'every failing check cancelled -> cancelled_only true' true "$(row 'alpha#10' | jq -r '.cancelled_only')"
+
+mixed_cancelled='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"CANCELLED"},{"name":"lint","conclusion":"FAILURE"}]}}'
+page false "$(pr alpha 11 'one real failure too' false MERGEABLE '[]' '[]' "$mixed_cancelled")" > "$S/search.json"
+runargs --json
+eq 'one non-cancelled failure among them -> cancelled_only false' false "$(row 'alpha#11' | jq -r '.cancelled_only')"
+
+page false "$(pr alpha 1 'green and labelled' false MERGEABLE "$lab" '[]' "$green")" > "$S/search.json"
+runargs --json
+eq 'no failing checks at all -> cancelled_only false, not vacuously true' false "$(row 'alpha#1' | jq -r '.cancelled_only')"
 
 # --- --refresh: idempotent, and never fires without the flag ---------------------------
 rm -f "$BIN/.comments"
@@ -439,6 +475,22 @@ runargs --pr mark-brannan/alpha#30
 eq '--pr on a truncated PR is a refusal too' 1 "$RC"
 has 'with the same message' 'alpha#30: labels truncated'
 unset PR_SINGLE_JSON
+
+# --- base-red: main's own gate failing recolors the verdict, and leads the report -------
+page false "$(pr alpha 40 'looks broken but is not' false MERGEABLE '[]' '[]' "$red")" > "$S/search.json"
+GH_BASE_RED=alpha runargs --json
+eq 'a repo whose base is red gets verdict base-red, not not-green' \
+  'base-red' "$(row 'alpha#40' | jq -r .verdict)"
+eq 'and the section matches, so grind does not pick it up as unfinished' \
+  'base-red' "$(row 'alpha#40' | jq -r .section)"
+eq 'the json trailing fact names the repo' 'alpha' \
+  "$(printf '%s\n' "$OUT" | jq -r 'select(has("repos_base_red")) | .repos_base_red[]' | grep -x alpha)"
+GH_BASE_RED=alpha runargs
+eq 'text mode leads with it' 0 "$(printf '%s\n' "$OUT" | grep -m1 '^## ' | grep -q 'is red'; echo $?)"
+has 'and lists the held pull request under it, not nowhere' 'alpha#40 \[base-red\]'
+GH_BASE_RED="" runargs --json
+eq 'and a green base leaves the ordinary verdict alone' \
+  'unfinished' "$(row 'alpha#40' | jq -r .section)"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

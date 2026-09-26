@@ -38,6 +38,7 @@ cat > "$BIN/gh" <<'STUB'
 S=${CLAIM_STORE:?}
 printf '%s\n' "$*" >> "$S/calls"
 [ "${GH_FAIL:-0}" = 1 ] && exit 1
+[ "${GH_FAIL_API:-0}" = 1 ] && [ "$1" = api ] && exit 1
 case "$1" in
   pr) case " $* " in
         *" --head "*) printf '%s\n' "${GH_PRS:-[]}" ;;
@@ -105,8 +106,8 @@ ncalls() { grep -c . "$STORE/calls" 2>/dev/null || true; }   # grep prints 0 its
 
 ok()   { if "${@:2}"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s\n' "$1"; fi; }
 eq()   { if [ "$2" = "$3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s (want %s, got %s)\n' "$1" "$3" "$2"; fi; }
-has()  { if printf '%s' "$2" | grep -Eq -- "$3"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s (no /%s/ in): %s\n' "$1" "$3" "$2"; fi; }
-hasnt(){ if printf '%s' "$2" | grep -Eq -- "$3"; then fail=$((fail+1)); printf 'FAIL: %s (unwanted /%s/ in): %s\n' "$1" "$3" "$2"; else pass=$((pass+1)); fi; }
+has()  { if grep -Eq -- "$3" <<<"$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s (no /%s/ in): %s\n' "$1" "$3" "$2"; fi; }
+hasnt(){ if grep -Eq -- "$3" <<<"$2"; then fail=$((fail+1)); printf 'FAIL: %s (unwanted /%s/ in): %s\n' "$1" "$3" "$2"; else pass=$((pass+1)); fi; }
 
 export GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]'
 
@@ -270,6 +271,14 @@ printf '{"id":9,"body":"<!-- claim-stamp sid=deadbeef epoch=1 machine=host-00000
 out=$(sh "$CS" read -C "$WORK")
 has 'read reports the live claim'         "$out" 'live.*66666666'
 has 'read reports the stale one'          "$out" 'stale.*deadbeef'
+out=$(GH_FAIL_API=1 sh "$CS" read -C "$WORK"; echo "rc=$?")
+has 'a failed stamp read says unverified'  "$out" '^unverified: .*pull/7'
+hasnt 'and reports no stamp as live'      "$out" 'live|stale'
+has 'and still exits 0'                   "$out" 'rc=0'
+out=$(GH_FAIL=1 sh "$CS" read -C "$WORK")
+has 'a failed card lookup says unverified' "$out" '^unverified'
+setup_repo main
+eq  'a branch with no card says so'       "$(sh "$CS" read -C "$WORK")" 'no card'
 
 # --- the SessionStart entry point ---------------------------------------------
 setup_repo claude/session

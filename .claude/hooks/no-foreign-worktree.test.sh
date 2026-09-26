@@ -49,7 +49,7 @@ fail=0
 check_json() {
   local want=$1 desc=$2 json=$3 out got
   out=$(printf '%s' "$json" | bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then
     pass=$((pass + 1))
   else
@@ -117,6 +117,99 @@ check_json deny 'NotebookEdit into a foreign worktree' \
   "$(jq -n --arg p "$THEIRS/sub/nb.ipynb" --arg d "$MINE" \
     '{tool_name:"NotebookEdit",tool_input:{notebook_path:$p},cwd:$d}')"
 
+# --- claim-stamp live/stale/unknown distinction (dotfiles#168) -------------
+# A stub claim-stamp.sh keeps this offline: no gh, no network, no real card.
+# CLAIM_STAMP_BIN overrides the hook's default $HERE/claim-stamp.sh. The
+# claim path refuses to run under CI, and this suite runs under CI: clear the
+# ambient signal so only the one case that sets it on purpose sees it.
+unset CI GITHUB_ACTIONS
+STUB="$TMP/claim-stamp-stub.sh"
+set_stub() {  # set_stub <read-output>
+  cat > "$STUB" <<EOF
+#!/bin/sh
+[ "\$1" = read ] || exit 0
+cat <<'READOUT'
+$1
+READOUT
+EOF
+  chmod +x "$STUB"
+}
+
+# check_claim <description> <claim-stamp read output> <pattern that must be
+# in the deny message>
+check_claim() {
+  local desc=$1 stampout=$2 pattern=$3 out
+  set_stub "$stampout"
+  out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+      '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+    | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
+  if ! grep -q '"permissionDecision":"deny"' <<<"$out"; then
+    fail=$((fail + 1)); printf 'FAIL (want deny): %s\n  hook output: %s\n' "$desc" "$out"; return
+  fi
+  if grep -qF "$pattern" <<<"$out"; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); printf 'FAIL (message missing %s): %s\n  hook output: %s\n' "$pattern" "$desc" "$out"
+  fi
+}
+
+check_claim 'a fresh stamp from another session -> live, report and stop' \
+  "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')" \
+  'another session is live'
+check_claim 'only a stale stamp -> named cleanup command' \
+  "$(printf 'stale\tdeadbeef\thost-aa1\t180m\thttps://github.com/o/r/pull/1')" \
+  "git worktree remove $THEIRS"
+check_claim 'no stamps at all -> unknown: a failed gh read prints the same nothing' \
+  '' \
+  'A hand-off carries a branch'
+check_claim 'branch has no card -> unknown, old fallback message' \
+  'no card' \
+  'A hand-off carries a branch'
+check_claim 'stamps could not be fetched -> unknown, never stale' \
+  'unverified: gh api failed' \
+  'A hand-off carries a branch'
+check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
+  'no card' \
+  'git merge --ff-only <branch>'
+
+# The stub counts its invocations: the state and the attributed line must
+# come from one read, not a second call that can disagree with the first.
+set_stub "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')"
+{ head -1 "$STUB"; printf 'printf x >> "%s"\n' "$TMP/reads"; tail -n +2 "$STUB"; } > "$STUB.new"
+mv "$STUB.new" "$STUB"; chmod +x "$STUB"; : > "$TMP/reads"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
+if grep -qF 'session `deadbeef` on `host-aa1`, claimed 2m ago' <<<"$out" \
+   && [ "$(wc -c < "$TMP/reads")" -eq 1 ]; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: live deny must name the holder from a single claim-stamp read (reads: %s)\n  hook output: %s\n' "$(wc -c < "$TMP/reads")" "$out"
+fi
+
+# Under CI (the shared PR reviewer's checkout holds no claim on anything)
+# the card is never consulted: a live stamp still yields the unknown message.
+set_stub "$(printf 'live\tdeadbeef\thost-aa1\t2m\thttps://github.com/o/r/pull/1')"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | CI=true CLAIM_STAMP_BIN="$STUB" bash "$HOOK" 2>&1)
+if grep -qF 'A hand-off carries a branch' <<<"$out"; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: under CI the claim path must not run; expected the unknown message\n  hook output: %s\n' "$out"
+fi
+
+# claim-stamp.sh itself unusable (stands in for "no gh") -> same unknown
+# fallback, never misread as stale.
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | CLAIM_STAMP_BIN=/nonexistent/claim-stamp.sh bash "$HOOK" 2>&1)
+if grep -qF 'A hand-off carries a branch' <<<"$out"; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: claim-stamp.sh unusable must fall back to the unknown message\n  hook output: %s\n' "$out"
+fi
+
 # --- EnterWorktree -------------------------------------------------------
 # `path` is refused whatever it names: the tool does no ownership check, so
 # there is no path value that makes it safe. `name` creates a fresh one.
@@ -126,6 +219,16 @@ check_json deny 'EnterWorktree(path=own)' \
   "$(jq -n --arg p "$MINE" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')"
 check_json allow 'EnterWorktree(name=...)' \
   "$(jq -n --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{name:"fresh"},cwd:$d}')"
+
+# EnterWorktree(path=foreign)'s recovery advice is the ff-only merge, not
+# checkout -- `git checkout <branch>` is denied by the auto-mode classifier
+# even on a clean tree (dotfiles#233), so the hook must never recommend it.
+out=$(printf '%s' "$(jq -n --arg p "$THEIRS" --arg d "$MINE" '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d}')" | bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF 'git merge --ff-only <branch>' && ! printf '%s' "$out" | grep -qF 'git checkout <branch>'; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); printf 'FAIL: EnterWorktree(path=...) must recommend ff-only merge, not checkout\n  hook output: %s\n' "$out"
+fi
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \

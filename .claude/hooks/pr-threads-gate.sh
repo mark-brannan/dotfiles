@@ -25,6 +25,26 @@
 # GATE: no jq, no gh, gh failing, PR not found -> block once, saying the
 # state could not be verified. A gate that goes quiet when it can't look is
 # indistinguishable from one that looked and found nothing.
+#
+# EXCEPTION, dotfiles#263/#309: NOT_FOUND on `repository` over GraphQL is
+# ambiguous by GitHub's own anti-enumeration design -- identical whether the
+# repo is gone or the token merely lacks access to it right now (private,
+# transferred, unattached in a cloud session). So an entry drops only once a
+# second, independent `gh repo view` confirms a 404; every other outcome,
+# repo-view failures included, falls through to the failed-closed case. That
+# confirming call runs inside the backgrounded fetch job that saw the
+# NOT_FOUND, so N missing repos still cost one timeout window between them,
+# not one each.
+#
+# EXCEPTION, dotfiles#224: a "repo" record line carries a third field, read
+# or work, written by pr-ownership-context.sh (kind is empty on an older or
+# hand-written record, which this gate treats as work, same as before). A
+# read -- `gh pr view/checks/diff/list`, or a non-mutating `gh api` call --
+# is never fetched and never gates the Stop; a session working four PRs must
+# not inherit a fifth PR's open threads because it ran `gh pr view` on it for
+# evidence. "cwd" lines are unaffected: the PR they resolve to is the one
+# whose head branch this session's worktree holds, which gates on identity
+# alone regardless of what kind of call produced the entry.
 set -u
 
 json_str() { printf '%s' "$1" | jq -Rs .; }
@@ -43,9 +63,12 @@ command -v gh >/dev/null 2>&1 || block "pr-threads-gate: gh is not installed her
 # Every distinct PR the session touched, as owner/name<TAB>number. A cwd line
 # resolves through gh to whatever PR its current branch has; no PR there is
 # fine (a `gh pr list` from a repo with no branch PR, say).
-prs=$(sort -u "$record" | while IFS="$(printf '\t')" read -r kind a b; do
+prs=$(sort -u "$record" | while IFS="$(printf '\t')" read -r kind a b c; do
   case "$kind" in
-    repo) printf '%s\t%s\n' "$a" "$b" ;;
+    repo)
+      # dotfiles#224: a read never gates the Stop, whatever threads it has.
+      [ "$c" = read ] && continue
+      printf '%s\t%s\n' "$a" "$b" ;;
     cwd)
       [ -d "$a" ] || continue
       # The PR url names the base repo, which is where the threads live; the
@@ -76,7 +99,14 @@ while IFS="$(printf '\t')" read -r repo num; do
         state mergeable mergeStateStatus
         reviewThreads(first:100){ nodes{ id isResolved path
           comments(first:1){ nodes{ author{login} body } } } } } } }' > "$WORK/$n.out" 2>&1
-    echo $? > "$WORK/$n.rc" ) &
+    echo $? > "$WORK/$n.rc"
+    # The confirming look runs here, not in the results loop, so N missing
+    # repos cost one repo-view timeout window between them, not N serially.
+    nf=$(jq -r '[.errors[]? | select(.type=="NOT_FOUND" and ((.path // [])[0]=="repository"))] | length' < "$WORK/$n.out" 2>/dev/null)
+    if [ "${nf:-0}" -gt 0 ] 2>/dev/null; then
+      $TO gh repo view "$repo" > "$WORK/$n.view.out" 2>&1
+      echo $? > "$WORK/$n.view.rc"
+    fi ) &
 done <<EOF
 $prs
 EOF
@@ -85,6 +115,7 @@ wait
 open=""
 stale=""
 failed=""
+dropped=""
 i=0
 while [ "$i" -lt "$n" ]; do
   i=$((i + 1))
@@ -93,6 +124,28 @@ while [ "$i" -lt "$n" ]; do
   rc=$(cat "$WORK/$i.rc" 2>/dev/null)
   if [ "$rc" = 124 ]; then failed="$failed
 - $repo#$num: fetch timed out"; continue; fi
+  # `gh api graphql` exits non-zero whenever the response carries an `errors`
+  # array, even though the body is still valid JSON up to that array -- jq
+  # parses the leading value fine and only complains (to its own stderr,
+  # never $out) about the trailing text gh appends. A view.rc means the fetch
+  # job saw NOT_FOUND on `repository` and went looking (EXCEPTION above); any
+  # other error falls through to the generic failed-closed case right below.
+  if [ -f "$WORK/$i.view.rc" ]; then
+    view_out=$(cat "$WORK/$i.view.out" 2>/dev/null)
+    if [ "$(cat "$WORK/$i.view.rc")" = 0 ]; then
+      failed="$failed
+- $repo#$num: GraphQL reported repository NOT_FOUND but \`gh repo view\` can see it -- an access problem, not a missing repo; not dropped"
+    elif printf '%s' "$view_out" | grep -qiE 'HTTP 404|Could not resolve to a Repository'; then
+      dropped="$dropped
+- $repo#$num: repository not found over GraphQL (NOT_FOUND), confirmed 404 by \`gh repo view\` -- dropped; this record was never a PR this session worked"
+    else
+      # Unconfirmed failure (timeout, rate limit, the same block that made
+      # NOT_FOUND ambiguous) proves nothing -- failed-closed, not dropped.
+      failed="$failed
+- $repo#$num: repository NOT_FOUND over GraphQL, and \`gh repo view\` failed without confirming it is gone ($(printf '%s' "$view_out" | head -1 | tr -d '\n')) -- unverified, not dropped"
+    fi
+    continue
+  fi
   [ "$rc" = 0 ] || { failed="$failed
 - $repo#$num: $(printf '%s' "$out" | head -3 | tr '\n' ' ')"; continue; }
   state=$(printf '%s' "$out" | jq -r '.data.repository.pullRequest.state // empty')
@@ -140,7 +193,12 @@ while [ "$i" -lt "$n" ]; do
 $threads"
 done
 
-[ -z "$open" ] && [ -z "$stale" ] && [ -z "$failed" ] && exit 0
+if [ -z "$open" ] && [ -z "$stale" ] && [ -z "$failed" ]; then
+  if [ -n "$dropped" ]; then
+    printf '{"systemMessage":%s}\n' "$(json_str "pr-threads-gate: dropped from this session's PR record (repository not found over GraphQL; never a PR this session worked):$dropped")"
+  fi
+  exit 0
+fi
 
 msg="pr-threads-gate: this turn cannot end yet. Live GraphQL re-check of the PR(s) this session worked:"
 [ -n "$open" ] && msg="$msg
@@ -150,6 +208,9 @@ $stale"
 [ -n "$failed" ] && msg="$msg
 
 Could not verify:$failed"
+[ -n "$dropped" ] && msg="$msg
+
+Dropped (repository not found over GraphQL; never a PR this session worked):$dropped"
 msg="$msg
 
 For each open thread, in this order: read it (gh api graphql on the thread id, or the PR's review comments), fix or answer it, reply on the thread with the evidence, then resolve it by id --

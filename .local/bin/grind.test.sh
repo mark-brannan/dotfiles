@@ -107,8 +107,8 @@ reply() {
 
 ok()   { pass=$((pass + 1)); }
 bad()  { fail=$((fail + 1)); printf 'FAIL: %s\n' "$1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/    /'; }
-has()  { if printf '%s\n' "$OUT" | grep -Eq -- "$2"; then ok; else bad "$1 (missing /$2/)" "$OUT"; fi; }
-lacks(){ if printf '%s\n' "$OUT" | grep -Eq -- "$2"; then bad "$1 (has /$2/)" "$OUT"; else ok; fi; }
+has()  { if grep -Eq -- "$2" <<<"$OUT"; then ok; else bad "$1 (missing /$2/)" "$OUT"; fi; }
+lacks(){ if grep -Eq -- "$2" <<<"$OUT"; then bad "$1 (has /$2/)" "$OUT"; else ok; fi; }
 eq()   { if [ "$2" = "$3" ]; then ok; else bad "$1: want [$2] got [$3]"; fi; }
 assert() { local d=$1; shift; if "$@"; then ok; else bad "$d"; fi; }
 run() { rm -f "$S/claude-next"; OUT=$(sh "$GRIND" "$@" 2>&1); RC=$?; }
@@ -164,7 +164,7 @@ assert '--permission-mode still overrides the default' \
 
 # --- the prompt contract names the branch and all three statuses -----------------
 PROMPT=$(cat "$S/prompt.txt")
-prompt_has() { if printf '%s\n' "$PROMPT" | grep -Fq -- "$2"; then ok; else bad "$1 (missing [$2])"; fi; }
+prompt_has() { if grep -Fq -- "$2" <<<"$PROMPT"; then ok; else bad "$1 (missing [$2])"; fi; }
 prompt_has 'the issue body is the prompt' 'do the first thing'
 prompt_has 'the contract names the item' 'Grind orchestration contract for o/alpha#5'
 prompt_has 'it names the branch the worker is on' 'branch grind-5'
@@ -251,6 +251,25 @@ eq 'exit 0' 0 "$RC"
 eq 'no more items to run -- queue already exhausted' 0 "$(calls_claude)"
 has 'says the queue is done' 'Ready queue exhausted'
 eq 'state file unchanged (still 2 items)' 2 "$(jq '.items | length' "$sess")"
+
+# --- --resume refreshes session identity (pid, claude_session_id) in the
+# state file, not just budgets/model/repo (#190): the original session's pid
+# is long dead by the time --resume runs it from a fresh process, so the
+# state file's diagnostics must reflect the resuming process, not the one
+# that crashed. Two resumes, two different CLAUDE_SESSION_ID values -------------
+export CLAUDE_SESSION_ID=resume-probe-before
+run --resume "$session_id"
+before_pid=$(jq -r '.lock.pid' "$sess")
+before_claude_session=$(jq -r '.lock.claude_session_id' "$sess")
+export CLAUDE_SESSION_ID=resume-probe-after
+run --resume "$session_id"
+after_pid=$(jq -r '.lock.pid' "$sess")
+after_claude_session=$(jq -r '.lock.claude_session_id' "$sess")
+unset CLAUDE_SESSION_ID
+assert 'each --resume records the resuming process'"'"'s own pid, not a stale one' \
+  bash -c "[ '$before_pid' != '$after_pid' ]"
+eq 'the first resume picked up its own claude_session_id' 'resume-probe-before' "$before_claude_session"
+eq 'the second resume refreshed claude_session_id again' 'resume-probe-after' "$after_claude_session"
 
 # --- a worktree that cannot be created is a WARN, counted, and fails the run ----
 # grind-5 already exists from earlier runs; checking it out elsewhere makes
@@ -695,6 +714,298 @@ eq 'the item still ran' 1 "$(calls_claude)"
 assert 'lock directory released again after this clean exit' bash -c '[ ! -d "'"$lock_dir"'" ]'
 assert 'the rename-based reclaim leaves no quarantined .stale.* dir behind' \
   bash -c '! ls -d "'"$lock_dir"'".stale.* >/dev/null 2>&1'
+
+# --- --prs -------------------------------------------------------------------------
+# What matters here: only the two unfinished sections become items; every skip
+# rule fires with its reason named; the run refuses outright without a signing
+# key; the worker is put on the PR's own head branch and handed both briefs
+# plus the one contract text; and neither "done" nor "blocked" is taken on
+# trust -- done wants the label Mergify computes or a signed head that moved,
+# blocked wants the fixup-hard label the contract's stop rule promises.
+prroot="$S/prroot"; prrepo="$S/prrepo"; prorigin="$S/remote/o/alpha.git"
+mkdir -p "$prroot/.local/bin" "$prroot/.claude/hooks" "$prroot/.claude/skills/pickup" "$S/remote/o"
+export GRIND_ROOT="$prroot"
+
+# The real contract, read from the skill exactly as grind reads it in anger.
+cp "$(cd "$(dirname "$GRIND")/../.." && pwd)/.claude/skills/pickup/SKILL.md" \
+   "$prroot/.claude/skills/pickup/SKILL.md"
+cat > "$prroot/.claude/hooks/lib-state.sh" <<'LS'
+branch_brief() { printf 'base: main (open PR)\nconflicts: yes\nrecommend: git merge origin/main   # fixture\n'; }
+LS
+cat > "$prroot/.local/bin/pr-label-audit" <<AUDIT
+#!/bin/sh
+case " \$* " in *" --pr "*) echo "AUDIT BRIEF for \$3"; exit 0 ;; esac
+cat "$S/audit.json"
+AUDIT
+chmod +x "$prroot/.local/bin/pr-label-audit"
+
+# newline-delimited objects plus the trailing summary, the shape
+# pr-label-audit --json actually emits.
+old() { date -u -d '9 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-9d +%Y-%m-%dT%H:%M:%SZ; }
+fresh() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+audit_row() { # audit_row <n> <section> <verdict> <labels json> <author> <when>
+  jq -nc --argjson n "$1" --arg s "$2" --arg v "$3" --argjson l "$4" --arg a "$5" --arg t "$6" \
+    '{repo:"alpha", number:$n, title:("PR " + ($n|tostring)), url:("https://x/" + ($n|tostring)),
+      owner:"o", author:$a, labels:$l, head_committed_at:$t, verdict:$v, section:$s}'
+}
+{ audit_row 30 unfinished conflicted '[]' solace "$(old)"
+  audit_row 11 stale-label not-green '[]' solace "$(old)"
+  audit_row 40 unfinished threads-open '["fixup-hard"]' solace "$(old)"
+  audit_row 41 unfinished threads-open '["blocked"]' solace "$(old)"
+  audit_row 42 unfinished conflicted '[]' 'dependabot[bot]' "$(old)"
+  audit_row 43 unfinished conflicted '[]' 'release-please[bot]' "$(old)"
+  audit_row 44 unfinished conflicted '[]' solace "$(fresh)"
+  audit_row 45 unfinished conflicted '[]' solace "$(old)"
+  audit_row 46 unfinished conflicted '[]' solace "$(fresh)"
+  audit_row 50 green green '["awaiting-human"]' solace "$(old)"
+  jq -nc '{repos_missing_fixup_hard:[]}'
+} > "$S/audit.json"
+
+# A real local origin so the orchestrator's fetch and worktree add are the
+# ones under test, not a stub. cwd_repo strips the .git suffix, so the repo
+# reads as .../o/alpha and its basename -- what pr-label-audit reports -- is
+# alpha.
+git init -q --bare "$prorigin"
+git init -q -b main "$prrepo"
+git -C "$prrepo" remote add origin "$prorigin"
+git -C "$prrepo" config user.email t@example.invalid
+git -C "$prrepo" config user.name t
+git -C "$prrepo" commit -q --allow-empty -m init
+git -C "$prrepo" push -q origin main
+for n in 30 11 45 44; do
+  git -C "$prrepo" branch -q "fix-$n" main
+  git -C "$prrepo" push -q origin "fix-$n"
+done
+git -C "$prrepo" branch -q fix-45-held main
+
+# gh, for --prs: pr view answers from one canned doc per PR, by whatever --jq
+# filter grind passed, so the shim never second-guesses the query.
+prview() { # prview <n> <label names json> <commits json>
+  jq -n --arg b "fix-$1" --argjson l "$2" --argjson c "$3" \
+    '{headRefName:$b, baseRefName:"main", labels:($l | map({name:.})), commits:$c}' > "$S/pr-$1.json"
+}
+for n in 30 11 40 41 42 43 45; do prview "$n" '[]' '[]'; done
+# 44: a session pushed minutes ago. 46: the session pushed days ago and the
+# fresh head is Mergify merging main in -- workable, whatever the head date says.
+prview 44 '[]' "$(jq -nc --arg t "$(fresh)" '[{committedDate:$t, authors:[{login:"solace"}]}]')"
+prview 46 '[]' "$(jq -nc --arg o "$(old)" --arg t "$(fresh)" '[{committedDate:$o, authors:[{login:"solace"}]}, {committedDate:$t, authors:[{login:"mergify[bot]"}]}]')"
+
+cat > "$S/bin/gh" <<GH
+#!/bin/sh
+echo "\$*" >> "$GH_LOG"
+filter=""; prev=""
+for a in "\$@"; do [ "\$prev" = "--jq" ] && filter=\$a; prev=\$a; done
+[ -n "\$filter" ] || filter="."
+case "\$1 \$2" in
+  "issue list") cat "$S/ready.json" ;;
+  "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
+  "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
+  "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
+  "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
+  "api repos/"*"/actions/runs/"*) printf '%s\n' "\${GH_RUN_ATTEMPT:-1}" ;;
+  *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
+esac
+GH
+chmod +x "$S/bin/gh"
+
+cd "$prrepo" || exit 1
+git config user.signingkey TESTKEY
+
+# --- no signing key: refused before anything is cut ---------------------------------
+git config --unset user.signingkey
+run --prs --dry-run
+eq 'no signing key is exit 1' 1 "$RC"
+has 'and says which setting is empty' 'needs a signing key .*user\.signingkey is empty'
+git config user.signingkey TESTKEY
+
+# --- --prs --dry-run: the two unfinished sections only, lowest number first ---------
+: > "$CLAUDE_LOG"
+run --prs --dry-run
+eq 'dry-run exits 0' 0 "$RC"
+eq 'dry-run spends nothing' 0 "$(calls_claude)"
+has 'stale-label PR is an item, lowest number first' '^\[1/9\] .*#11 -- \[not-green\] PR 11$'
+has 'unfinished PR is an item, with its verdict' '^\[[0-9]+/9\] .*#30 -- \[conflicted\] PR 30$'
+lacks 'a green, labelled PR is not an item' '#50'
+has 'the checkout is onto the PR head branch, not a new one' 'git worktree add -B fix-11 .* origin/fix-11'
+has 'the command names the briefs and the contract' 'claude -p <.*#11 briefs \+ fixup contract>.*--max-budget-usd 1 --model sonnet'
+
+# --- every skip rule fires, with its reason ------------------------------------------
+has 'fixup-hard is skipped'      '^\[[0-9]+/9\] .*#40 -- SKIP: labelled fixup-hard$'
+has 'blocked is skipped'         '^\[[0-9]+/9\] .*#41 -- SKIP: labelled blocked$'
+has 'dependabot is skipped'      '^\[[0-9]+/9\] .*#42 -- SKIP: opened by a bot'
+has 'release-please is skipped'  '^\[[0-9]+/9\] .*#43 -- SKIP: opened by a bot'
+has 'a head under 4h is skipped' '^\[[0-9]+/9\] .*#44 -- SKIP: head is less than 4h old$'
+lacks 'a fresh head that is only a Mergify update is not' '#46 -- SKIP'
+has 'and that PR is an item' '^\[[0-9]+/9\] .*#46 -- \[conflicted\] PR 46$'
+lacks 'nothing is skipped without a reason' 'SKIP: *$'
+
+# --- a branch a local worktree holds belongs to a live session -----------------------
+lacks 'unheld branch is workable' '#45 -- SKIP'
+git -C "$prrepo" worktree add -q --detach "$S/held" >/dev/null 2>&1
+git -C "$S/held" checkout -q fix-45
+run --prs --dry-run
+has 'a worktree-held branch is skipped, by name' '#45 -- SKIP: a local worktree holds fix-45$'
+git -C "$prrepo" worktree remove -f "$S/held" >/dev/null 2>&1
+
+# --- a not-green PR whose failing checks are all cancelled reruns instead of working ---
+audit_row_cancelled() { # audit_row_cancelled <n> <run id> <when>
+  jq -nc --argjson n "$1" --argjson rid "$2" --arg t "$3" \
+    '{repo:"alpha", number:$n, title:("PR " + ($n|tostring)), url:("https://x/" + ($n|tostring)),
+      owner:"o", author:"solace", labels:[], head_committed_at:$t, verdict:"not-green", section:"unfinished",
+      failing_checks:[{name:"ci-gate / gate", url:("https://github.com/o/alpha/actions/runs/" + ($rid|tostring) + "/job/1")}],
+      cancelled_only:true}'
+}
+cat > "$S/audit.json" <<J
+$(audit_row_cancelled 60 9001 "$(old)")
+J
+prview 60 '[]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+: > "$CLAUDE_LOG"; : > "$GH_LOG"
+run --prs --dry-run
+has 'dry-run names the cancelled-only reason' '#60 -- SKIP: all checks are cancelled -- would rerun rather than work it$'
+lacks 'dry-run never calls gh run rerun' 'run rerun'
+
+: > "$GH_LOG"
+GH_RUN_ATTEMPT=1 run --prs
+eq 'exit 0 -- a cancelled-only skip is not a failure' 0 "$RC"
+eq 'no worker spent on a cancelled-only PR' 0 "$(calls_claude)"
+assert 'gh run rerun is called with the run id parsed from the check URL' \
+  grep -Eq -- 'run rerun 9001 .*--failed' "$GH_LOG"
+has 'the skip reason says the run was reran' 'WARN  skipping .*#60 -- all checks were cancelled -- reran run\(s\) 9001'
+
+GH_RERUN_FAIL=1 GH_RUN_ATTEMPT=1 run --prs
+eq 'a rerun that fails is still just a skip, not a run failure' 0 "$RC"
+has 'the reason says nothing was eligible' 'WARN  skipping .*#60 -- all checks were cancelled, but nothing was eligible to rerun$'
+
+: > "$GH_LOG"
+GH_RUN_ATTEMPT=2 run --prs
+eq 'a run already on its 2nd attempt is left alone, still just a skip' 0 "$RC"
+eq 'no rerun call for a run already retried' 0 "$(grep -c 'run rerun' "$GH_LOG")"
+has 'the reason says nothing was eligible, not that it reran' 'WARN  skipping .*#60 -- all checks were cancelled, but nothing was eligible to rerun$'
+
+cat > "$S/audit.json" <<J
+$(audit_row_cancelled 60 9001 "$(old)")
+$(audit_row_cancelled 61 9002 "$(old)")
+J
+prview 61 '[]' '[]'
+: > "$GH_LOG"
+GH_RUN_ATTEMPT=1 run --prs
+eq 'exit 0 -- both are skips, not failures' 0 "$RC"
+eq 'still no worker spent, on either cancelled-only PR' 0 "$(calls_claude)"
+eq 'only one PR is reran per pass' 1 "$(grep -c 'run rerun' "$GH_LOG")"
+assert 'the first PR in the queue is the one reran' grep -Eq -- 'run rerun 9001 .*--failed' "$GH_LOG"
+has 'the second PR is skipped for the per-pass cap, not reran' 'WARN  skipping .*#61 -- this pass already reran a PR$'
+
+# --- --prs budget defaults, and flags that still override them -----------------------
+has 'default item budget is $1' -- '--max-budget-usd 1 '
+run --prs --dry-run --item-budget 3
+has 'an explicit item budget wins' -- '--max-budget-usd 3 '
+
+# --- a real --prs run: briefs plus one contract, on the PR own branch ----------------
+cat > "$S/audit.json" <<J
+$(audit_row 11 stale-label not-green '[]' solace "$(old)")
+J
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+reply 0.20 "done" 1
+prview 11 '["awaiting-human"]' '[]'
+: > "$CLAUDE_LOG"
+run --prs
+eq 'exit 0' 0 "$RC"
+has 'awaiting-human alone is enough to be done' '^.*#11: PR 11 -- sonnet, \$0\.20'
+lacks 'and it is not unverified' 'UNVERIFIED'
+PROMPT=$(cat "$S/prompt.txt")
+prompt_has 'the GitHub brief is in the prompt'  'AUDIT BRIEF'
+prompt_has 'the local brief is in the prompt'   'recommend: git merge origin/main'
+prompt_has 'the contract is the skill section'  '## 6. The fixup contract'
+prompt_has 'its stop rule came with it'         'label the PR `fixup-hard`'
+prompt_has 'the worker is told the head branch' 'on fix-11 -- the PR'
+prompt_has 'done is offered'                    'GRIND_STATUS: done'
+prompt_has 'blocked is offered'                 'GRIND_STATUS: blocked'
+lacks 'no grind-N branch is ever made for a PR' 'grind-11'
+
+# --- done with neither the label nor a signed head move is unverified ----------------
+prview 11 '[]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+reply 0.20 "done" 1
+run --prs
+has 'an unbacked done claim is unverified' 'UNVERIFIED: .*#11 .*no awaiting-human label, and no signed commit'
+
+# --- blocked without the fixup-hard label is unverified, not a clean give-up ---------
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+reply 0.20 "blocked" 1
+run --prs
+has 'a silent give-up is unverified' 'UNVERIFIED: .*#11 .*gave up without labelling the PR fixup-hard'
+prview 11 '["fixup-hard"]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+reply 0.20 "blocked" 1
+run --prs
+has 'a labelled give-up is a clean blocked' '^blocked: .*#11 -- PR 11'
+lacks 'and is not unverified' 'UNVERIFIED'
+
+# --- a local branch of the same name is never force-deleted --------------------------
+# In --prs mode $branch is the PR's real head name, which a human may hold
+# locally with unpushed commits. `git worktree add -B` resets it only when the
+# checkout actually happens; a pre-emptive `git branch -D` would destroy it
+# even on a run that never got that far.
+cat > "$S/audit.json" <<J
+$(audit_row 45 unfinished conflicted '[]' solace "$(old)")
+J
+git -C "$prrepo" branch -q -f fix-45 main
+git -C "$prrepo" commit -q --allow-empty -m "unpushed work" 2>/dev/null
+mine=$(git -C "$prrepo" rev-parse HEAD)
+git -C "$prrepo" branch -q -f fix-45 "$mine"
+git -C "$prorigin" update-ref -d refs/heads/fix-45   # make grind's fetch fail
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+run --prs
+has 'an uncheckoutable PR is skipped, not fatal' 'could not check out fix-45'
+eq 'the local branch of the same name survives' "$mine" "$(git -C "$prrepo" rev-parse fix-45)"
+
+# --- empty PR queue ------------------------------------------------------------------
+jq -nc '{repos_missing_fixup_hard:[]}' > "$S/audit.json"
+run --prs
+has 'nothing to fix up says so' 'no unfinished PRs on'
+eq 'and exits 0' 0 "$RC"
+
+# --- main itself is red: the whole --prs pass pauses, not just the queued PRs --------
+jq -nc '{repos_base_red:["alpha"]}' > "$S/audit.json"
+: > "$CLAUDE_LOG"
+run --prs
+eq 'exit 0 -- a red base is not a failure' 0 "$RC"
+eq 'no worker spent' 0 "$(calls_claude)"
+has 'the pass says why it paused' 'base branch is red.*skipping the --prs pass'
+jq -nc '{repos_missing_fixup_hard:[]}' > "$S/audit.json"
+
+# --- --resume of a --prs session stays on the PR queue --------------------------------
+# The UNVERIFIED line promises a retry on `grind --resume <id>`, with no
+# --prs on it; the session file has to carry the mode or that retry would
+# quietly work the Ready queue on the PR session's budget.
+prs_session=$(basename "$(ls -t "$S/state/grind"/*.json | head -1)" .json)
+eq 'the session file records the mode' 1 "$(jq -r .prs "$S/state/grind/$prs_session.json")"
+run --resume "$prs_session"
+has 'resumed without --prs, it still reads the PR queue' 'no unfinished PRs on'
+lacks 'and not the Ready queue' 'no Ready items'
+# A session file from before the field existed is an issue session.
+jq 'del(.prs)' "$S/state/grind/$prs_session.json" > "$S/state/grind/grind-old.json"
+run --resume grind-old --prs
+eq 'an issue session cannot be resumed as --prs' 1 "$RC"
+has 'and says why' 'worked the Ready queue, not PRs'
+
+unset GRIND_ROOT
+cd "$S/repo" || exit 1
+cat > "$S/bin/gh" <<GH
+#!/bin/sh
+echo "\$*" >> "$GH_LOG"
+filter=""; prev=""
+for a in "\$@"; do [ "\$prev" = "--jq" ] && filter=\$a; prev=\$a; done
+[ -n "\$filter" ] || filter="."
+case "\$1 \$2" in
+  "issue list") cat "$S/ready.json" ;;
+  "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
+  "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
+  *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
+esac
+GH
+chmod +x "$S/bin/gh"
 
 # --- a logged-out claude is refused before any worktree or state file -------
 # The observed failure (2026-09-16): every item came back $0, 0 tokens,

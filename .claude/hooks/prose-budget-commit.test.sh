@@ -14,7 +14,7 @@ pass=0; fail=0
 check() {
   local want=$1 desc=$2 cmd=$3 dir=${4:-$DIRTY} out got
   out=$(jq -n --arg c "$cmd" --arg d "$dir" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' | timeout 20 bash "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision": *"deny"'; then got=deny; else got=allow; fi
+  if grep -q '"permissionDecision": *"deny"' <<<"$out"; then got=deny; else got=allow; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1)); printf 'FAIL (want %s, got %s): %s\n  cmd: %s\n' "$want" "$got" "$desc" "$cmd"
     [ -n "$out" ] && printf '  hook output: %s\n' "$out"
@@ -39,7 +39,7 @@ CLEAN=$(mkrepo)
 printf 'seed plus one\n' > "$CLEAN/README.md"; git -C "$CLEAN" add README.md
 NOCONF=$(mktemp -d); git -C "$NOCONF" init -q -b main; printf 'x\n' > "$NOCONF/a.md"; git -C "$NOCONF" add a.md
 mkdir -p "$DIRTY/sub"
-trap 'rm -rf "$DIRTY" "$CLEAN" "$NOCONF"' EXIT
+trap 'rm -rf "$DIRTY" "$CLEAN" "$NOCONF" "${MERGING:-}"' EXIT
 
 check deny  'plain commit'                    'git commit -m "docs: more"'
 check deny  'after a separator'               'git add README.md && git commit -m x'
@@ -47,8 +47,8 @@ check deny  'yadm commit'                     'yadm commit -m x'
 check deny  'git -C dir commit'               "git -C $DIRTY commit -m x" "$CLEAN"
 check deny  'cd dir && git commit'            "cd $DIRTY && git commit -m x" "$CLEAN"
 check deny  'commit from a subdirectory'      'git commit -m x' "$DIRTY/sub"
-printf '%s' "$LAST" | grep -q 'delta' || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the findings'; }
-printf '%s' "$LAST" | grep -q 'Do not ask the user' || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the retry instruction'; }
+grep -q 'delta' <<<"$LAST" || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the findings'; }
+grep -q 'Do not ask the user' <<<"$LAST" || { fail=$((fail + 1)); echo 'FAIL: deny reason lacks the retry instruction'; }
 
 check allow 'clean staging'                   'git commit -m x' "$CLEAN"
 check allow 'no config in the repo'           'git commit -m x' "$NOCONF"
@@ -57,6 +57,23 @@ check allow 'commit mentioned in a message'   'git add x && git commit -m "git c
 check allow 'commit as prose'                 'echo "run git commit -m x"'
 check allow 'commit in a heredoc body'        $'cat <<EOF\ngit commit -m x\nEOF'
 check allow 'a different tool'                'gh pr create --title x'
+
+# A merge in progress (MERGE_HEAD present): the engine's own is_merging()
+# skip (prose-budget, Checker.run) treats --staged as clean mid-merge, since
+# it would otherwise diff the whole merged index against the pre-merge HEAD
+# and flag main's own already-merged prose as new. Stage an over-budget
+# diff -- like $DIRTY's -- and leave it staged (never commit it) so `allow`
+# here is actually proof of the merge skip, not just an empty diff: without
+# MERGE_HEAD the very same staged content must deny.
+MERGING=$(mkrepo)
+{ echo '## A'; echo; for _ in $(seq 60); do printf 'word '; done; echo; } > "$MERGING/README.md"
+git -C "$MERGING" add README.md
+git -C "$MERGING" rev-parse HEAD > "$MERGING/.git/MERGE_HEAD"
+check allow 'git commit, MERGE_HEAD present, over-budget staged'     'git commit -m x' "$MERGING"
+check allow 'git merge --continue, MERGE_HEAD present, over-budget'  'git merge --continue' "$MERGING"
+rm -f "$MERGING/.git/MERGE_HEAD"
+check deny  'same over-budget staging, MERGE_HEAD gone'              'git commit -m x' "$MERGING"
+check deny  'git merge --continue, no MERGE_HEAD, dirty staging'     'git merge --continue' "$DIRTY"
 
 # Fail-open: no jq, and no engine.
 BARE=$(mktemp -d); for t in bash sh awk cat cut dirname git timeout; do p=$(command -v $t) && ln -s "$p" "$BARE/$t"; done

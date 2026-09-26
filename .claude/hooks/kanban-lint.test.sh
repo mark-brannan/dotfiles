@@ -23,8 +23,8 @@ run() {
   LAST=$(sh "$LINT" "$@" 2>&1); local rc=$?
   if [ "$rc" = "$want" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (want rc %s, got %s): %s\n  %s\n' "$want" "$rc" "$desc" "$LAST"; fi
 }
-has()   { if printf '%s\n' "$LAST" | grep -Eq -- "$2"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (output lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
-lacks() { if printf '%s\n' "$LAST" | grep -Eq -- "$2"; then fail=$((fail+1)); printf 'FAIL (output has /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass+1)); fi; }
+has()   { if grep -Eq -- "$2" <<<"$LAST"; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL (output lacks /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
+lacks() { if grep -Eq -- "$2" <<<"$LAST"; then fail=$((fail+1)); printf 'FAIL (output has /%s/): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass+1)); fi; }
 eq()    { if [ "$2" = "$3" ]; then pass=$((pass+1)); else fail=$((fail+1)); printf 'FAIL: %s\n  want [%s]\n  got  [%s]\n' "$1" "$2" "$3"; fi; }
 
 gitq() { git -C "$1" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
@@ -132,7 +132,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert, one session until: the next migration risk: another 60 issues
+- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert, one session until: the next migration risk: another 60 issues judgment: direction
 EOF
 run 0 'an added ## Needs ruling heading passes L3' --diff "$NR" kanban.md
 run 0 'a grouped decide + PR link card under ## Needs ruling passes L4, L7 and L8' --file "$NR/kanban.md"
@@ -148,9 +148,53 @@ cat >> "$NR/kanban.md" <<'EOF'
       undo: unpin, one line RISK: none
 EOF
 run 1 'a ruling card without its fields fails L8' --diff "$NR" kanban.md
-has 'L8 names every missing field' '^8: L8 ruling card missing default:, undo:, until:, risk:'
-has 'L8 names only the missing ones, across a continuation line, any case' '^9: L8 ruling card missing until: '
+has 'L8 names every missing field' '^8: L8 ruling card missing default:, undo:, until:, risk:, judgment:'
+has 'L8 names only the missing ones, across a continuation line, any case' '^9: L8 ruling card missing until:, judgment:'
 lacks 'L8 does not name a present field' '^9: L8 ruling card missing [^\n]*(default|undo|risk)'
+gitq "$NR" checkout -- kanban.md
+
+# L10: a "kind: tentative ADR" card carries gates:/settle:/repos: instead of
+# a ruling card's default:/undo:/until:/risk:, and is exempt from L8.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite settle: a load test under real traffic repos: colregs-engine judgment: direction
+EOF
+run 0 'a complete tentative-ADR card passes L7, skips L8, passes L10' --diff "$NR" kanban.md
+gitq "$NR" checkout -- kanban.md
+
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite
+EOF
+run 1 'a tentative-ADR card missing fields fails L10, not L8' --diff "$NR" kanban.md
+has 'L10 names the missing fields' '^8: L10 tentative-ADR card missing settle:, repos:, judgment:'
+lacks 'L8 does not also fire for a tentative-ADR card' 'L8'
+gitq "$NR" checkout -- kanban.md
+
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) Kind:Tentative  ADR gates: the queue rewrite settle: a load test repos: colregs-engine judgment: tidiness
+EOF
+run 1 'kind: tolerates spacing and case; a toil judgment: fails L10' --diff "$NR" kanban.md
+has 'L10 names the toil exit' '^8: L10 judgment: must be values, risk, direction, legal or people'
+lacks 'a loosely-spaced kind: is still not read as an L8 card' 'L8'
+gitq "$NR" checkout -- kanban.md
+
+# L8: judgment: names a kind of judgment; anything else is toil.
+cat >> "$NR/kanban.md" <<'EOF2'
+
+## Needs ruling
+### colregs
+- [ ] **Toil in disguise** — decide the label ([o/r#93](https://github.com/o/r/pull/93)) default: apply it undo: remove it until: the next run risk: none judgment: tidiness
+EOF2
+run 1 'a judgment: outside the five kinds fails L8' --diff "$NR" kanban.md
+has 'L8 names the toil exit' '^8: L8 judgment: must be values, risk, direction, legal or people'
 gitq "$NR" checkout -- kanban.md
 
 # L7: a ruling card needs a "### <project>" group above it.
@@ -243,7 +287,7 @@ commit_board "$NR" kanban.md
 sed -i 's/### colregs/### colregs-v2/' "$NR/kanban.md"
 run 1 'a ### group rename alone still validates the untouched card beneath it' --diff "$NR" kanban.md
 lacks 'the group is present -- no L7' 'L7'
-has 'L8 fires for the field the card was already missing' '^5: L8 ruling card missing risk:'
+has 'L8 fires for the field the card was already missing' '^5: L8 ruling card missing risk:, judgment:'
 gitq "$NR" checkout -- kanban.md
 
 # --- --diff: only added lines are judged -------------------------------------

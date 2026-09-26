@@ -28,20 +28,30 @@ cat > "$GIT_CONFIG_GLOBAL" <<G
 [init]
 	defaultBranch = main
 G
-# gh: --head queries answer from gh.out, --base from gh.children; gh.rc forces a failure.
-cat > "$T/bin/gh" <<'G'
-#!/bin/sh
-rc=$(cat "$T/gh.rc" 2>/dev/null || echo 0); [ "$rc" -eq 0 ] || { echo "gh: boom" >&2; exit "$rc"; }
-case "$*" in *--head*) cat "$T/gh.out" 2>/dev/null ;; *--base*) cat "$T/gh.children" 2>/dev/null ;; esac
-G
+# gh: --head/--json baseRefName queries answer from gh.out, --base from
+# gh.children, --json number (the Head:-line PR lookup) from gh.pr-number,
+# --json body from gh.pr-body, and `pr edit ... --body <text>` captures
+# <text> into gh.edit-body so a test can inspect what would have been
+# written; gh.rc forces a failure of every gh call.
 # gh api graphql --input -: fakes createCommitOnBranch by replaying the
 # addition/deletion payload onto expectedHeadOid directly in origin.git and
 # moving the named branch, the same side effect the real mutation has.
-# gh api repos/.../commits/<oid>: fakes GitHub's verification check as true.
+# gh api repos/.../commits/<oid>: fakes GitHub's verification check as true
+# (or whatever "$T/gh.verify" says, when a test wants it to fail).
 cat > "$T/bin/gh" <<'G'
 #!/bin/sh
 rc=$(cat "$T/gh.rc" 2>/dev/null || echo 0); [ "$rc" -eq 0 ] || { echo "gh: boom" >&2; exit "$rc"; }
 case "$*" in
+  *"pr edit"*)
+    want_body=0
+    for a in "$@"; do
+      if [ "$want_body" = 1 ]; then printf '%s' "$a" > "$T/gh.edit-body"; want_body=0; fi
+      [ "$a" = "--body" ] && want_body=1
+    done
+    ;;
+  *"--head"*"--json number"*) cat "$T/gh.pr-number" 2>/dev/null ;;
+  *"--base"*"--json number"*) cat "$T/gh.children" 2>/dev/null ;;
+  *"--json body"*) cat "$T/gh.pr-body" 2>/dev/null ;;
   *"api graphql"*)
     payload=$(cat)
     branch=$(printf '%s' "$payload" | jq -r '.variables.input.branch.branchName')
@@ -80,7 +90,7 @@ cat > "$T/bin/yadm" <<'G'
 [ "$1 $2" = "introspect repo" ] && { printf '%s\n' "$T/yadm-repo.git"; exit 0; }; exit 1
 G
 chmod +x "$T/bin/gh" "$T/bin/yadm"
-: > "$T/gh.out"; : > "$T/gh.children"
+: > "$T/gh.out"; : > "$T/gh.children"; : > "$T/gh.pr-number"; : > "$T/gh.pr-body"; : > "$T/gh.edit-body"
 
 # --- fixture: origin, a work clone, and two more clones standing in for
 # ~/dotfiles/.git and the yadm repo -------------------------------------------
@@ -185,7 +195,47 @@ c=$(norm_url "ssh://git@github.com/mark-brannan/dotfiles")
 ok 'norm_url: scp-style and https:// match' [ "$a" = "$b" ]
 ok 'norm_url: scp-style and ssh:// match' [ "$a" = "$c" ]
 
-# --- 9. no local signing key: falls back to GitHub-API-signed commits ---
+# --- 9. after a real push, the open PR's body gets a Head: <sha> line --
+# added when missing, replaced when already there; nothing touched when no
+# PR is open (dotfiles#286) ---------------------------------------------
+mk_unsigned_branch() {  # mk_unsigned_branch <name>
+  git -C "$W" checkout -q main
+  git -C "$W" checkout -q -b "$1"
+  echo x > "$W/$1.txt" && git -C "$W" add "$1.txt" && git -C "$W" commit -q -m "$1 1"
+  git -C "$W" -c commit.gpgsign=false commit -q --amend --allow-empty --no-edit
+  git -C "$W" push -q origin "$1"
+}
+: > "$T/gh.out"; : > "$T/gh.children"
+
+mk_unsigned_branch feat-headmissing
+echo 7 > "$T/gh.pr-number"
+printf 'what and why\n' > "$T/gh.pr-body"
+: > "$T/gh.edit-body"
+run feat-headmissing
+git -C "$W" fetch -q origin
+newsha=$(git -C "$W" rev-parse origin/feat-headmissing)
+ok 'head-sha: exits 0' [ $rc -eq 0 ]
+ok 'head-sha: appends Head: line when missing' \
+  [ "$(cat "$T/gh.edit-body" 2>/dev/null)" = "$(printf 'what and why\n\nHead: %s\n' "$newsha")" ]
+
+mk_unsigned_branch feat-headreplace
+echo 8 > "$T/gh.pr-number"
+printf 'what and why\n\nHead: deadbeef\n' > "$T/gh.pr-body"
+: > "$T/gh.edit-body"
+run feat-headreplace
+git -C "$W" fetch -q origin
+newsha=$(git -C "$W" rev-parse origin/feat-headreplace)
+ok 'head-sha: replaces an existing Head: line' \
+  [ "$(cat "$T/gh.edit-body" 2>/dev/null)" = "$(printf 'what and why\n\nHead: %s\n' "$newsha")" ]
+
+mk_unsigned_branch feat-nopr
+: > "$T/gh.pr-number"
+: > "$T/gh.edit-body"
+run feat-nopr
+ok 'head-sha: no open PR, nothing edited' [ ! -s "$T/gh.edit-body" ]
+: > "$T/gh.pr-number"; : > "$T/gh.pr-body"
+
+# --- 10. no local signing key: falls back to GitHub-API-signed commits ---
 git -C "$W" config user.signingkey ""
 : > "$T/gh.out"; : > "$T/gh.children"
 git -C "$W" checkout -q -b feat-c main
@@ -205,7 +255,7 @@ case "$trailer_log" in
 esac
 ok  'API fallback: scratch branch cleaned up' [ -z "$(git -C "$T/origin.git" for-each-ref 'refs/heads/resign-tmp/*' --format='%(refname)')" ]
 
-# --- 10. no local signing key, executable-bit change: refuses, remote untouched ---
+# --- 11. no local signing key, executable-bit change: refuses, remote untouched ---
 git -C "$W" checkout -q -b feat-d main
 echo x > "$W/x" && git -C "$W" add x && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-d 1"
 chmod +x "$W/x" && git -C "$W" add x && git -C "$W" -c commit.gpgsign=false commit -q -m "feat-d 2 chmod +x"
@@ -217,7 +267,7 @@ has 'API fallback mode change: says why' "the GitHub API fallback can only creat
 git -C "$W" fetch -q origin
 ok  'API fallback mode change: remote untouched' [ "$(git -C "$W" rev-parse origin/feat-d)" = "$old_d" ]
 
-# --- 11. no local signing key, GitHub fails final verification: the scratch
+# --- 12. no local signing key, GitHub fails final verification: the scratch
 # branch is left on the remote for inspection, not deleted by the EXIT trap.
 # This is the failure-path case the success-only cleanup fix (below) covers --
 # a die() after the scratch branch exists must not have it swept out from

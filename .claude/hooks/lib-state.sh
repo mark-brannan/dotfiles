@@ -138,9 +138,9 @@ unpushed_state() {
   [ "${ahead:-0}" -gt 0 ] && printf 'never-pushed' || printf 'safe'
 }
 
-# archivable_reasons <work_root> <work_branch> -- the reasons a session on
-# this branch is not yet archivable, comma-joined; empty when it is. Order:
-# worktree dirty, unpushed commits, branch home.
+# archivable_reasons <work_root> <work_branch> [<session-id>] -- the reasons
+# a session on this branch is not yet archivable, comma-joined; empty when
+# it is. Order: worktree dirty, unpushed commits, branch home, session live.
 #
 # Lives here for the same reason unpushed_state does: metrics-live.sh's live
 # nag and stop-continuity.sh's Stop-hook verdict must never disagree about
@@ -149,21 +149,31 @@ unpushed_state() {
 # inline and never looked for a pointer issue, the one branch-home-gate.sh
 # already finds.
 #
-# Requires $HOOK_DIR set by the caller: branch-home-gate.sh lives beside
-# this file and is shelled out to, not sourced, so its own gate (which fires
-# once per session, separately) and this read-only check never share state.
+# Requires $HOOK_DIR set by the caller: branch-home-gate.sh and
+# claim-stamp.sh live beside this file and are shelled out to, not sourced,
+# so their own state (branch-home-gate.sh's once-per-session gate,
+# claim-stamp.sh's per-session record) never leaks into this read-only check.
 #
-# Home is checked last, and only when dirty/unpushed are already clean: it's
-# the one check here that can shell out to `gh` (up to two 30s calls in
-# branch-home-gate.sh), so a dirty mid-work tree -- the common case, and the
-# one Stop fires on every turn -- never pays that cost. Restores the
-# short-circuit the pre-dotfiles#149 archivable() had.
+# Home is checked before session-live, and both only when dirty/unpushed are
+# already clean: both can shell out to `gh` (branch-home-gate.sh up to two
+# 30s calls, claim-stamp.sh one), so a dirty mid-work tree -- the common
+# case, and the one Stop fires on every turn -- never pays that cost.
+# Restores the short-circuit the pre-dotfiles#149 archivable() had.
+#
+# session live (dotfiles#167): git state alone is how a live session's
+# worktree got archived out from under it (PR #162, the scar
+# no-foreign-worktree.sh names). The signal is the claim stamp
+# claim-stamp.sh already posts on the branch's card and refreshes on every
+# Stop (dotfiles#287); it, not this function, decides fresh vs stale
+# (CLAIM_STALE_SECS). <session-id> is the caller's own: its own stamp is
+# never a reason, or a session could never become archivable by watching
+# its own refresh. Omit it (a sweep, a human) and every fresh stamp counts.
 #
 # Not this function's job: "not a git repo" (there is no branch here to
 # judge) and anything that only becomes true after a push is attempted --
 # both are the caller's own facts to add.
 archivable_reasons() {
-  local work_root="$1" work_branch="$2" reasons="" home ust
+  local work_root="$1" work_branch="$2" self_sid="${3:-}" reasons="" home ust self8
   add_reason() { reasons="${reasons:+$reasons, }$1"; }
 
   [ -z "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || add_reason "worktree dirty"
@@ -191,7 +201,73 @@ archivable_reasons() {
     esac
   fi
 
+  if [ -z "$reasons" ] && [ -x "$HOOK_DIR/claim-stamp.sh" ]; then
+    self8=$(printf '%s' "$self_sid" | cut -c1-8)
+    if sh "$HOOK_DIR/claim-stamp.sh" read -C "$work_root" 2>/dev/null \
+         | awk -F'\t' -v s="$self8" '$1 == "live" && $2 != s { found = 1 } END { exit !found }'; then
+      add_reason "session live"
+    fi
+  fi
+
   printf '%s' "$reasons"
+}
+
+# state_lock <dir> / state_unlock -- mkdir atomic test-and-set, copied from
+# grind's per-repo lock (no flock: macOS has none). meta carries pid+host; a
+# same-host dead pid is reclaimed via rename-then-rm. Installs no trap of its
+# own: `trap` overwrites rather than chains, and a caller (stop-continuity.sh
+# already arms one, e.g. `trap restore_board EXIT`) would have it silently
+# clobbered. The caller adds `state_unlock` to its own EXIT/TERM/INT traps.
+STATE_LOCK_DIR=""
+
+state_lock() {
+  local dir="$1" meta="" host pid
+  [ -n "$dir" ] || return 1
+  meta="$dir/meta"
+  host=$(uname -n 2>/dev/null || echo unknown)
+  if ! mkdir "$dir" 2>/dev/null; then
+    pid=$(awk -F= '$1 == "pid" { print $2 }' "$meta" 2>/dev/null)
+    { [ "$(awk -F= '$1 == "hostname" { print $2 }' "$meta" 2>/dev/null)" = "$host" ] \
+        && [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; } || return 1
+    mv "$dir" "$dir.stale.$$" 2>/dev/null && rm -rf "$dir.stale.$$" && mkdir "$dir" 2>/dev/null \
+      || return 1
+  fi
+  printf 'pid=%s\nhostname=%s\n' "$$" "$host" > "$meta" 2>/dev/null
+  STATE_LOCK_DIR="$dir"
+}
+
+state_unlock() {
+  [ -n "$STATE_LOCK_DIR" ] && rm -rf "$STATE_LOCK_DIR"
+  STATE_LOCK_DIR=""
+}
+
+# day_decisions <sid> <total> <junk> <now> <gap-seconds> -- fold this session's
+# decision counts into the machine-wide store beside sitting.json and print the
+# day's totals as "<total>\t<junk>". Decision load is spent across a day, not
+# per chat (#99); a prompt gap past <gap-seconds> anywhere on the machine starts
+# a fresh day. Keyed by session id, holding each session's own running counts
+# rather than a delta, so a replayed hook cannot double-count. junk rides beside
+# the total, never subtracted -- exclude it by subtracting field two. No trap
+# here: it would clobber the caller's (#361).
+day_decisions() {
+  local f next
+  f="$(state_dir)/metrics/day-decisions.json"
+  mkdir -p "${f%/*}" 2>/dev/null || { printf '0\t0\n'; return 0; }
+  if state_lock "$f.lock"; then
+    # Read, modify and write all inside the lock -- a read before it is the race
+    # the lock closes: a second session's write in between would be overwritten.
+    [ -f "$f" ] || printf '{}\n' > "$f" 2>/dev/null
+    next=$(jq --arg sid "$1" --argjson t "$2" --argjson j "$3" \
+      --argjson now "$4" --argjson gap "$5" \
+      'if (.last_prompt // 0) > 0 and ($now - .last_prompt) > $gap
+       then {day_start: $now, sessions: {}} else . end
+       | .last_prompt = $now | .day_start //= $now
+       | .sessions[$sid] = {total: $t, junk: $j}' "$f" 2>/dev/null)
+    if [ -n "$next" ] && printf '%s\n' "$next" > "$f.$$" 2>/dev/null \
+       && mv -f "$f.$$" "$f" 2>/dev/null; then :; else rm -f "$f.$$" 2>/dev/null; fi
+    state_unlock
+  fi
+  jq -r '[([.sessions[]?.total] | add // 0), ([.sessions[]?.junk] | add // 0)] | @tsv' "$f" 2>/dev/null || printf '0\t0\n'
 }
 
 # pr_base_refs <repo-path> <branch> [<remote>] -- base branch names of the
