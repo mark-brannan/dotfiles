@@ -16,11 +16,13 @@
 # leg is kept and named, not guessed at. Prints an undo (a push that recreates
 # the ref at its old sha) per deletion.
 #
-# A sibling of prune-branches rather than a mode of it: these are pure remote
-# refs with no local branch and no worktree, on a namespace prune-branches's
-# refs/heads walk never visits, checked against a private-repo checkpoint
-# prune-branches has no reason to know about. Bolting that on would grow the
-# one script past one concern for both.
+# Remote refs only. The salvaging clone also keeps a local refs/heads/wip/*
+# copy; that one is prune-branches's, like any other local branch.
+#
+# A sibling of prune-branches rather than a mode of it: the remote refs have
+# no worktree and are checked against a private-repo checkpoint prune-branches
+# has no reason to know about. Bolting that on would grow the one script past
+# one concern for both.
 set -u
 
 days=14 delete=0 fetch=1 list="$HOME/.local/share/vended-repos.txt"
@@ -124,12 +126,15 @@ while IFS= read -r repo; do
       if [ "$nmatch" -eq 1 ]; then
         ckpt=$matches
         branch=$(sed -n '1s/.*@ `\(.*\)`.*/\1/p' "$ckpt")
-        link=$(sed -n 's/^- link: *//p' "$ckpt" | head -1)
 
-        if [ -n "$link" ] && command -v gh >/dev/null 2>&1; then
-          pr_state=$(gh pr view "$link" --json state -q .state 2>/dev/null)
-          if [ "$pr_state" = MERGED ]; then
-            reason="PR merged ($link)"
+        # The PR whose head is the snapshotted branch, never the Resume
+        # block's link: that names what the session acts on next, and a
+        # review session's link is someone else's PR.
+        if [ -n "$branch" ] && command -v gh >/dev/null 2>&1; then
+          pr=$(cd "$repo" && gh pr view "$branch" --json state,url \
+                 -q 'select(.state == "MERGED") | .url' 2>/dev/null)
+          if [ -n "$pr" ]; then
+            reason="PR merged ($pr)"
             landed=1
           fi
         fi

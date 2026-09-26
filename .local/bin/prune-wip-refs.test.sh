@@ -26,11 +26,12 @@ bad()  { fail=$((fail+1)); echo "FAIL: $1"; [ -n "${2:-}" ] && printf '%s\n' "$2
 has()  { printf '%s' "$2" | grep -q -- "$1" && ok || bad "expected /$1/ in: $3" "$2"; }
 hasnt(){ printf '%s' "$2" | grep -q -- "$1" && bad "did not expect /$1/ in: $3" "$2" || ok; }
 
-# --- a fake gh, for the PR-merged leg -- only ever asked about the one link
+# --- a fake gh, for the PR-merged leg: feature-b's PR is the only merged one
 mkdir -p "$S/bin"
 cat > "$S/bin/gh" <<'EOF'
 #!/bin/sh
-[ "$1" = pr ] && [ "$2" = view ] && echo MERGED
+[ "$1 $2 $3" = "pr view feature-b" ] && echo https://github.com/example/repo/pull/1
+exit 0
 EOF
 chmod +x "$S/bin/gh"
 export PATH="$S/bin:$PATH"
@@ -96,10 +97,11 @@ sid_pr=22222222-0000-0000-0000-000000000002
 push_wip "$sid_pr" feature-b "never-landed" commit_new >/dev/null
 write_ckpt "pr-merged.md" feature-b "$sid_pr" "https://github.com/example/repo/pull/1"
 
-# 3) checkpoint present, branch not caught up, no PR link, fresh: kept.
+# 3) checkpoint present, branch not caught up, fresh: kept -- even though its
+# Resume link is feature-b's merged PR, the shape a review session leaves.
 sid_notyet=33333333-0000-0000-0000-000000000003
 push_wip "$sid_notyet" feature-c "still-only-in-wip" commit_new >/dev/null
-write_ckpt "notyet.md" feature-c "$sid_notyet"
+write_ckpt "notyet.md" feature-c "$sid_notyet" "https://github.com/example/repo/pull/1"
 
 # 4) no checkpoint, old, patch-equivalent to main (squash-merge shape).
 sid_squash=44444444-0000-0000-0000-000000000004
