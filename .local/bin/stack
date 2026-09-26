@@ -1,0 +1,220 @@
+#!/bin/sh
+# stack -- the continuity stack: what was last talked about, first.
+#
+# Why: a hand-off that lives in a chat, a prose prompt or a block a model
+# had to remember to write is lost the moment the session ends any other
+# way. The Stop hook (stop-continuity.sh) writes one item per session from
+# the transcript and git, every Stop, needing nothing from the model. This
+# is the view over those items and the one place a model pushes the items a
+# hook cannot know: a question raised, or something the user said, verbatim.
+# The brief is log/2026-09-26-handoff-shape-recommendation.md in the state
+# repo; its section 1 is the user's words and this is built to them.
+#
+#   stack                      open items, newest first, top five, as a tree
+#   stack --all                every open item
+#   stack --oldest             oldest first
+#   stack --closed             include taken, parked and done items
+#   stack find <word>          items whose text or fields match (any status)
+#   stack show <id>            the item file
+#   stack push <kind> <text>   push an item: kind is work, question or said
+#   stack take <id>            mark an item taken; the taking session's own
+#                              item becomes its child (the hook sees the id)
+#   stack done|park|open <id>  set an item's status
+#
+# One file per item under state/global/stack/, so parallel sessions never
+# conflict on push. Nothing here drops an item because it could not be
+# checked: liveness is what the writer recorded, and a reader who wants the
+# live state follows `where:` or `pr:`.
+#
+# CONVENIENCE: exit 0 on every read. A write that cannot land says so and
+# exits 1, because a push that silently vanished is the failure this exists
+# to stop.
+set -u
+
+usage() { sed -n '4,20p' "$0" | sed 's/^#   \{0,1\}//'; }
+
+self=$0
+case $self in */*) ;; *) self=$(command -v "$self" 2>/dev/null || printf '%s' "$self") ;; esac
+self_dir=$(cd "$(dirname "$self")" 2>/dev/null && pwd)
+lib=""
+for c in "$self_dir/../../.claude/hooks/lib-state.sh" "$HOME/.claude/hooks/lib-state.sh"; do
+  [ -f "$c" ] && { lib=$c; break; }
+done
+[ -n "$lib" ] || { printf 'stack: lib-state.sh not found\n' >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$lib"
+
+STACK="$(state_dir)/stack"
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+now_s=$(date -u +%s)
+
+field() { sed -n "s/^$2: //p" "$1" 2>/dev/null | head -1; }
+body()  { awk 'f { print } /^---$/ { f = 1 }' "$1" 2>/dev/null; }
+item_path() {  # item_path <id> -- the file, or fail
+  [ -n "$1" ] && [ -f "$STACK/$1.md" ] && { printf '%s' "$STACK/$1.md"; return 0; }
+  printf 'stack: no item %s\n' "${1:-<id>}" >&2; return 1
+}
+
+# The writer's session, for parent links on a push: Claude Code exports
+# CLAUDE_CODE_SESSION_ID to every Bash call, and the hook names each
+# session's item <start>-<sid8>, so the pusher's own item is findable.
+own_item() {
+  [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 1
+  ls "$STACK"/*-"$(printf '%s' "$CLAUDE_CODE_SESSION_ID" | cut -c1-8)".md 2>/dev/null | head -1
+}
+
+# set_field <file> <name> <value> -- rewrite one header line and bump updated.
+set_field() {
+  tmp="$1.$$"
+  awk -v k="$2" -v v="$3" -v u="$now" '
+    !d && index($0, k ":") == 1 { print k ": " v; next }
+    !d && k != "updated" && index($0, "updated:") == 1 { print "updated: " u; next }
+    /^---$/ { d = 1 } { print }
+  ' "$1" > "$tmp" && mv -f "$tmp" "$1" || { rm -f "$tmp"; return 1; }
+}
+
+# --- writes ------------------------------------------------------------------
+cmd=${1:-}
+case "$cmd" in
+  push)
+    shift
+    kind=${1:-}; shift 2>/dev/null || true
+    parent=none
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --parent) parent=${2:-none}; shift ;;
+        *) break ;;
+      esac
+      shift
+    done
+    text=$*
+    case "$kind" in work|question|said) ;; *)
+      printf 'stack push: kind must be work, question or said\n' >&2; exit 1 ;;
+    esac
+    [ -n "$(printf '%s' "$text" | tr -d '[:space:]')" ] || { printf 'stack push: no text\n' >&2; exit 1; }
+    mkdir -p "$STACK" 2>/dev/null || { printf 'stack push: cannot create %s\n' "$STACK" >&2; exit 1; }
+    if [ "$parent" = none ]; then
+      own=$(own_item) && parent=$(basename "$own" .md)
+    fi
+    id="$(date -u +%Y-%m-%dT%H-%M)-$(od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    [ "${#id}" -ge 20 ] || id="$(date -u +%Y-%m-%dT%H-%M)-$$$(date +%S)"
+    f="$STACK/$id.md"
+    tmp="$f.$$"
+    {
+      printf 'kind: %s\nstatus: open\nupdated: %s\nparent: %s\nsession: %s\nmodel: %s\n' \
+        "$kind" "$now" "$parent" "${CLAUDE_CODE_SESSION_ID:-none}" "${STACK_MODEL:-none}"
+      printf 'branch: none\npr: none\nwhere: %s\nprompt: \n---\n%s\n' "${PWD:-none}" "$text"
+    } > "$tmp" && mv -f "$tmp" "$f" || { rm -f "$tmp"; printf 'stack push: write failed\n' >&2; exit 1; }
+    printf '%s\n' "$id"
+    exit 0 ;;
+  take|done|park|open)
+    f=$(item_path "${2:-}") || exit 1
+    case "$cmd" in take) st=taken ;; *) st=$cmd ;; esac
+    set_field "$f" status "$st" || { printf 'stack %s: write failed\n' "$cmd" >&2; exit 1; }
+    printf '%s %s\n' "$st" "$(basename "$f" .md)"
+    exit 0 ;;
+  show)
+    f=$(item_path "${2:-}") || exit 1
+    cat "$f"; exit 0 ;;
+  -h|--help|help) usage; exit 0 ;;
+esac
+
+# --- reads ---------------------------------------------------------------------
+all=0; oldest=0; closed=0; find_word=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --all) all=1 ;;
+    --oldest) oldest=1 ;;
+    --closed) closed=1; all=1 ;;
+    find) find_word=${2:-}; [ -n "$find_word" ] || { printf 'stack find: no word\n' >&2; exit 1; }
+          closed=1; all=1; shift ;;
+    *) printf 'stack: unknown option %s\n' "$1" >&2; usage >&2; exit 1 ;;
+  esac
+  shift
+done
+
+[ -d "$STACK" ] || { printf 'Stack: empty\n'; exit 0; }
+
+# Age as one short token: 4m, 3h, 6d.
+age_of() {
+  t=$(date -u -d "$1" +%s 2>/dev/null || date -u -j -f %Y-%m-%dT%H:%M:%SZ "$1" +%s 2>/dev/null) || { printf '?'; return; }
+  s=$((now_s - t)); [ "$s" -lt 0 ] && s=0
+  if [ "$s" -lt 3600 ]; then printf '%dm' $((s / 60))
+  elif [ "$s" -lt 172800 ]; then printf '%dh' $((s / 3600))
+  else printf '%dd' $((s / 86400)); fi
+}
+model_short() {
+  case "$1" in
+    *fable*) printf fable ;; *opus*) printf opus ;; *sonnet*) printf sonnet ;;
+    *haiku*) printf haiku ;; none|""|"?") printf '' ;; *) printf '%s' "$1" ;;
+  esac
+}
+
+# One record per item, unit-separator delimited: id updated age kind status
+# parent model tag text. Tab would be collapsed by `read`.
+sep=$(printf '\037')
+recs=""
+for f in "$STACK"/*.md; do
+  [ -f "$f" ] || continue
+  id=$(basename "$f" .md)
+  st=$(field "$f" status); [ -n "$st" ] || st=open
+  if [ "$closed" = 0 ] && [ "$st" != open ]; then continue; fi
+  if [ -n "$find_word" ] && ! grep -qiF -- "$find_word" "$f" 2>/dev/null; then continue; fi
+  kind=$(field "$f" kind); [ -n "$kind" ] || kind=work
+  up=$(field "$f" updated)
+  text=$(body "$f" | sed -n '/[^[:space:]]/{p;q;}' | sed 's/^[[:space:]]*//')
+  [ -n "$text" ] || text="(no text)"
+  pr=$(field "$f" pr); branch=$(field "$f" branch)
+  # The tag: what a reader needs to place the item, one phrase.
+  case "$kind" in
+    said|question) tag=$kind ;;
+    *)
+      if [ -n "$pr" ] && [ "$pr" != none ]; then tag="PR ${pr##*/}"
+      elif [ -n "$branch" ] && [ "$branch" != none ]; then tag=$(printf '%s' "$branch" | sed -n 's/.*(\(.*\))$/\1/p')
+      else tag=""; fi ;;
+  esac
+  [ "$st" = open ] || tag="${tag:+$tag · }$st"
+  recs="$recs$id$sep$up$sep$(age_of "$up")$sep$kind$sep$st$sep$(field "$f" parent)$sep$(model_short "$(field "$f" model)")$sep$tag$sep$(printf '%s' "$text" | tr "$sep" ' ')
+"
+done
+recs=$(printf '%s' "$recs" | grep -v '^$')
+[ -n "$recs" ] || { printf 'Stack: empty\n'; exit 0; }
+
+limit=5; [ "$all" = 1 ] && limit=100000
+total=$(printf '%s\n' "$recs" | grep -c '^')
+
+# Tree: an item whose parent is in the set is printed under it; roots and
+# siblings are ordered by `updated`, newest first (oldest first on --oldest).
+# Depth is capped so a cycle in hand-edited files cannot loop.
+printf '%s\n' "$recs" | awk -F "$sep" -v limit="$limit" -v oldest="$oldest" -v total="$total" '
+  { n++; id[n]=$1; up[n]=$2; age[n]=$3; kind[n]=$4; st[n]=$5; par[n]=$6; model[n]=$7; tag[n]=$8; text[n]=$9; idx[$1]=n }
+  function cmp(a, b) { return oldest ? (up[a] < up[b]) : (up[a] > up[b]) }
+  function sortlist(list, cnt,   i, j, t) {   # insertion sort on indices, by updated
+    for (i = 2; i <= cnt; i++) { t = list[i]; j = i - 1
+      while (j >= 1 && cmp(t, list[j])) { list[j+1] = list[j]; j-- }
+      list[j+1] = t }
+  }
+  function padto(str, w) { while (length(str) < w) str = str " "; return str }
+  function show(i, depth,   pad, bullet, w, line, kids, k, c, right) {
+    if (shown >= limit) return
+    shown++
+    pad = ""; for (k = 0; k < depth; k++) pad = pad "  "
+    bullet = (kind[i] == "work") ? "\342\227\217" : "\342\227\213"
+    w = 66 - length(pad); line = text[i]
+    if (length(line) > w) line = substr(line, 1, w - 1) "\342\200\246"
+    right = model[i]; if (tag[i] != "") right = right (right != "" ? "  " : "") tag[i]
+    printf "  %s%s %s  %s  %s\n", pad, bullet, padto(line, w), padto(age[i], 4), right
+    printf "  %s  %s\n", pad, id[i]
+    c = 0; for (k = 1; k <= n; k++) if (par[k] == id[i] && k != i) kids[++c] = k
+    if (c) sortlist(kids, c)
+    if (depth < 8) for (k = 1; k <= c; k++) show(kids[k], depth + 1)
+  }
+  END {
+    r = 0
+    for (k = 1; k <= n; k++) if (!(par[k] in idx) || par[k] == id[k]) roots[++r] = k
+    sortlist(roots, r)
+    for (k = 1; k <= r; k++) show(roots[k], 0)
+    if (total > shown) printf "  \342\200\246 %d more \302\267 stack --all \302\267 stack --oldest \302\267 stack find <word>\n", total - shown
+  }
+'
+exit 0

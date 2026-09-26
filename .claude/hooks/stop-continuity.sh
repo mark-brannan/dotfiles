@@ -7,7 +7,7 @@
 # other way, which on an ephemeral cloud container is most of them. So this
 # runs unconditionally on Stop and needs nothing from the conversation.
 #
-# It writes four things, all derived from the transcript and from git:
+# It writes five things, all derived from the transcript and from git:
 #   metrics/sessions/<id>.json    cost and shape of the session
 #   metrics/decisions/<id>.jsonl  each decision pushed to the user, typed by cost
 #   metrics/friction/<id>.jsonl   each friction event, typed by cost -- see
@@ -15,6 +15,7 @@
 #                                  2026-08-21-friction-metric-spec.md
 #   metrics/blocked/<id>.jsonl    each tool call the permission layer refused
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
+#   stack/<start>-<id>.md         this session's item on the continuity stack
 #
 # One file per session, not one shared append-only log: parallel sessions are
 # normal here, and per-session paths mean two of them never touch the same
@@ -468,6 +469,100 @@ if [ -n "$work_root" ] && [ -x "$HOOK_DIR/claim-stamp.sh" ]; then
     sh "$HOOK_DIR/claim-stamp.sh" refresh -C "$work_root" "$sid" >/dev/null 2>&1 || true
   fi
 fi
+
+# ------------------------------------------------------------ the stack item
+# One item per session in stack/, the floor of the continuity stack
+# (log/2026-09-26-handoff-shape-recommendation.md in the state repo). The
+# resume block above depends on a model remembering to write it, and a
+# session that ends any other way -- context ceiling, a closed laptop, a
+# reaped container -- hands off to nobody. This needs nothing from the
+# model: kind, parent, branch state, PR, model and the first line of the
+# last user prompt are all machine facts, and `stack` lists them newest
+# first. The body is the one line a model may improve: the hook sets it to
+# the prompt line and, on later Stops, only overwrites a body that still
+# reads exactly as the hook last set it, so an edited body survives every
+# rewrite and the model never has to flag that it edited.
+#
+# The id is the session's start minute plus its short id, so every Stop of
+# a session finds the same file and two sessions never share one. parent is
+# whichever existing item the user named in a prompt or `stack take` ran
+# on, taken once and kept. `pr:` is looked up only while empty and only once
+# the branch is on origin (a PR cannot exist before that), and a miss is
+# cached ten minutes so a pushed branch with no PR does not pay a gh call
+# every turn.
+stack_item() {
+  local stack_dir id f start prompt refs body status parent pr branch_line \
+        old_prompt old_body old_status old_parent old_pr ust ust_desc dirty \
+        home miss tmp r
+  stack_dir="$SD/stack"
+  mkdir -p "$stack_dir" 2>/dev/null || return 0
+  start=$(printf '%s' "$metrics" | jq -r '.session.started_at // empty')
+  [ -n "$start" ] || start=$now
+  id="$(printf '%s' "$start" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2}):([0-9]{2}).*/\1T\2-\3/')-${sid:0:8}"
+  f="$stack_dir/$id.md"
+  prompt=$(printf '%s' "$metrics" | jq -r '.session.last_prompt // empty')
+
+  old_prompt=""; old_body=""; old_status=""; old_parent=""; old_pr=""
+  if [ -f "$f" ]; then
+    old_prompt=$(sed -n 's/^prompt: //p' "$f" | head -1)
+    old_status=$(sed -n 's/^status: //p' "$f" | head -1)
+    old_parent=$(sed -n 's/^parent: //p' "$f" | head -1)
+    old_pr=$(sed -n 's/^pr: //p' "$f" | head -1)
+    old_body=$(awk 'f { print } /^---$/ { f = 1 }' "$f")
+  fi
+
+  body=$old_body
+  if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ] || [ "$body" = "$old_prompt" ]; then
+    body=$prompt
+  fi
+  status=$old_status
+  # A new prompt reopens a session's item: the last thing talked about is
+  # the top of the stack, whatever the item said before.
+  { [ -z "$status" ] || [ "$prompt" != "$old_prompt" ]; } && status=open
+
+  parent=$old_parent
+  if [ -z "$parent" ] || [ "$parent" = none ]; then
+    parent=none
+    refs=$(printf '%s' "$metrics" | jq -r '.session.stack_refs[]? // empty')
+    for r in $refs; do
+      [ "$r" != "$id" ] && [ -f "$stack_dir/$r.md" ] && { parent=$r; break; }
+    done
+  fi
+
+  branch_line=none; pr=${old_pr:-none}
+  if [ -n "$work_root" ]; then
+    ust=$(unpushed_state "$work_root" "$work_branch")
+    case "$ust" in
+      'ahead '*)     ust_desc="${ust#ahead } ahead" ;;
+      never-pushed)  ust_desc="never pushed" ;;
+      safe)          ust_desc="nothing ahead" ;;
+      *)             ust_desc="ahead unknown" ;;
+    esac
+    dirty=clean
+    [ -z "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || dirty=dirty
+    branch_line="$work_repo $work_branch ($ust_desc, $dirty)"
+    miss="${TMPDIR:-/tmp}/claude-stack-pr-miss.$(printf '%s' "$sid" | tr -c 'A-Za-z0-9_-' '_')"
+    if [ "$pr" = none ] && [ "$ust" = 'ahead 0' ] && [ -x "$HOOK_DIR/branch-home-gate.sh" ] \
+       && [ -z "$(find "$miss" -mmin -10 2>/dev/null)" ]; then
+      home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
+      case "$home" in
+        'home: https://'*) pr=$(printf '%s' "$home" | sed 's/^home: //' | grep -oE '^https://[^ ]+') ;;
+        *) : > "$miss" 2>/dev/null ;;
+      esac
+      [ -n "$pr" ] || pr=none
+    fi
+  fi
+
+  tmp="$f.$$"
+  {
+    printf 'kind: work\nstatus: %s\nupdated: %s\nparent: %s\nsession: %s\nmodel: %s\n' \
+      "$status" "$now" "$parent" "$sid" \
+      "$(printf '%s' "$metrics" | jq -r '.session.model // "?"')"
+    printf 'branch: %s\npr: %s\nwhere: %s\nprompt: %s\n---\n%s\n' \
+      "$branch_line" "$pr" "log/auto/$(basename "$ckpt")" "$prompt" "$body"
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+stack_item
 
 # ------------------------------------------------------------ state repo
 state_is_repo || exit 0

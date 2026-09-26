@@ -557,6 +557,23 @@ def price:
       idle_seconds:    ($elapsed_s - $active_s),
       model:      ([ $E[].value | select(.type=="assistant")
                      | .message.model | select(. != null) ] | last),
+      # The stack item's floor (stop-continuity.sh): the first line of the
+      # last thing the user said, cleaned and redacted like every other
+      # excerpt here, and every stack id the user named or a `stack take`
+      # ran -- the item this session continues from.
+      last_prompt: ([ $E[].value
+                      | select(.type == "queue-operation" and .operation == "enqueue"
+                               and (.content // "") != "")
+                      | .content ] | last // ""
+                    | clean_human | split("\n") | map(select(test("\\S"))) | first // ""
+                    | redact | .[0:200]),
+      stack_refs:  ([ ($E[].value
+                       | select(.type == "queue-operation" and .operation == "enqueue")
+                       | .content // ""),
+                      ($tools[] | select(.name == "Bash") | .input.command // ""
+                       | select(test("\\bstack\\s+take\\b"))) ]
+                    | map([ match("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9a-f]{6,8}"; "g").string ])
+                    | add // [] | unique),
       user_turns: ($humans | length),
       assistant_turns: ($amsgs | length),
       tool_calls: ($tools | length),

@@ -104,6 +104,7 @@ INSTALL="
 .local/bin/prose-budget
 .local/bin/worklist
 .local/bin/pickup-list
+.local/bin/stack
 .local/bin/gh-resolve-thread
 .local/bin/pr-label-audit
 "

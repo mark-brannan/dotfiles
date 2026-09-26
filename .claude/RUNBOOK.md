@@ -23,6 +23,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
 - [Check a repo's prose budgets](#check-a-repos-prose-budgets)
 - [Prune stale Stop-hook salvage refs](#prune-stale-stop-hook-salvage-refs)
+- [Read the continuity stack](#read-the-continuity-stack)
 
 **GitHub repository**
 - [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
@@ -326,6 +327,25 @@ prune-wip-refs --delete
 
 Verify: exit 0 and a final `deleted N wip ref(s)` line; each deletion line
 carries its undo. `prune-wip-refs --help` has the rules.
+
+## Read the continuity stack
+
+The Stop hook writes one item per session to the state repo's
+`state/global/stack/`, every Stop, from the transcript and git; a session that
+dies mid-work still leaves its item. Newest is on top.
+
+```bash
+stack                  # top five, as a tree
+stack --all            # every open item
+stack find <word>
+```
+
+To continue an item, `stack take <id>` in the new session, so the new
+session's own item lands under it. A question or something Solace said,
+verbatim: `stack push question "<text>"` or `stack push said "<text>"`.
+
+Verify: `stack` lists the session's own item within a minute of its last
+Stop, with `stack show <id>` naming the branch and its ahead/dirty state.
 
 ## Cut and promote a prose-budget engine version
 
