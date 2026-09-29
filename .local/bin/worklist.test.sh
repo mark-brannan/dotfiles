@@ -268,7 +268,8 @@ run --json
 eq 'json exit 0' 0 "$RC"
 eq 'json carries both repos' 2 "$(printf '%s' "$OUT" | jq '.records | length')"
 eq "a card's repo: field routes it, not its link" 'o/alpha' "$(printf '%s' "$OUT" | jq -r '.buckets.claudes[] | select(.name == "Card 0") | .repo')"
-eq 'a card without repo: routes on its github link' 'null' "$(printf '%s' "$OUT" | jq -r '.buckets.claudes[] | select(.name == "Card 1") | .repo')"
+eq 'a card without repo: routes on its github link' 'o/r' "$(printf '%s' "$OUT" | jq -r '.buckets.rulings[] | select(.name == "Give-way rule") | .repo')"
+eq 'a card with neither repo: nor a github link has no repo' 'null' "$(printf '%s' "$OUT" | jq -r '.buckets.claudes[] | select(.name == "Card 1") | .repo')"
 eq 'json carries the raw PRs' 5 "$(printf '%s' "$OUT" | jq '.records[0].data.pullRequests.nodes | length')"
 
 # --- --milestone: buckets scoped, milestone not deferred, json same shape ------

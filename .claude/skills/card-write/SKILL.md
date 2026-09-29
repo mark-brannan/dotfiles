@@ -101,8 +101,7 @@ Add `blocked: <dependency>` only when it is actually blocked. A
 `## Claude's` card whose link is evidence in another repo — the PR where the
 bug surfaced, not the repo that fixes it — ends with `repo: <owner/name>`:
 grind works a card in the repo it names, and falls back to the link's repo
-without it. Sections and
-checkboxes, not a table. **Order is priority:** the top card in a section is
+without it. Sections and checkboxes, not a table. **Order is priority:** the top card in a section is
 the next to pull; place a new card where it belongs.
 
 ```markdown
