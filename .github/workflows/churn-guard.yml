@@ -73,7 +73,13 @@ jobs:
                   *.jq) printf '%s\n' "$f"; continue ;;
                 esac
                 # `|| sig=` : head closing the pipe early is not a failure.
-                sig=$(git show "HEAD:$f" 2>/dev/null | head -c 2) || sig=
+                # `|| true` inside the substitution: `head -c 2` closes the
+                # pipe early, and under pipefail a script larger than the pipe
+                # buffer (~64 KiB) left git with SIGPIPE, a non-zero status and
+                # sig reset to empty -- so the biggest scripts were the ones the
+                # gate did not see (dotfiles#409, 159 lines in grind: "ok: no
+                # script touched").
+                sig=$(git show "HEAD:$f" 2>/dev/null | head -c 2 || true)
                 case "$sig" in
                   '#!') printf '%s\n' "$f" ;;
                 esac
