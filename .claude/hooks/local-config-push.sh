@@ -23,10 +23,17 @@ set -ufo pipefail
 [ "${CLAUDE_CODE_REMOTE:-}" = true ] && exit 0
 command -v yadm >/dev/null 2>&1 || exit 0
 yadm rev-parse --git-dir >/dev/null 2>&1 || exit 0
+# A Stop hook runs in the session's project dir, and yadm resolves a relative
+# pathspec against cwd, not $HOME -- from ~/proj, `.claude/CLAUDE.md` means
+# ~/proj/.claude/CLAUDE.md. Every path below is meant relative to $HOME.
+cd "$HOME" || exit 0
 
 STATE="$HOME/.local/state/local-config-push"
 mkdir -p "$STATE" 2>/dev/null || exit 0
 report() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" > "$STATE/last" 2>/dev/null; }
+# Anything that moved or failed is said on screen too (R6: failure never lands
+# in silence); the quiet outcomes only reach $STATE/last.
+say() { report "$@"; printf '{"systemMessage":"local-config-push: %s"}\n' "$*"; }
 
 # mkdir is the portable atomic lock (macOS has no flock) -- same pattern as
 # dotfiles-sync.sh, guarding against a concurrent session's Stop hook or the
@@ -87,15 +94,17 @@ if ! yadm commit -q -m "config: local edit ($(date -u +%Y-%m-%d))" \
      -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
   # shellcheck disable=SC2086
   yadm reset -q -- $dirty >/dev/null 2>&1
-  report "skipped: commit refused (pre_commit gate or nothing staged) for:$dirty"
+  say "commit refused (pre_commit gate, signing, or nothing staged) for:$dirty"
   exit 0
 fi
 
 note=""
 [ "$settings_dirty" = 1 ] && note=" (settings.json left uncommitted)"
 if yadm push -q >/dev/null 2>&1; then
-  report "pushed:$dirty$note"
+  say "pushed:$dirty$note"
+elif [ "$(yadm rev-list --count 'HEAD..@{u}' 2>/dev/null || echo 0)" -gt 0 ]; then
+  say "committed but behind origin, run dotsync then it pushes next Stop:$dirty$note"
 else
-  report "committed but push failed (offline?):$dirty$note"
+  say "committed but push failed (offline? rejected?):$dirty$note"
 fi
 exit 0
