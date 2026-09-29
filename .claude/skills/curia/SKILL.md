@@ -21,20 +21,23 @@ awake/asleep lands, filter to awake only. -->
 
 ## Per item
 
-For each candidate, in a fresh subagent:
+For each candidate:
 
 <!-- The exact context budget, subagent prompt shape, and return format are
      open — design doc §6 item 2: "the curia procedure in detail: how much
      context a one-shot question carries, what the subagent returns, how a
      deferral is recorded. Design work for rung 4." -->
 
-1. Gather context for the item.
-2. Present one one-shot question with its **default**, **undo**, and **risk**.
+1. A fresh subagent gathers context for the item and returns one typed
+   question with its **default**, **undo**, **until** and **risk**. A
+   subagent has no channel to Solace, so it never asks; it only prepares.
+2. The sitting asks that question, as returned, in an `AskUserQuestion`
+   dialog. Nothing else from the subagent enters the sitting's context.
 3. Solace rules.
 4. Record the ruling immediately, at the place the work lands.
    <!-- Where "the work lands" is defined per item type: decisions.md,
         the card itself, a referenced issue. Not yet specified uniformly. -->
-5. Clear context. Next item.
+5. Discard the subagent. Next item.
 
 ## Deferring to a confer
 
