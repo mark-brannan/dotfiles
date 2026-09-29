@@ -362,7 +362,7 @@ Dates are as found on 2026-09-29.
   - Maps to: the skills as named roles. There the planning documents are the
     agents' output; here the governing documents are the human's.
 - **Cursor rules.** Project rules are `.mdc` files in `.cursor/rules/`, with
-  frontmatter for description, globs and always-apply; a plain `.md` there is
+  frontmatter `description`, `globs` and `alwaysApply`; a plain `.md` there is
   ignored. Cursor also reads `AGENTS.md`, nested.
   [cursor.com](https://cursor.com/docs/context/rules)
   - Maps to: `.claude/rules/`, loaded by the files being worked on.
@@ -372,7 +372,8 @@ Dates are as found on 2026-09-29.
   - Maps to: `.claude/rules/code.md` and `writing.md`.
 - **GitHub Copilot custom instructions.** `.github/copilot-instructions.md`
   for the repository, `.github/instructions/*.instructions.md` by path glob,
-  and `AGENTS.md`, `CLAUDE.md` or `GEMINI.md` at the root for agents.
+  and for agents `AGENTS.md` anywhere in the tree, nearest wins, or one
+  `CLAUDE.md` or `GEMINI.md` at the root.
   [docs.github.com](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)
   - Maps to: the same split as `CLAUDE.md` and `.claude/rules/`.
 - **adr-tools.** Pryce, N., 2016. Shell scripts that number and link
@@ -391,8 +392,8 @@ Dates are as found on 2026-09-29.
   [github.com](https://github.com/karpathy/llm-council)
   - Maps to: a second agent as a way to verify. Here the chairman is the
     human, and the council only advises.
-- **Perplexity Model Council.** Perplexity, 10 February 2026 (date from press
-  coverage; the post refused fetches). Three models answer one question and a
+- **Perplexity Model Council.** Perplexity, 5 February 2026 (press coverage;
+  the post's own date unverified). Three models answer one question and a
   synthesiser shows where they agree and where they differ.
   [perplexity.ai](https://www.perplexity.ai/hub/blog/introducing-model-council)
   - Maps to: the confer. Disagreement is surfaced for the human, not voted
