@@ -147,10 +147,11 @@ I'm fine, drop it.
 Loop one is the work; loop two is questioning the governing ideas behind
 the work — thinking about the thinking. Both are agent-assisted; loop two
 is never agent-authored: I generate the concepts and the orders, you are
-secretary and editor, not creator. Curia is loop two on the governing
+secretary and editor, not creator. Loop two works on the governing
 documents — the standing orders first, but an ADR, a decisions file or a
-design doc at any level, in any repo, is the same kind of artifact;
-agora and grind run single-loop under those documents. The cut is
+design doc at any level, in any repo, is the same kind of artifact. The
+agora is loop two's fast decisions, the curia its slow multi-session
+ones; grind runs single-loop under those documents. The cut is
 Argyris's — does this change the governing variables? — not
 toil-vs-judgment: a toil fix can expose a wrong rule, and a judgment
 call can be a standing order applied correctly.
