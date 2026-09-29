@@ -45,10 +45,15 @@ git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 git symbolic-ref -q HEAD >/dev/null 2>&1 || exit 0   # detached: nothing sensible to check
 
 # Commits the push would send: upstream..HEAD, else origin/HEAD..HEAD.
-base=$(git rev-parse -q --verify '@{u}' 2>/dev/null) \
-  || base=$(git rev-parse -q --verify 'origin/HEAD' 2>/dev/null) \
-  || exit 0
-unsigned=$(git rev-list "$base..HEAD" 2>/dev/null | while read -r sha; do
+# Anything already on origin/HEAD is excluded either way. A branch that merged
+# main after its first push carries main's history past its own upstream; if
+# main holds unsigned commits (a web edit, a key-less VM), counting them here
+# denies every such branch or goads it into re-signing main into duplicates.
+# The PR doesn't list them and they are not this branch's to fix.
+main=$(git rev-parse -q --verify 'origin/HEAD' 2>/dev/null) || main=""
+base=$(git rev-parse -q --verify '@{u}' 2>/dev/null) || base=$main
+[ -n "$base" ] || exit 0
+unsigned=$(git rev-list HEAD --not "$base" ${main:+"$main"} 2>/dev/null | while read -r sha; do
   git cat-file -p "$sha" | grep -q '^gpgsig' || git log -1 --pretty='%h %s' "$sha"
 done)
 [ -n "$unsigned" ] || exit 0
