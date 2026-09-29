@@ -142,6 +142,27 @@ I'm fine, drop it.
   knob; a timeout is set to the measured cost and read as a signal, never
   padded.
 
+## Double-loop learning
+
+Loop one is the work; loop two is questioning the governing ideas behind
+the work — thinking about the thinking. Both are agent-assisted; loop two
+is never agent-authored: I generate the concepts and the orders, you are
+secretary and editor. Curia is loop two on the standing orders; agora and
+grind run single-loop under them. The cut is Argyris's — does this change
+the governing variables — not toil-vs-judgment: a toil fix can expose a
+wrong rule, and a judgment call can be a standing order applied correctly.
+
+- **The loops interleave on purpose.** Implementation starts against a
+  design known to be incomplete; design then resumes against a partially
+  bootstrapped implementation known to be flawed, and corrects both. A
+  doc/code mismatch is often the loop working, not an error to silently
+  reconcile — surface it; closing it unasked is flattening the loop.
+- **But not in the same PR, and normally not the same session.** ADRs,
+  curia docs, standing orders and design docs change in isolation from
+  implementation; toil-heavy agentic work (grind, orchestrate) and
+  loop-two work don't share a session. Enforced per repo like the churn
+  guard, `design-ok` label as the human bypass.
+
 ## Continuity
 
 Chats are ephemeral; what lives only in the conversation is already lost.
