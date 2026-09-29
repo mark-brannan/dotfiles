@@ -41,7 +41,8 @@ rows and their meanings are in `rubric.md` beside this file.
    > in <absolute path to rubric.md>. Read-set: <paths / gh commands>.
    > Read every file in the read-set whole, not excerpts. Rows 8 and 9
    > are curia-only and read `n/a` for other kinds. Row 12 covers open
-   > curiae (`state/global/curia/*/thread.md` with `status: open`), issues
+   > curiae (a `thread.md` whose header has `- status: open`, or no status
+   > line at all, which counts open until it says settled), issues
    > and PRs in the target's repo. You are read-only: no edits, no
    > commits, no agents, no comments. Return only the table in the
    > rubric's format, the one-line verdict, and the how-measured lines.
