@@ -243,6 +243,8 @@ case "$tool" in
   mcp__*__create_and_submit_pull_request_review|mcp__*__submit_pending_pull_request_review)
     repo=$(printf '%s' "$payload" | jq -r 'if (.tool_input.owner? // "") != "" and (.tool_input.repo? // "") != "" then "\(.tool_input.owner)/\(.tool_input.repo)" else "-" end' 2>/dev/null)
     printf 'R\t%s\n' "${repo:--}" >> "$META"
+    # A `labels` field is the MCP route to the same denied labels.
+    printf '%s' "$payload" | jq -r '.tool_input.labels? // [] | .[] | strings | "L\t\(.)"' 2>/dev/null >> "$META"
     printf '%s' "$payload" | jq -r '[.tool_input | .. | strings] | join("\n")' 2>/dev/null >> "$WORK/text-cmd" || deny 'unreadable hook payload'
     ;;
   *) exit 0 ;;
@@ -256,7 +258,7 @@ while IFS="$(printf '\t')" read -r kind value; do
   [ "$kind" = L ] || continue
   value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
   for bad in $DENY_LABELS; do
-    [ "$value" = "$bad" ] && deny "the label \`$bad\` is a human's to apply, not a session's -- it waives the churn gate, and a gate whose bypass the gated party can reach is not a gate. Split the PR instead, or say in the PR body why it has to be over budget and let the label be added by hand."
+    [ "$value" = "$bad" ] && deny "the label \`$bad\` is a human's to apply, not a session's -- it waives a CI gate, and a gate whose bypass the gated party can reach is not a gate. Split the PR instead, or say in the PR body why it needs the waiver and let the label be added by hand."
   done
 done < "$META"
 

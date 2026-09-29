@@ -7,7 +7,8 @@ name: Design isolation guard
 # implementation it governs do not change in the same PR. A mixed PR is
 # unreviewable in the way that matters: the reader cannot tell whether the
 # doc was bent to fit the code or the code to fit the doc. Ruled by
-# Solace, 2026-09-29 (one-entry-point design ledger, §9).
+# Solace, 2026-09-29; the standing order is the "Double-loop learning"
+# section of .claude/CLAUDE.md.
 #
 # Design set: every CLAUDE.md, .claude/rules/, .claude/docs/,
 # docs/decisions.md, docs/references.md, any ADR path, and the curia and

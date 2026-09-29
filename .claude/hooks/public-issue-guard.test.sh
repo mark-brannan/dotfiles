@@ -164,6 +164,15 @@ check deny 'add-label CHURN-OK'      "$(bash_in "$PUB" 'gh pr edit 12 --add-labe
 check deny 'churn-ok through gh api' "$(bash_in "$PUB" 'gh api repos/mark-brannan/dotfiles/issues/12/labels -f "labels[]=churn-ok"')"
 check allow 'another label is fine'  "$(bash_in "$PUB" 'gh pr edit 12 --add-label ready')"
 check allow 'the label named in a body' "$(bash_in "$PUB" 'gh pr comment 12 -b "this needs the churn-ok label"')"
+# design-ok waives the design-isolation gate the same way, and the deny
+# list is one place: adding a label there closes every route at once.
+check deny 'add-label design-ok'     "$(bash_in "$PUB" 'gh pr edit 12 --label design-ok')"
+reason 'names the label'             'design-ok'
+# The MCP route: a labels field on an issue or PR write is a label applied.
+check deny 'MCP labels design-ok'    "$(mcp_in mcp__github__update_pull_request '{"owner":"o","repo":"r","pullNumber":12,"labels":["ready","design-ok"]}')"
+reason 'names the label'             'design-ok'
+check deny 'MCP labels churn-ok, private repo too' "$(mcp_in mcp__github__update_issue "{\"owner\":\"mark-brannan\",\"repo\":\"claude_prompts_scratch\",\"issue_number\":12,\"labels\":[\"Churn-OK\"]}")"
+check allow 'MCP other labels'       "$(mcp_in mcp__github__update_issue '{"owner":"o","repo":"r","issue_number":12,"labels":["ready"]}')"
 
 # --- the gate is loud when it cannot see ------------------------------------------
 check deny '-F - with no heredoc'    "$(bash_in "$PUB" 'cat notes.md | gh issue create -t x -F -')"
