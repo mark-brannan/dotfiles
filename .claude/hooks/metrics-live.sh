@@ -848,7 +848,7 @@ if [ "$hook_name" = Stop ]; then
       # as consumed, so this reason is their only chance to be seen. They go
       # in front of the instruction rather than being dropped -- nags, then
       # the archival verdict, same order as the screen.
-      reason="Write the resume block: append a \`## Resume\` block (next, link, model, effort) to this session's checkpoint in $(state_dir)/log/auto/."
+      reason="Write the resume block: append a \`## Resume\` block (next, link, model, effort) to this session's checkpoint in $(state_dir)/log/auto/. Then answer in one line naming where it landed -- no summary, no question, nothing new. The user's next words are the last of the session."
       pre="$sys_lines"
       [ -z "$arch_lines" ] || pre="${pre:+$pre
 }$arch_lines"
