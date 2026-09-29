@@ -2,7 +2,8 @@
 
 Read by the measuring sub-agent. Each row gets a measured value and a mark:
 `ok`, `--` (a gap to declare), or a short word when neither fits
-(`choose at PR`, `n/a`). A mark is a reading, not a gate.
+(`choose at PR`). A row that does not apply reads `n/a` in the measured
+column and leaves the mark blank. A mark is a reading, not a gate.
 
 After the table, one line per row saying **how** it was measured:
 `count` (counted in the text), `grep` (a pattern search), `gh` (a GitHub
