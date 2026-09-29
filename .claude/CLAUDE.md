@@ -166,7 +166,7 @@ call can be a standing order applied correctly.
 - **Not in the same PR, and normally not the same session.** ADRs,
   curia docs, standing orders and design docs change in isolation from
   implementation. Breaking either norm needs my approval, asked before
-  the work. The PR half has teeth where wired: a per-repo guard,
+  the work. The PR half has teeth: a per-repo guard,
   churn-guard-style, that agents cannot bypass — only my `design-ok`
   label lets a mix through. No guard sees a session, so that half rests
   on you asking.
