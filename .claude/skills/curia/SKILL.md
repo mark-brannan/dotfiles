@@ -19,7 +19,7 @@ durable document is the point).
 - **One question, one document.** `/curia <id>` opens or continues the
   curia on the document for `<id>`; open and continue are the same
   prompt. <!-- Where the document lives, and what a placeholder is before
-  one exists: open (design doc, open question on /confer mechanics). -->
+  one exists: open (design doc, open question on `/curia <id>` mechanics). -->
 - **A loop over sessions, not a session.** Solace's last words carry over
   verbatim; every unsettled question carries over. Fresh context each
   time; what is settled lands at once.
@@ -37,10 +37,15 @@ durable document is the point).
 
 ## Opening
 
-1. Read the document's loop section first, then Solace's word and design
+1. A read-only sub-agent lints the document first: contradictions, stale
+   claims and orphan terms across decided so far, open questions, the word
+   ledger and the domain model, returned as a diff. Show the diff before
+   the dialogue starts; only its list enters this context (Solace,
+   2026-09-29).
+2. Read the document's loop section, then Solace's word and design
    preferences, Solace's words (every pass), decided so far, and the open
    question named by `<id>`.
-2. State where the question stands in one line and ask the first
+3. State where the question stands in one line and ask the first
    question, 1 of Y.
 
 ## During

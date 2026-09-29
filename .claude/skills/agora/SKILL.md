@@ -8,8 +8,9 @@ description: Run an agora sitting — the quick decisions, in batch, one fresh s
 Solace's analogue of grind: the sitting in which the quick judgment items
 are consumed in batch. Each item is quick by construction; a hard one is
 answered with the one word **confer**, the sitting moves past it, and it
-goes to its own `/curia <id>` session. This skill absorbs `/ruling`
-(retired 2026-09-29): the typed per-item contract below was ruling's.
+goes to its own `/curia <id>` session. This skill absorbs `/ruling` (retired by
+Solace, 2026-09-29, in the design confer): the typed per-item contract below
+was ruling's.
 
 Ancestor concepts: GTD inbox processing, office hours, a replenishment
 cadence; the ruling's default that holds is "act after a veto window".
