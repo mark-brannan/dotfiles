@@ -42,6 +42,12 @@ BIN="$S/bin"; mkdir -p "$BIN"
 cat > "$BIN/gh" <<'EOF'
 #!/bin/sh
 [ "${GH_FAIL:-0}" = 1 ] && { echo "gh: not logged in" >&2; exit 1; }
+# GH_LOG, when set, records each call with its grandparent's argv -- the
+# script that wanted the answer (branch-home-gate.sh --check vs --card).
+if [ -n "${GH_LOG:-}" ]; then
+  gp=$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ')
+  echo "$* <- $(ps -o args= -p "$gp" 2>/dev/null)" >> "$GH_LOG"
+fi
 case "$1 ${2:-}" in
   "pr list")    printf '%s\n' "${GH_PRS:-[]}" ;;
   "issue list") printf '%s\n' "${GH_ISSUES:-[]}" ;;
@@ -83,6 +89,22 @@ eq 'clean, pushed, PR: archivable' 'archivable' "$(verdict)"
 eq 'the metrics record says the same' 'archivable' \
   "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/$SID.json")"
 has 'the worktree is recorded for resume-list' "^- worktree .$WORK.$" "$CKPT"
+
+# --- one gh round trip per Stop ---------------------------------------------------
+# The verdict's home check and the pickup item's `pr:` lookup ask the same
+# question. The answer travels through ARCHIVABLE_HOME_FILE (lib-state.sh);
+# a variable set inside `$(archivable_reasons ...)` dies with the subshell,
+# which is how the reuse silently never fired once (PR #388, design pass).
+GH_LOG="$S/gh.log"; : > "$GH_LOG"
+SID=ghlog000-1111-2222-3333 GH_LOG="$GH_LOG" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+# claim-stamp.sh's own `--card` lookup is a separate, deliberate call and is
+# not counted here; the verdict's `--check` is what must run once.
+eq 'the verdict asks gh for the head once per Stop' 1 \
+  "$(grep -c -- '^pr list --head.*branch-home-gate.sh --check' "$GH_LOG")"
+eq 'and the pickup item still learns the PR' 'pr: https://github.com/o/r/pull/7' \
+  "$(grep '^pr: ' "$HOME"/.claude/state/global/pickup/*-ghlog000.md 2>/dev/null | head -1)"
+assert 'the home file does not outlive the Stop' \
+  bash -c "! ls '$TMPDIR'/claude-stop-home.* >/dev/null 2>&1"
 
 # --- no PR and no pointer --------------------------------------------------------
 stop
@@ -248,6 +270,23 @@ sed -i 's/^> confer test-question: make it so$/The model folded these words into
 TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 has 'a model-edited entry is never clobbered' '^The model folded these words into the record\.$' "$TH"
 eq 'and no second entry appears' 1 "$(grep -c "session ${SID:0:8} (hook)" "$TH")"
+
+# Reading a thread is not sitting on it: a session whose tool calls cat or ls
+# the thread file, with no prompt naming the curia, leaves it untouched. Once
+# bare `/curia` lists every thread (#403), every sitting would otherwise stamp
+# every thread with its own unrelated last words.
+TP5="$S/curia-transcript-cat.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"what is open on the board?","timestamp":"2026-09-26T14:00:00.000Z"}\n'
+  printf '{"type":"assistant","uuid":"a-cat","timestamp":"2026-09-26T14:00:01.000Z","message":{"role":"assistant","model":"m","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cat %s; ls %s"}},{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"%s"}}]}}\n' \
+    "$TH" "$CURD" "$TH"
+} > "$TP5"
+SID2=catsess0-1111-2222-3333
+before=$(cat "$TH")
+TP="$TP5" SID="$SID2" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'a cat/ls of the thread does not stamp it' "$before" "$(cat "$TH")"
+assert 'no words entry for the reading session' bash -c "! grep -q 'session ${SID2:0:8}' '$TH'"
 
 # A named curia whose thread does not exist is skipped without a write.
 assert 'no thread is invented for an unknown id' \

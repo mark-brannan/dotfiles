@@ -67,7 +67,12 @@ mkdir -p "$SD/metrics/sessions" "$SD/metrics/decisions" "$SD/metrics/friction" "
 # (dotfiles#161). state_lock installs no trap of its own (lib-state.sh), so
 # this is where it is armed; a failed acquisition degrades to running
 # unlocked rather than skipping the write -- a metrics hook never blocks Stop.
-trap 'state_unlock' EXIT TERM INT
+# archivable_reasons() runs inside $(...) below, so the home line it fetches
+# comes back through this file (lib-state.sh), not a variable; the pickup
+# item reads it rather than paying the gh round trip again. Fresh per Stop.
+ARCHIVABLE_HOME_FILE="${TMPDIR:-/tmp}/claude-stop-home.$$"
+rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
+trap 'state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null' EXIT TERM INT
 
 # Commit count comes from git, never from grepping the transcript for
 # "git commit": a heredoc that writes a script containing that string is
@@ -536,9 +541,9 @@ pickup_item() {
     if [ "$pi_pr" = none ] && [ "$ust" = 'ahead 0' ] && [ -x "$HOOK_DIR/branch-home-gate.sh" ] \
        && [ -z "$(find "$miss" -mmin -10 2>/dev/null)" ]; then
       # The verdict's own home check (archivable_reasons, lib-state.sh)
-      # stashes its result; reuse it rather than paying the gh round trip
-      # twice in one Stop.
-      home=${BHG_HOME_LINE:-}
+      # left its line in ARCHIVABLE_HOME_FILE; reuse it rather than paying
+      # the gh round trip twice in one Stop.
+      home=$(cat "$ARCHIVABLE_HOME_FILE" 2>/dev/null)
       [ -n "$home" ] || home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
       case "$home" in
         'home: https://'*) pi_pr=$(printf '%s' "$home" | sed 's/^home: //' | grep -oE '^https://[^ ]+') ;;
