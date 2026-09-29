@@ -1,4 +1,4 @@
-name: Design isolation guard
+name: Mixed loops guard
 
 # Loop one is the work; loop two is questioning the governing ideas behind
 # it. The two interleave on purpose -- implementation starts against a
@@ -18,7 +18,7 @@ name: Design isolation guard
 # Everything else -- README, runbooks, tests, the other skills -- is
 # neutral and never trips the gate.
 #
-# Bypass is the `design-ok` label, applied by a human. A session cannot
+# Bypass is the `mixed-loops-ok` label, applied by a human. A session cannot
 # apply it: public-issue-guard.sh denies the label by name. A gate whose
 # bypass the gated party can reach is not a gate.
 
@@ -27,14 +27,14 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
 concurrency:
-  group: design-isolation-${{ github.event.pull_request.number || github.ref }}
+  group: mixed-loops-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  isolation:
+  mixed-loops:
     runs-on: ubuntu-latest
     env:
       LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
@@ -98,8 +98,8 @@ jobs:
           # human allowance and must not carry an error annotation on a
           # green step.
           case " $LABELS " in
-            *" design-ok "*)
-              echo "::notice::design and implementation in one PR -- allowed by the design-ok label"
+            *" mixed-loops-ok "*)
+              echo "::notice::design and implementation in one PR -- allowed by the mixed-loops-ok label"
               exit 0
               ;;
           esac
@@ -107,5 +107,5 @@ jobs:
           echo "::error::design and implementation in one PR"
           echo "Split it: the design change lands alone, the implementation follows."
           echo "The loops interleave on purpose; the PRs do not."
-          echo "Bypass is the design-ok label, a human's to apply."
+          echo "Bypass is the mixed-loops-ok label, a human's to apply."
           exit 1

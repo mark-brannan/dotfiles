@@ -34,7 +34,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Audit the `awaiting-human` label](#audit-the-awaiting-human-label)
 - [Find out which session holds a branch](#find-out-which-session-holds-a-branch)
 - [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
-- [Waive the design-isolation gate on a PR](#waive-the-design-isolation-gate-on-a-pr)
+- [Waive the mixed-loops gate on a PR](#waive-the-mixed-loops-gate-on-a-pr)
 - [Run the PR fixer on a timer](#run-the-pr-fixer-on-a-timer)
 
 **Troubleshooting**
@@ -580,23 +580,23 @@ repo yet — create it once:
 gh label create churn-ok --repo mark-brannan/dotfiles --color FBCA04 --description "Waives the churn-diff gate (human-applied only)"
 ```
 
-## Waive the design-isolation gate on a PR
+## Waive the mixed-loops gate on a PR
 
-`design-ok` lets a design document and the implementation it governs land
-in one PR (`.github/workflows/design-isolation-guard.yml`). Human-applied:
+`mixed-loops-ok` lets a design document and the implementation it governs land
+in one PR (`.github/workflows/mixed-loops-guard.yml`). Human-applied:
 `public-issue-guard.sh` blocks a session from adding it by `gh` or MCP.
 
 ```bash
-gh pr edit <PR#> --repo mark-brannan/dotfiles --add-label design-ok
+gh pr edit <PR#> --repo mark-brannan/dotfiles --add-label mixed-loops-ok
 ```
 
-Verify: the `isolation` check on the PR reruns green and its log ends
-`allowed by the design-ok label`.
+Verify: the `mixed-loops` check on the PR reruns green and its log ends
+`allowed by the mixed-loops-ok label`.
 
-If it fails with `'design-ok' not found`, create the label once:
+If it fails with `'mixed-loops-ok' not found`, create the label once:
 
 ```bash
-gh label create design-ok --repo mark-brannan/dotfiles --color BFD4F2 --description "Human waiver: design and implementation may land in this one PR"
+gh label create mixed-loops-ok --repo mark-brannan/dotfiles --color BFD4F2 --description "Human waiver: design and implementation may land in this one PR"
 ```
 
 ## Run the PR fixer on a timer
