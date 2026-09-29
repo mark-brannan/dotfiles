@@ -414,16 +414,11 @@ printf '%s' "$record" | jq -e '.buckets' >/dev/null 2>&1 \
   || { echo "grind: worklist --json carries no buckets; is worklist older than grind?" >&2; exit 1; }
 
 # --- review band: pause dispatch while PRs awaiting a look pile up -----------
-# memory: review-band-five-to-ten (Solace, 2026-09-22) -- cap what is
-# awaiting a human look, not what is running. worklist's own
-# buckets.awaiting_human is the one reader for this (the same PRs its own
-# render calls "Solace's turn"), so grind and `worklist` can never disagree
-# about whether the band is full. Hysteresis: once paused at ten, a later
-# run keeps pausing until the count drops below five, not merely below ten,
-# so a count sitting at seven or eight doesn't flap the gate open and shut.
-# That state has to survive between separate invocations -- a `grind --prs`
-# timer run is the case this exists for -- so it is a marker file beside the
-# per-repo lock, not anything held in memory for the run.
+# memory: review-band-five-to-ten (Solace, 2026-09-22). The count is
+# worklist's own buckets.awaiting_human -- the PRs its render calls "Solace's
+# turn" -- so grind and worklist cannot disagree about whether the band is
+# full. The hysteresis (paused at ten, resumes below five) lives in a marker
+# file beside the per-repo lock: a `grind --prs` timer firing is a fresh process.
 if [ "$dry_run" -eq 0 ]; then
   awaiting_human_count=$(printf '%s' "$record" | jq '.buckets.awaiting_human | length')
   band_marker="$state_root/band-paused-$(printf '%s' "$repo" | tr '/' '_')"

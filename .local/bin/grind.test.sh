@@ -1309,7 +1309,7 @@ jq -nc '[range(0;4)|{number:(200+.)}]' > "$S/awaiting-human.json"
 run --session-budget 100 --pause-every 10
 eq 'exit 0' 0 "$RC"
 eq 'one claude call once the band drops below five' 1 "$(calls_claude)"
-assert 'the band marker was cleared' bash -c '! test -f "$S/state/grind/band-paused-o_alpha"'
+assert 'the band marker was cleared' test ! -f "$S/state/grind/band-paused-o_alpha"
 
 # A mid-band count that never crossed ten sets no marker, and five-to-ten
 # alone is not a floor on ordinary dispatch (it only holds a pause that
