@@ -163,6 +163,10 @@ call can be a standing order applied correctly.
   loop working, not an error: name the mismatch and which side reads
   wrong, and leave both standing. Editing either to match the other
   unasked erases the signal.
+- **Governing documents aspire.** They speak in the present tense of the
+  state they aim at, and may run ahead of their supporting code; we
+  strive to bring the code into sync. Don't hedge a doc back to what
+  exists today — the gap is loop one's work, not the doc's error.
 - **Not in the same PR, and normally not the same session.** ADRs,
   curia docs, standing orders and design docs change in isolation from
   implementation. Breaking either norm needs my approval, asked before
