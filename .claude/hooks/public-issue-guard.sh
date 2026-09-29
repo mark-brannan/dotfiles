@@ -53,10 +53,11 @@ HERE=$(dirname "$0")
 LIB="$HERE/lib-shell-words.awk"
 PRIVATE_REPO="mark-brannan/claude_prompts_scratch"
 # Labels a session may not apply, space separated. `churn-ok` waives the
-# churn gate (.github/workflows/churn-guard.yml): a gate whose bypass the
-# gated party can apply to its own PR is not a gate, so that label is a
-# human's to add.
-DENY_LABELS="churn-ok"
+# churn gate (.github/workflows/churn-guard.yml) and `design-ok` the
+# design-isolation gate (design-isolation-guard.yml): a gate whose bypass
+# the gated party can apply to its own PR is not a gate, so those labels
+# are a human's to add.
+DENY_LABELS="churn-ok design-ok"
 
 deny() {
   if command -v jq >/dev/null 2>&1; then
