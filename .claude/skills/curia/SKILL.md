@@ -50,7 +50,7 @@ state/global/curia/<id>/
   thread.md   the document: where it stands, the derived record, Solace's words
   notes.md    the agent's own notes, any format it likes (optional)
   inputs/     read-only side products: spikes, side-chat pastes, subagent reports
-  minted.md   links to everything this curia minted (created at the first mint)
+  minted.md   links to what this curia minted (created when it first mints something)
 ```
 
 Two grains in `thread.md`: **Solace's words are append-only** — a new
@@ -115,7 +115,9 @@ dying mid-turn.
 ## Closing (Solace says when)
 
 1. Land every edit; rewrite **Where this stands** — last words verbatim,
-   what is unsettled, the X of Y position for next time.
+   what is unsettled, the X of Y position for next time. If Solace has
+   ruled the question itself settled, set `status: settled` in the header
+   too — bare `/curia` lists open curiae, and nothing else retires one.
 2. Say what is still open on this question, by concept.
 3. Print the paste-again prompt: `/curia <id>`, with the model and effort
    from the document's header. Nothing else to paste, nothing to hold in
