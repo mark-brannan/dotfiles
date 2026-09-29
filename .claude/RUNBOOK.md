@@ -23,7 +23,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
 - [Check a repo's prose budgets](#check-a-repos-prose-budgets)
 - [Prune stale Stop-hook salvage refs](#prune-stale-stop-hook-salvage-refs)
-- [Read the continuity stack](#read-the-continuity-stack)
+- [Read the pickup items](#read-the-pickup-items)
 
 **GitHub repository**
 - [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
@@ -328,24 +328,27 @@ prune-wip-refs --delete
 Verify: exit 0 and a final `deleted N wip ref(s)` line; each deletion line
 carries its undo. `prune-wip-refs --help` has the rules.
 
-## Read the continuity stack
+## Read the pickup items
 
-The Stop hook writes one item per session to the state repo's
-`state/global/stack/`, every Stop, from the transcript and git; a session that
-dies mid-work still leaves its item. Newest is on top.
+The Stop hook writes one pickup item per session to the state repo's
+`state/global/pickup/`, every Stop, from the transcript and git; a session
+that dies mid-work still leaves its item. Newest is on top. The body below
+the `---` is the hand-off: the hook defaults it to the last prompt line and
+keeps any edit a model makes.
 
 ```bash
-stack                  # top five, as a tree
-stack --all            # every open item
-stack find <word>
+pickup-list                  # top five, newest first, plus the docket count
+pickup-list --all            # every open item
+pickup-list find <word>
 ```
 
-To continue an item, `stack take <id>` in the new session, so the new
-session's own item lands under it. A question or something Solace said,
-verbatim: `stack push question "<text>"` or `stack push said "<text>"`.
+To continue an item, `/pickup` in a new session, or `pickup-list take <id>`
+by hand. A question for Solace is a board card (`/card-write`); Solace's
+words on a curia land on that curia's thread, stamped by the same hook.
 
-Verify: `stack` lists the session's own item within a minute of its last
-Stop, with `stack show <id>` naming the branch and its ahead/dirty state.
+Verify: `pickup-list` lists the session's own item within a minute of its
+last Stop, with `pickup-list show <id>` naming the branch and its
+ahead/dirty state.
 
 ## Cut and promote a prose-budget engine version
 
