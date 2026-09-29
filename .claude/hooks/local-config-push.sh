@@ -90,8 +90,12 @@ if ! yadm add -- $dirty >/dev/null 2>&1; then
 fi
 # The pre_commit hook (secret guard) runs as configured for yadm's repo --
 # this is the "in the loop" part of R4, not a separate check here.
+# `-- $dirty` on the commit as well as the add: $HOME is the whole yadm
+# worktree, and a bare `commit` would sweep in whatever else is staged --
+# a secrets file mid `yadm add && yadm commit` by hand, say.
+# shellcheck disable=SC2086
 if ! yadm commit -q -m "config: local edit ($(date -u +%Y-%m-%d))" \
-     -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
+     -m "Co-Authored-By: Claude <noreply@anthropic.com>" -- $dirty >/dev/null 2>&1; then
   # shellcheck disable=SC2086
   yadm reset -q -- $dirty >/dev/null 2>&1
   say "commit refused (pre_commit gate, signing, or nothing staged) for:$dirty"

@@ -89,6 +89,16 @@ check "settings.json left uncommitted" "$([ -n "$(git -C "$home" status --porcel
 check "report names the push" "$(last_report "$home")" "pushed: .claude/CLAUDE.md (settings.json left uncommitted)"
 check "push is said on screen" "$(printf '%s' "$out" | grep -c '"systemMessage":"local-config-push: pushed:')" "1"
 
+# --- something else already staged by hand stays out of the commit -----------
+IFS='|' read -r home bin origin <<<"$(setup_home)"
+echo 'export SECRET=1' > "$home/.zshrc"
+git -C "$home" add .zshrc
+echo '# changed' >> "$home/.claude/CLAUDE.md"
+run_hook "$home" "$bin" "$home" >/dev/null
+check "hand-staged file: the config commit still happens" "$(git -C "$home" rev-list --count HEAD)" "2"
+check "hand-staged file is not in the commit" "$(git -C "$home" show --stat --format= HEAD | grep -c '\.zshrc' || true)" "0"
+check "hand-staged file is still staged afterwards" "$(git -C "$home" diff --cached --name-only)" ".zshrc"
+
 # --- run from a project dir with its own .claude/: $HOME's copy still wins -----
 # yadm resolves a relative pathspec against cwd; a Stop hook runs in the project.
 IFS='|' read -r home bin origin <<<"$(setup_home)"
