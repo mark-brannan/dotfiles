@@ -163,12 +163,12 @@ call can be a standing order applied correctly.
   loop working, not an error: name the mismatch and which side reads
   wrong, and leave both standing. Editing either to match the other
   unasked erases the signal.
-- **But not in the same PR, and normally not the same session.** ADRs,
+- **Not in the same PR, and normally not the same session.** ADRs,
   curia docs, standing orders and design docs change in isolation from
-  implementation; toil-heavy agentic work (grind, orchestrate) and
-  loop-two work never share a session, and lighter mixes fall under the
-  normally. A per-repo guard, churn-guard-style with a human-applied
-  `design-ok` bypass, backs the PR half where wired.
+  implementation, and loop-two work doesn't share a session with
+  implementation. The norm has teeth: a per-repo guard, churn-guard-style,
+  that agents cannot bypass; only my `design-ok` label lets a mix through,
+  so breaking the norm needs my approval, asked before the work.
 
 ## Continuity
 
