@@ -685,6 +685,11 @@ cat > "$S/ready.json" <<'JSON'
   {"number": 7, "title": "Flaky item", "body": "b", "url": "https://github.com/o/alpha/issues/7", "labels": [{"name": "ready"}]}
 ]
 JSON
+# These next few blocks are workers that genuinely produced nothing: no PR
+# for this item exists to verify against.
+cat > "$S/pr-list.json" <<'JSON'
+[]
+JSON
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
 cat > "$S/bin/claude" <<GH
@@ -720,6 +725,9 @@ fi
 GH
 chmod +x "$S/bin/claude"
 session_id=$(basename "$sess" .json)
+cat > "$S/pr-list.json" <<'JSON'
+[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
+JSON
 : > "$CLAUDE_LOG"
 run --resume "$session_id"
 eq 'the failed item retried on resume' 1 "$(calls_claude)"
@@ -727,6 +735,9 @@ has 'retried item now succeeds' '^o/alpha#7: Flaky item --'
 eq 'now recorded in state' 1 "$(jq '.items | length' "$sess")"
 
 # --- a worker that exits non-zero WITH a JSON result: cost kept, item retried ------
+cat > "$S/pr-list.json" <<'JSON'
+[]
+JSON
 rm -f "$S/state/grind"/*.json
 cat > "$S/bin/claude" <<GH
 #!/bin/sh
@@ -758,6 +769,39 @@ session_id=$(basename "$sess" .json)
 run --resume "$session_id"
 eq 'failed-with-cost item retried on resume' 1 "$(calls_claude)"
 
+# --- ...but the same non-zero exit is not a failure when the work had already
+# landed: --max-budget-usd can kill a worker on the tool call right after it
+# commits and pushes, and the exit code says nothing about whether that
+# commit made it out. Found 2026-09-29 on dotfiles#249/#388: both hit the
+# item cap mid-turn and were recorded failed; #249's commit had already
+# landed on the PR before the cap killed the worker.
+cat > "$S/pr-list.json" <<'JSON'
+[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
+JSON
+rm -f "$S/state/grind"/*.json
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+echo '{"type":"result","is_error":true,"total_cost_usd":1.00,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"Budget exceeded"}'
+exit 1
+GH
+chmod +x "$S/bin/claude"
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+has 'a budget-capped worker is done once the PR check finds its push' '^o/alpha#7: Flaky item -- sonnet, \$1\.00'
+lacks 'not reported as a failure' '^FAILED'
+sess=$(latest_session)
+eq 'recorded done, not failed, in state' done "$(jq -r '.items[0].status' "$sess")"
+
+# these blocks are back to "nothing landed" for the rest of the section
+cat > "$S/pr-list.json" <<'JSON'
+[]
+JSON
+
 # --- a non-zero exit alone makes the item failed, even on a clean result ----------
 # Nothing in the result event says anything went wrong here: `is_error` is
 # absent and the worker even claims done. Only claude's exit status carries
@@ -783,6 +827,11 @@ has 'a non-zero exit is a failure whatever the result claims' '^FAILED: o/alpha#
 lacks 'not reported as a normal completed item' '^o/alpha#7: Flaky item --'
 sess=$(latest_session)
 eq 'recorded failed on exit status alone' failed "$(jq -r '.items[0].status' "$sess")"
+
+# restore pr-list.json to "this item's PR verifies" for the rest of the suite
+cat > "$S/pr-list.json" <<'JSON'
+[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
+JSON
 
 # restore the real claude shim
 cat > "$S/bin/claude" <<GH
@@ -1195,6 +1244,58 @@ reply 0.20 "blocked" 1
 run --prs
 has 'a labelled give-up is a clean blocked' '^blocked: .*#11 -- PR 11'
 lacks 'and is not unverified' 'UNVERIFIED'
+
+# --- a worker that errors mid-turn is done, not failed, once its fixup has
+# already landed -- --max-budget-usd can kill a worker on the very next tool
+# call after it pushes a signed commit or Mergify adds awaiting-human, and the
+# exit code/is_error say nothing about that. Found 2026-09-29 on
+# dotfiles#249/#388: both hit the item cap mid-turn and were recorded failed.
+prview 11 '["awaiting-human"]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+echo '{"type":"result","is_error":true,"total_cost_usd":1.00,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"Budget exceeded"}'
+exit 1
+GH
+chmod +x "$S/bin/claude"
+: > "$CLAUDE_LOG"
+run --prs
+has 'a budget-capped fixup is done once awaiting-human is on it' '^.*#11: PR 11 -- sonnet, \$1\.00'
+lacks 'not reported as a failure' '^FAILED'
+sess=$(latest_session)
+eq 'recorded done, not failed, in state' done "$(jq -r '.items[0].status' "$sess")"
+
+# ...but the same cutoff with nothing to show for it is still failed
+prview 11 '[]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
+: > "$CLAUDE_LOG"
+run --prs
+has 'a budget-capped fixup with nothing landed is still failed' '^FAILED: .*#11 .*worker reported an error: Budget exceeded \('
+sess=$(latest_session)
+eq 'recorded failed' failed "$(jq -r '.items[0].status' "$sess")"
+
+# restore the staging-aware shim the rest of the --prs tests use
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+stage="$S/claude-stage/\$n"
+[ -d "\$stage" ] && { mkdir -p .claude-staging && cp -r "\$stage"/. .claude-staging/; }
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else
+  echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+  echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
+fi
+GH
+chmod +x "$S/bin/claude"
 
 # --- a local branch of the same name is never force-deleted --------------------------
 # In --prs mode $branch is the PR's real head name, which a human may hold
