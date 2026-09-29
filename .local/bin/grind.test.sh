@@ -1240,15 +1240,29 @@ GRIND_STATUS: done'
 run --prs
 has 'a verified claim outranks is_error' '^.*#11: PR 11 -- sonnet, \$1\.26'
 lacks 'so it is not failed' '^FAILED'
-lacks 'and grind labels nothing' 'pr edit 11'
+assert 'and grind labels nothing' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
 assert 'the stamp is released on every exit, not only a failed one' grep -q 'release' "$S/stamp.log"
 
 # --- a failed fixup Mergify already finished is not labelled fixup-hard -----------------
 rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"
 capkill 1 'Pushing.'
 run --prs
-lacks 'awaiting-human keeps grind off the label' 'pr edit 11'
+has 'it is still failed' '^FAILED: .*#11'
+assert 'awaiting-human keeps grind off the label' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+assert 'the stamp is released all the same' grep -q 'release' "$S/stamp.log"
 prview 11 '[]' '[]'
+
+# --- the worker dies with no result event at all: stamp released, no label -------------
+# #388's shape: killed mid-commit, nothing parseable to score. --resume retries
+# it, so fixup-hard would turn that retry into a skip; the stamp goes anyway.
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+jq -nc '{type:"assistant", session_id:"5075db97-no-result", message:{id:"m1", content:[{type:"text", text:"Committing."}], usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}}}' \
+  > "$S/claude-replies/1.json"
+run --prs
+has 'no result is not recorded, and retried' '^FAILED: .*#11 .*did not complete; not recorded'
+assert 'the stamp is released from the stream session id' grep -Eq -- '^release .*--scan 5075db97-no-result$' "$S/stamp.log"
+assert 'no fixup-hard: --resume retries this' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+has 'its worktree is kept' 'keeping worktree .*/pr-11 on branch fix-11'
 
 # --- a local branch of the same name is never force-deleted --------------------------
 # In --prs mode $branch is the PR's real head name, which a human may hold

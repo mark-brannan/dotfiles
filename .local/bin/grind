@@ -789,6 +789,14 @@ stop_rule_for_worker() {
   gh pr comment "$1" --repo "$repo" --body "$body" >/dev/null 2>&1
 }
 
+# release_worker_claim: the worker is gone whatever it reported, and its
+# session claimed the branch at start. A stamp it never released says a dead
+# session holds the PR for two hours. Uses the loop's worker_sid and wt_path.
+release_worker_claim() {
+  [ -n "$worker_sid" ] && [ -n "$claim_stamp" ] || return 0
+  sh "$claim_stamp" release -C "$wt_path" --scan "$worker_sid" >/dev/null 2>&1 || true
+}
+
 # verify_carded <issue number> <marker file> <worker start, ISO 8601>
 # Either the board file was written after the marker, or the issue gained a
 # comment at/after the worker started.
@@ -983,10 +991,12 @@ while [ "$i" -lt "$count" ]; do
   result_file="$state_root/${session_id}.result"
   rc_file="$state_root/${session_id}.rc"
   last_text_file="$state_root/${session_id}.lasttext"
+  sid_file="$state_root/${session_id}.sid"
   printf '0 0 0 0 - 0 0 0 0\n' > "$live_file"
   : > "$result_file"
   : > "$rc_file"
   : > "$last_text_file"
+  : > "$sid_file"
 
   hb_pid=""
   if [ "$heartbeat" -gt 0 ]; then
@@ -1045,6 +1055,11 @@ while [ "$i" -lt "$count" ]; do
     echo "$crc" > "$rc_file"
   ) | while IFS= read -r line; do
       etype=$(printf '%s' "$line" | jq -r '.type // empty' 2>/dev/null) || continue
+      # Every stream event names the worker's session. Taken here rather than
+      # from the result so a worker that dies without one -- the #388 shape --
+      # still has its claim stamp released.
+      sid=$(printf '%s' "$line" | jq -r '.session_id // empty' 2>/dev/null) || sid=""
+      [ -n "$sid" ] && printf '%s\n' "$sid" > "$sid_file"
       case "$etype" in
         assistant)
           # The last thing the worker said. A worker the cap kills gets an
@@ -1088,7 +1103,8 @@ while [ "$i" -lt "$count" ]; do
   case "$claude_rc" in "" | *[!0-9]*) claude_rc=1 ;; esac
   result_json=$(cat "$result_file" 2>/dev/null || echo "")
   last_text=$(cat "$last_text_file" 2>/dev/null || echo "")
-  rm -f "$live_file" "$result_file" "$rc_file" "$last_text_file"
+  worker_sid=$(cat "$sid_file" 2>/dev/null || echo "")
+  rm -f "$live_file" "$result_file" "$rc_file" "$last_text_file" "$sid_file"
 
   # `kill` here is bare under `set -e`: if the heartbeat already exited on
   # its own -- it does, whenever its `wait` was interrupted -- the failed
@@ -1110,8 +1126,11 @@ while [ "$i" -lt "$count" ]; do
   # Unparseable/empty JSON means the worker never produced a result, so its
   # spend is unknown: don't record it, and let --resume retry it.
   # Its worktree is kept: it may hold commits the worker never pushed.
+  # Its claim stamp is released either way; no fixup-hard, since --resume
+  # retries this and the label would turn the retry into a skip.
   if ! printf '%s' "$result_json" | jq -e . >/dev/null 2>&1; then
     rm -f "$marker"
+    [ "$kind" = pr ] && release_worker_claim
     warn "keeping worktree $wt_path on branch $branch for inspection"
     printf 'FAILED: %s -- %s -- claude invocation did not complete; not recorded, will retry on --resume\n' \
       "$ref" "$title" >&2
@@ -1125,7 +1144,6 @@ while [ "$i" -lt "$count" ]; do
   tokens=${tokens:-0}
   text=$(printf '%s' "$result_json" | jq -r '.result // ""' 2>/dev/null)
   is_error=$(printf '%s' "$result_json" | jq -r '.is_error // false' 2>/dev/null)
-  worker_sid=$(printf '%s' "$result_json" | jq -r '.session_id // empty' 2>/dev/null) || worker_sid=""
   errored=0
   if [ "$claude_rc" -ne 0 ] || [ "$is_error" = true ]; then errored=1; fi
 
@@ -1210,11 +1228,7 @@ while [ "$i" -lt "$count" ]; do
         warn "could not label $ref fixup-hard or comment on it; do it by hand"
       fi
     fi
-    # The worker is gone whatever it reported, and its session claimed the
-    # branch at start. A stamp it never released says a dead session holds
-    # the PR for two hours.
-    [ -n "$worker_sid" ] && [ -n "$claim_stamp" ] \
-      && sh "$claim_stamp" release -C "$wt_path" --scan "$worker_sid" >/dev/null 2>&1 || true
+    release_worker_claim
   fi
 
   # An unverified or failed item keeps its worktree: it is the only record
