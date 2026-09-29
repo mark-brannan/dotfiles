@@ -48,6 +48,9 @@ machine one is evidence, not a substitute. Put in it:
   holds the link, not a copy;
 - what was tried and abandoned, so the next session doesn't retry it;
 - what comes next: the hand-off prompt from step 2, verbatim;
+- `## For next time`: the questions and threads this session opened and did
+  not close, one line each. This list is the only place a closing message
+  may point at (step 5); anything not on it is not carried;
 - stamp the memos that argued a question when it's ruled — a dated
   one-line annotation under the memo's H1 naming what settled it, per
   `/reconcile`'s convention. Bodies stay as evidence, never reworded;
@@ -171,8 +174,11 @@ new doubts, new hints that a judgement call needs to be made."
 Solace speaks last. Whatever they reply after the closing message — a
 goodnight, a correction, a stray idea — append it verbatim to the narrative
 log under `## Final words (verbatim)`, dated, and answer with **one line**
-naming where it landed. No summary, no new item, no question, no second
-hand-off. If the words change the next action, update the resume block's
-`next` line and say so inside that same one line. Then stop, and stay
-stopped: a Stop-hook block that fires after this point is answered with the
-block it asks for and the same one line, nothing more.
+naming where it landed. A session that archived in step 0 has no log yet:
+write one holding only that section. Not the checkpoint — the Stop hook
+rewrites it every Stop and keeps only the `## Resume` block. No summary, no
+new item, no question, no second hand-off. If the words change the next
+action, update the resume block's `next` line and say so inside that same
+one line. Then stop, and stay stopped: a Stop-hook block that fires after
+this point is answered with the block it asks for and the same one line,
+nothing more.
