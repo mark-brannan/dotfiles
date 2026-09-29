@@ -72,13 +72,11 @@ jobs:
                 case "$f" in
                   *.jq) printf '%s\n' "$f"; continue ;;
                 esac
-                # `|| sig=` : head closing the pipe early is not a failure.
-                # `|| true` inside the substitution: `head -c 2` closes the
-                # pipe early, and under pipefail a script larger than the pipe
-                # buffer (~64 KiB) left git with SIGPIPE, a non-zero status and
-                # sig reset to empty -- so the biggest scripts were the ones the
-                # gate did not see (dotfiles#409, 159 lines in grind: "ok: no
-                # script touched").
+                # `|| true` inside the substitution, not after it: head closes
+                # the pipe after two bytes, and under pipefail git's SIGPIPE
+                # fails the whole assignment, so an outer `|| sig=` blanked the
+                # signature of every script over the pipe buffer (~64 KiB) --
+                # the biggest ones were the ones the gate never saw (#409).
                 sig=$(git show "HEAD:$f" 2>/dev/null | head -c 2 || true)
                 case "$sig" in
                   '#!') printf '%s\n' "$f" ;;
