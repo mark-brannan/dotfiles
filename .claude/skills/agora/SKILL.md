@@ -49,6 +49,9 @@ Every item this skill touches gets, and keeps:
     rating of its difficulty and possibly of the question's quality.
     Not a curia: the agora is the second of the curia skill's gates, and
     the sitting never passes the later ones.
+  - **Folded** — the item is a sub-question of an open curia; a yes writes
+    it under that curia's `## Open questions` with its provenance, and
+    the card closes. No folder is touched beyond that line.
 
 ## Per item: the steps
 
@@ -57,10 +60,10 @@ Every item this skill touches gets, and keeps:
    context, readable by Solace. It also lists the open curiae
    (`state/global/curia/*/thread.md` with `status: open`) and says
    whether the item is a sub-question of one; if so the pick is "fold
-   into `<id>`", and a yes writes it under that curia's `## Open
-   questions` and closes the card. A subagent has no channel to Solace, so
-   it never asks; it only prepares. <!-- Context budget and return format:
-   open (design doc, open question on the agora procedure). -->
+   into `<id>`" and the outcome is **Folded**. A subagent has no channel
+   to Solace, so it never asks; it only prepares. <!-- Context budget and
+   return format: open (design doc, open question on the agora
+   procedure). -->
 2. The sitting asks that question, as returned, in one `AskUserQuestion`
    dialog: the agent's pick first and why, then the alternatives. Every
    question carries **X of Y** and the total. Nothing else from the
@@ -105,8 +108,8 @@ then continue.
 ## Output
 
 Per item: the question, the outcome, the link. At the end, one line:
-how many ruled, spawned, unblocked, deferred to a curia, still open, out
-of the docket's total.
+how many ruled, spawned, unblocked, folded, deferred to a confer, still
+open, out of the docket's total.
 
 ## Open (design doc, open question on the agora procedure)
 

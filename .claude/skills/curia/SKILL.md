@@ -1,6 +1,6 @@
 ---
 name: curia
-description: Open or continue a curia — the hard, multi-turn decision session on one question, over as many sessions as it takes. Use on "/curia <id>" or "confer <id>" for an id whose folder already exists, or bare "/curia" to list the open ones. This skill never creates a curia on its own; a new one opens only on Solace's words in the current turn, after the gates below. Not for quick rulings in batch; that is /agora. Not for toil; that is grind.
+description: Open or continue a curia — the hard, multi-turn decision session on one question, over as many sessions as it takes. Use on "/curia <id>" for an id whose folder already exists, or bare "/curia" to list the open ones. A confer is a one-off session, not a curia, and never a trigger for this skill. This skill never creates a curia on its own; a new one opens only on Solace's words in the current turn, after the gates below. Not for quick rulings in batch; that is /agora. Not for toil; that is grind.
 ---
 
 # Curia
@@ -114,12 +114,14 @@ waive.
    `## Open questions` with its provenance, never a folder; folding a
    small question into an existing curia is always on the table. Show the
    list and the fold verdict, then wait for Solace's word.
-5. **The WIP limit.** `limit: <Solace's number, not yet given>`. Until it
-   is given, one open curia is the limit reached: with any curia open, a
-   new one needs Solace's word in the same turn, after seeing the list at
-   gate 4. "I do not want an errant but well-meaning agent to start
-   another parallel curia discussion while we have (primarily) just the
-   big one ongoing" (Solace, 2026-09-29).
+5. **The WIP limit.** Soft, **5 open in total, 1–2 per repo** — "5 feels
+   more appropriate than 10. maybe 1-2 per repo and 5 total. Soft limit
+   for now" (Solace, 2026-09-29, mixed-loops curia, third sitting). Gate
+   4's list says where the count stands against it. Soft means Solace may
+   pass it, by their own word in the same turn after seeing that list; an
+   agent never does. "I do not want an errant but well-meaning agent to
+   start another parallel curia discussion while we have (primarily) just
+   the big one ongoing" (Solace, 2026-09-29).
 6. **Solace confirms the id.** The id is a kebab-case slug of the
    question's own words — `widget-retirement`, not a coined name — so
    confirming one names nothing. Solace renames at will; a rename moves
@@ -208,15 +210,16 @@ curia for it. It becomes a line under `## Open questions` here, or a
 ## Bare `/curia`
 
 List the open curiae, newest-touched first (recency matters;
-first-in-last-out), each as its id and question in one line, with the
-count in view. Open means `status: open` in the header; a redirect has
-no header, so one pointing at another curia folder collapses into its
-target, and one pointing elsewhere (grandfathered) counts as open until
-its document says settled. Recommend one and why, in one sentence. Open
-nothing until Solace names an id, and never a new one from here. If the
-list is long, say so plainly — a perpetually full list is a
-decision-making process failure, and folding a small question into an
-existing curia is always on the table.
+first-in-last-out), each as its id, question and last-touched in one
+line, with the count in view against the WIP limit at gate 5. Open means
+`status: open` in the header; a redirect has no header, so one pointing
+at another curia folder collapses into its target, and one pointing
+elsewhere (grandfathered) counts as open until its document says settled.
+Recommend one and why, in one sentence. Open nothing until Solace names
+an id, and never a new one from here. If the list is long, say so
+plainly — a perpetually full list is a decision-making process failure,
+and folding a small question into an existing curia is always on the
+table.
 
 ## Grandfathered
 
