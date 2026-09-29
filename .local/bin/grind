@@ -578,8 +578,8 @@ build_prompt() {
   if [ "$p_kind" = card ]; then
     printf 'This item is a card from the agent'"'"'s queue (## Claude'"'"'s on the global\n'
     printf 'board), not an issue. The card, verbatim:\n\n%s\n\n' "$body"
-    printf 'Work it in this repository. Quote the card in the PR body. Do not edit the\n'
-    printf 'board: grind removes the card once your PR is verified.\n\n---\n'
+    printf 'Work it in this repository. Quote the card in the PR body. Do not remove\n'
+    printf 'this card from the board: grind does that once your PR is verified.\n\n---\n'
   else
     printf '%s\n\n---\n' "$body"
   fi
@@ -1064,14 +1064,6 @@ while [ "$i" -lt "$count" ]; do
       elif ! verify_pr "$branch" "$started_iso"; then
         unverified_why="no PR opened or pushed to on head branch $branch"
         status=unverified
-      elif [ "$kind" = card ]; then
-        # Verified: the PR is the card's home now, so the card leaves the board.
-        pr_url=$(gh pr list --repo "$repo" --head "$branch" --state open --json url --jq '.[0].url // ""' 2>/dev/null) || pr_url=""
-        if retire_card "$(printf '%s' "$item" | jq -r '.text')" "$title${pr_url:+ -> $pr_url}"; then
-          info "removed card '$title' from $board_file"
-        else
-          warn "could not remove card '$title' from $board_file; remove it by hand"
-        fi
       fi
       ;;
     blocked)
@@ -1095,6 +1087,17 @@ while [ "$i" -lt "$count" ]; do
   if [ "$status" = "done" ] && [ "$stage_rc" -eq 1 ]; then
     unverified_why="its staged .claude/ files were never pushed"
     status=unverified
+  fi
+  # A verified card leaves the board only now, after every check that can
+  # still make the item unverified: --resume reads the current board, so a
+  # card removed and then marked UNVERIFIED would never be queued again.
+  if [ "$status" = "done" ] && [ "$kind" = card ]; then
+    pr_url=$(gh pr list --repo "$repo" --head "$branch" --state open --json url --jq '.[0].url // ""' 2>/dev/null) || pr_url=""
+    if retire_card "$(printf '%s' "$item" | jq -r '.text')" "$title${pr_url:+ -> $pr_url}"; then
+      info "removed card '$title' from $board_file"
+    else
+      warn "could not remove card '$title' from $board_file; remove it by hand"
+    fi
   fi
   rm -f "$marker"
 

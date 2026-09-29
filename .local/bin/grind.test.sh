@@ -889,6 +889,35 @@ assert 'the other card is still there' grep -q 'beta: elsewhere' "$GRIND_BOARD"
 has 'and grind said so' 'INFO  removed card .alpha: tidy the widget. from'
 eq 'the state file records the card ref' 'card:alpha-tidy-the-widget' "$(jq -r '.items[0].ref' "$(latest_session)")"
 eq 'and the kinds' card "$(jq -r '.kinds' "$(latest_session)")"
+# a card whose staged .claude/ files fail to push is UNVERIFIED and stays on
+# the board: a card removed and then left unverified would never be queued
+# again, since --resume reads the current board
+printf '%s\n' "- [ ] **alpha: tidy the widget** — the widget is untidy ([o/alpha](https://github.com/o/alpha))" >> "$GRIND_BOARD"
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
+# the shim that stages what it finds under claude-stage/<n>, as above
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+stage="$S/claude-stage/\$n"
+[ -d "\$stage" ] && { mkdir -p .claude-staging && cp -r "\$stage"/. .claude-staging/; }
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else
+  echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+  echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
+fi
+GH
+chmod +x "$S/bin/claude"
+mkdir -p "$S/claude-stage/1/hooks"
+echo 'echo staged' > "$S/claude-stage/1/hooks/example.test.sh"
+GIT_PUSH_FAIL=1 run --kind card --pause-every 10
+has 'a card with a failed staging push is UNVERIFIED' '^UNVERIFIED: card:alpha-tidy-the-widget -- alpha: tidy the widget -- worker claimed success but its staged \.claude/ files were never pushed'
+assert 'and the card is still on the board' grep -q 'tidy the widget' "$GRIND_BOARD"
+lacks 'and grind did not say it removed it' 'removed card'
+rm -rf "$S/claude-stage"
 unset GRIND_BOARD; rm -f "$S/cards.json"
 
 # --- --prs -------------------------------------------------------------------------
