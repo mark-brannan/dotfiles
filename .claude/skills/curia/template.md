@@ -1,8 +1,9 @@
 # Curia: <the question, one line>
 
 - id: `<id>`
-- opened: <date>, minted by <an agora sitting / a session / Solace directly>
-- origin: <link to the item, card, issue or doc section that raised it>
+- opened: <date>, on Solace's order: <link to the words that ordered it>
+- origin: <link to the card that petitioned the agora, or the doc section that raised it>
+- related: <ids of open curiae this one touches, comma-separated, or none>
 - model: Fable · effort: high
 - status: open
 

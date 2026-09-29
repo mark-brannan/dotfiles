@@ -92,6 +92,10 @@ When you do write one, it must:
 - name a **recommended model and difficulty (effort) setting** — both,
   every time, e.g. `Model: opus · Effort: high`. A hand-off prompt missing
   either is not finished;
+- name `/curia <id>` only for an id whose folder already exists. A hard
+  question the session left open is a `## Needs ruling` card, never a
+  proposed new curia — only Solace opens one, through the curia skill's
+  gates;
 - be written so somebody who was not in this session can act on it.
 
 Put it in the narrative log as well as the chat. The log survives; the chat

@@ -1,6 +1,6 @@
 ---
 name: agora
-description: Run an agora sitting — the quick decisions, in batch, one fresh subagent per item, Solace rules. Use on "/agora", "walk the decision cards", "what needs deciding", or when Solace says they have the headspace to rule on a queue of open decisions. Not for toil; that is grind. Not for a hard multi-turn question; that is a curia (a confer), and "confer" is a closed answer here.
+description: Run an agora sitting — the quick decisions, in batch, one fresh subagent per item, Solace rules. Use on "/agora", "walk the decision cards", "what needs deciding", or when Solace says they have the headspace to rule on a queue of open decisions. Not for toil; that is grind. Not for a hard multi-turn question; "confer" is a closed answer here, and it sends the item to a one-off confer session, never straight to a curia.
 ---
 
 # Agora
@@ -8,9 +8,10 @@ description: Run an agora sitting — the quick decisions, in batch, one fresh s
 Solace's analogue of grind: the sitting in which the quick judgment items
 are consumed in batch. Each item is quick by construction; a hard one is
 answered with the one word **confer**, the sitting moves past it, and it
-goes to its own `/curia <id>` session. This skill absorbs `/ruling` (retired by
-Solace, 2026-09-29, in the design confer): the typed per-item contract below
-was ruling's.
+goes to a one-off confer session of its own — not a curia. A curia opens
+only at the gates in the curia skill, on Solace's word in that confer.
+This skill absorbs `/ruling` (retired by Solace, 2026-09-29, in the design
+confer): the typed per-item contract below was ruling's.
 
 Ancestor concepts: GTD inbox processing, office hours, a replenishment
 cadence; the ruling's default that holds is "act after a veto window".
@@ -44,15 +45,21 @@ Every item this skill touches gets, and keeps:
   - **Item (partly) unblocked** — the ruling removes one dependency; say
     which, and what still blocks.
   - **Confer** — Solace's one word; the item leaves the sitting for a
-    `/curia <id>` session (see below). Not a failure of the item; a
+    one-off confer session (see below). Not a failure of the item; a
     rating of its difficulty and possibly of the question's quality.
+    Not a curia: the agora is the second of the curia skill's gates, and
+    the sitting never passes the later ones.
 
 ## Per item: the steps
 
 1. A fresh subagent gathers the item's context and returns the typed
    question with its four fields and a **direct link** to the stored
-   context, readable by Solace. A subagent has no channel to Solace, so it
-   never asks; it only prepares. <!-- Context budget and return format:
+   context, readable by Solace. It also lists the open curiae
+   (`state/global/curia/*/thread.md` with `status: open`) and says
+   whether the item is a sub-question of one; if so the pick is "fold
+   into `<id>`", and a yes writes it under that curia's `## Open
+   questions` and closes the card. A subagent has no channel to Solace, so
+   it never asks; it only prepares. <!-- Context budget and return format:
    open (design doc, open question on the agora procedure). -->
 2. The sitting asks that question, as returned, in one `AskUserQuestion`
    dialog: the agent's pick first and why, then the alternatives. Every
@@ -62,16 +69,29 @@ Every item this skill touches gets, and keeps:
 4. Apply the output per the contract, immediately; don't batch.
 5. Discard the subagent. Next item.
 
-## Confer: handing a hard item to a curia
+## Confer: handing a hard item to a confer session
 
-On the word *confer*: mint the curia per the curia skill's **Minting an
-id** procedure — slug the question's own words, copy its template to
-`state/global/curia/<id>/thread.md`, fill the header (question, origin,
-date), commit — then record it on the card
-(<!-- format open --> `confer: <id>`) and move on. At the end of the
-sitting, print one `/curia <id>` prompt per deferred item, each naming
-model and effort. The sitting never opens the hard discussion itself; that
-would bloat its context.
+On the word *confer*: record it on the card (<!-- format open -->
+`confer: <YYYY-MM-DD>`), leave the card where it is, and move on. **Create
+nothing under `state/global/curia/`.** "Minting is cheap by design — No.
+Full stop. It must go to the agora first ... Creation of curia by lower
+level sessions is forbidden" (Solace, 2026-09-29). The agora is one gate
+of several; a curia opens only when Solace says so inside the confer
+session, at the curia skill's gates.
+
+At the end of the sitting, print one confer prompt per deferred item,
+ready to paste, each naming model and effort:
+
+```
+Confer on <short name>: <the card's question, one sentence> (<card link>).
+A one-off session — a few rounds of question and answer, one at a time.
+It ends in a ruling, a spawned issue or a sharper card; open no curia
+unless Solace says so, and then only through the gates in the curia
+skill. Model: fable · Effort: high
+```
+
+The sitting never opens the hard discussion itself; that would bloat its
+context.
 
 ## Difficulty and model
 
@@ -93,4 +113,5 @@ of the docket's total.
 - Awake/asleep filter: depends on worklist rung 3.
 - Subagent context budget and return format.
 - How a confer deferral is recorded on the card.
+- Where the confer session's own record lands when it rules without a curia.
 - Where rulings land when the item has no obvious home repo.

@@ -40,6 +40,12 @@ GitHub home. Take the first line that fits:
   flashed, adopted by a user, or inherited by later decisions. Only then →
   a card under `## Needs ruling`. There is no `needs-ruling` label and no
   ruling issue.
+- **A question that wants a curia** — deep, multi-turn, a governing idea in
+  doubt — is still only a `## Needs ruling` card: the petition. Never a
+  folder under `state/global/curia/`; only Solace opens one, through the
+  gates in the curia skill, after the agora and a confer. The card names
+  the open curia the question folds into, or why none (`folds: <id>` or
+  `folds: none — <why>`).
 - **A check** — "verify X", "confirm Y still works" — is not a loop and never
   reaches Solace. Run it now. A check that needs a future event and has a
   stated expected output goes on `## Claude's` as your own queue, unmentioned;
