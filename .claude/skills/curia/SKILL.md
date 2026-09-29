@@ -151,10 +151,14 @@ call. The three placeholders of 2026-09-29 (`andon-rubric`,
    curia); follow it — that document's own loop section then governs read
    order and replaces step 4's reading, while the LIVE check, the lint
    and every dialogue rule still apply, with the LIVE file in the
-   redirect's folder. **No folder at all → say the id didn't resolve and
-   stop at the list.** Never create the folder from here, whatever the
-   prompt, pickup item or hand-off that carried the id said; a new curia
-   passes the gates above or does not exist.
+   redirect's folder. **No folder at all → say the id didn't resolve,
+   then guess.** From the step 0 list, pick the curia the argument most
+   likely meant — closest fuzzy match on id and question first, most
+   recently touched to break a tie — and recommend it in one line, as
+   bare `/curia` does; continue there on Solace's yes. Never create the
+   folder from here, whatever the prompt, pickup item or hand-off that
+   carried the id said; a new curia passes the gates above or does not
+   exist.
 2. **Check for another sitting.** If the folder holds a `LIVE` file
    (session id and ISO timestamp, written at step 4) from a different
    session, say so in one line and ask — Solace runs parallel sittings on
