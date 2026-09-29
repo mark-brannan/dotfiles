@@ -685,11 +685,6 @@ cat > "$S/ready.json" <<'JSON'
   {"number": 7, "title": "Flaky item", "body": "b", "url": "https://github.com/o/alpha/issues/7", "labels": [{"name": "ready"}]}
 ]
 JSON
-# These next few blocks are workers that genuinely produced nothing: no PR
-# for this item exists to verify against.
-cat > "$S/pr-list.json" <<'JSON'
-[]
-JSON
 rm -f "$S/state/grind"/*.json
 rm -f "$S/claude-replies"/*.json
 cat > "$S/bin/claude" <<GH
@@ -725,9 +720,6 @@ fi
 GH
 chmod +x "$S/bin/claude"
 session_id=$(basename "$sess" .json)
-cat > "$S/pr-list.json" <<'JSON'
-[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
-JSON
 : > "$CLAUDE_LOG"
 run --resume "$session_id"
 eq 'the failed item retried on resume' 1 "$(calls_claude)"
@@ -735,9 +727,6 @@ has 'retried item now succeeds' '^o/alpha#7: Flaky item --'
 eq 'now recorded in state' 1 "$(jq '.items | length' "$sess")"
 
 # --- a worker that exits non-zero WITH a JSON result: cost kept, item retried ------
-cat > "$S/pr-list.json" <<'JSON'
-[]
-JSON
 rm -f "$S/state/grind"/*.json
 cat > "$S/bin/claude" <<GH
 #!/bin/sh
@@ -769,45 +758,14 @@ session_id=$(basename "$sess" .json)
 run --resume "$session_id"
 eq 'failed-with-cost item retried on resume' 1 "$(calls_claude)"
 
-# --- ...but the same non-zero exit is not a failure when the work had already
-# landed: --max-budget-usd can kill a worker on the tool call right after it
-# commits and pushes, and the exit code says nothing about whether that
-# commit made it out. Found 2026-09-29 on dotfiles#249/#388: both hit the
-# item cap mid-turn and were recorded failed; #249's commit had already
-# landed on the PR before the cap killed the worker.
-cat > "$S/pr-list.json" <<'JSON'
-[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
-JSON
-rm -f "$S/state/grind"/*.json
-cat > "$S/bin/claude" <<GH
-#!/bin/sh
-[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
-cat > "$S/prompt.txt"
-n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
-echo "\$n \$*" >> "$CLAUDE_LOG"
-echo \$((n + 1)) > "$S/claude-next"
-echo '{"type":"result","is_error":true,"total_cost_usd":1.00,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"Budget exceeded"}'
-exit 1
-GH
-chmod +x "$S/bin/claude"
-: > "$CLAUDE_LOG"
-run --session-budget 100 --pause-every 10
-has 'a budget-capped worker is done once the PR check finds its push' '^o/alpha#7: Flaky item -- sonnet, \$1\.00'
-lacks 'not reported as a failure' '^FAILED'
-sess=$(latest_session)
-eq 'recorded done, not failed, in state' 'done' "$(jq -r '.items[0].status' "$sess")"
-
-# these blocks are back to "nothing landed" for the rest of the section
-cat > "$S/pr-list.json" <<'JSON'
-[]
-JSON
-
-# --- a non-zero exit alone makes the item failed, even on a clean result ----------
+# --- a non-zero exit alone makes the item failed, unless GitHub bears the claim out --
 # Nothing in the result event says anything went wrong here: `is_error` is
 # absent and the worker even claims done. Only claude's exit status carries
 # the failure, so this is the case that goes silently wrong the moment the
-# rc file is lost.
+# rc file is lost. The claim is still checked first -- the cap can land after
+# the push -- so with no PR behind it the item is failed.
 rm -f "$S/state/grind"/*.json
+cp "$S/pr-list.json" "$S/pr-list.saved"; echo '[]' > "$S/pr-list.json"
 cat > "$S/bin/claude" <<GH
 #!/bin/sh
 [ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
@@ -823,15 +781,17 @@ chmod +x "$S/bin/claude"
 run --session-budget 100 --pause-every 10
 has 'the exact exit status is reported' 'INFO  worker exited 3 after [0-9]+s'
 lacks 'no shell error deciding the status' 'Illegal number'
-has 'a non-zero exit is a failure whatever the result claims' '^FAILED: o/alpha#7'
+has 'a non-zero exit with an unbacked claim is a failure' '^FAILED: o/alpha#7'
 lacks 'not reported as a normal completed item' '^o/alpha#7: Flaky item --'
+lacks 'failed, not unverified -- the error is the better diagnosis' 'UNVERIFIED'
+has 'a failed item keeps its worktree' 'keeping worktree .*/7 on branch grind-7'
 sess=$(latest_session)
 eq 'recorded failed on exit status alone' failed "$(jq -r '.items[0].status' "$sess")"
-
-# restore pr-list.json to "this item's PR verifies" for the rest of the suite
-cat > "$S/pr-list.json" <<'JSON'
-[{"createdAt": "2999-01-01T00:00:00Z", "updatedAt": "2999-01-01T00:00:00Z", "state": "OPEN"}]
-JSON
+mv "$S/pr-list.saved" "$S/pr-list.json"
+rm -f "$S/state/grind"/*.json
+run --session-budget 100 --pause-every 10
+has 'a non-zero exit whose claim checks out is done' '^o/alpha#7: Flaky item --'
+lacks 'and not failed' '^FAILED: o/alpha#7'
 
 # restore the real claude shim
 cat > "$S/bin/claude" <<GH
@@ -1016,6 +976,10 @@ cp "$(cd "$(dirname "$GRIND")/../.." && pwd)/.claude/skills/pickup/SKILL.md" \
 cat > "$prroot/.claude/hooks/lib-state.sh" <<'LS'
 branch_brief() { printf 'base: main (open PR)\nconflicts: yes\nrecommend: git merge origin/main   # fixture\n'; }
 LS
+cat > "$prroot/.claude/hooks/claim-stamp.sh" <<STAMP
+#!/bin/sh
+echo "\$*" >> "$S/stamp.log"
+STAMP
 cat > "$prroot/.local/bin/pr-label-audit" <<AUDIT
 #!/bin/sh
 case " \$* " in *" --pr "*) echo "AUDIT BRIEF for \$3"; exit 0 ;; esac
@@ -1086,6 +1050,7 @@ case "\$1 \$2" in
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
   "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
   "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
+  "pr edit"|"pr comment") exit 0 ;;
   "api repos/"*"/actions/runs/"*) printf '%s\n' "\${GH_RUN_ATTEMPT:-1}" ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
@@ -1111,7 +1076,7 @@ has 'stale-label PR is an item, lowest number first' '^\[1/9\] .*#11 -- \[not-gr
 has 'unfinished PR is an item, with its verdict' '^\[[0-9]+/9\] .*#30 -- \[conflicted\] PR 30$'
 lacks 'a green, labelled PR is not an item' '#50'
 has 'the checkout is onto the PR head branch, not a new one' 'git worktree add -B fix-11 .* origin/fix-11'
-has 'the command names the briefs and the contract' 'claude -p <.*#11 briefs \+ fixup contract>.*--max-budget-usd 1 --model sonnet'
+has 'the command names the briefs and the contract' 'claude -p <.*#11 briefs \+ fixup contract>.*--max-budget-usd 1.25 --model sonnet'
 
 # --- every skip rule fires, with its reason ------------------------------------------
 has 'fixup-hard is skipped'      '^\[[0-9]+/9\] .*#40 -- SKIP: labelled fixup-hard$'
@@ -1200,7 +1165,7 @@ assert 'the first PR in the queue is the one reran' grep -Eq -- 'run rerun 9001 
 has 'the second PR is skipped for the per-pass cap, not reran' 'WARN  skipping .*#61 -- this pass already reran a PR$'
 
 # --- --prs budget defaults, and flags that still override them -----------------------
-has 'default item budget is $1' -- '--max-budget-usd 1 '
+has 'default item budget is the $1 stop plus headroom' -- '--max-budget-usd 1.25 '
 run --prs --dry-run --item-budget 3
 has 'an explicit item budget wins' -- '--max-budget-usd 3 '
 
@@ -1224,6 +1189,7 @@ prompt_has 'its stop rule came with it'         'label the PR `fixup-hard`'
 prompt_has 'the worker is told the head branch' 'on fix-11 -- the PR'
 prompt_has 'done is offered'                    'GRIND_STATUS: done'
 prompt_has 'blocked is offered'                 'GRIND_STATUS: blocked'
+prompt_has 'the worker is told the cap is above the stop' 'the process is killed at $1.25'
 lacks 'no grind-N branch is ever made for a PR' 'grind-11'
 
 # --- done with neither the label nor a signed head move is unverified ----------------
@@ -1245,57 +1211,64 @@ run --prs
 has 'a labelled give-up is a clean blocked' '^blocked: .*#11 -- PR 11'
 lacks 'and is not unverified' 'UNVERIFIED'
 
-# --- a worker that errors mid-turn is done, not failed, once its fixup has
-# already landed -- --max-budget-usd can kill a worker on the very next tool
-# call after it pushes a signed commit or Mergify adds awaiting-human, and the
-# exit code/is_error say nothing about that. Found 2026-09-29 on
-# dotfiles#249/#388: both hit the item cap mid-turn and were recorded failed.
-prview 11 '["awaiting-human"]' '[]'
-rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
-cat > "$S/bin/claude" <<GH
-#!/bin/sh
-[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
-cat > "$S/prompt.txt"
-n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
-echo "\$n \$*" >> "$CLAUDE_LOG"
-echo \$((n + 1)) > "$S/claude-next"
-echo '{"type":"result","is_error":true,"total_cost_usd":1.00,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"Budget exceeded"}'
-exit 1
-GH
-chmod +x "$S/bin/claude"
-: > "$CLAUDE_LOG"
-run --prs
-has 'a budget-capped fixup is done once awaiting-human is on it' '^.*#11: PR 11 -- sonnet, \$1\.00'
-lacks 'not reported as a failure' '^FAILED'
-sess=$(latest_session)
-eq 'recorded done, not failed, in state' 'done' "$(jq -r '.items[0].status' "$sess")"
-
-# ...but the same cutoff with nothing to show for it is still failed
+# --- the cap kills a fixup mid-wrap-up: grind carries out the stop rule for it -------
+# grind-20260929T022433Z: both fixups hit the cap on the turn they were
+# pushing, left no label and no comment, and were recorded failed with their
+# worktrees deleted. The worker's own stop rule is grind's to finish.
+capkill() { # capkill <n> <last assistant text>
+  jq -nc --arg t "$2" '{type:"assistant", message:{id:"m1", content:[{type:"text", text:$t}], usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}}}' \
+    > "$S/claude-replies/$1.json"
+  jq -nc '{type:"result", subtype:"error_max_budget_usd", is_error:true, session_id:"5075db97-dead-beef", total_cost_usd:1.26, usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}, result:"Budget exceeded"}' \
+    >> "$S/claude-replies/$1.json"
+}
 prview 11 '[]' '[]'
-rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json
-: > "$CLAUDE_LOG"
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+capkill 1 'Pushed the rebase. Budget is nearly spent; labelling fixup-hard next.'
 run --prs
-has 'a budget-capped fixup with nothing landed is still failed' '^FAILED: .*#11 .*worker reported an error: Budget exceeded \('
-sess=$(latest_session)
-eq 'recorded failed' failed "$(jq -r '.items[0].status' "$sess")"
+has 'a cap-killed fixup with no claim is failed' '^FAILED: .*#11 .*Budget exceeded'
+assert 'grind labels it fixup-hard' grep -Eq -- '^pr edit 11 .*--add-label fixup-hard' "$GH_LOG"
+assert 'and leaves the one comment' grep -Eq -- '^pr comment 11 ' "$GH_LOG"
+assert 'quoting what the worker last said' grep -Eq -- '^> Pushed the rebase' "$GH_LOG"
+assert 'the worker session claim stamp is released' grep -Eq -- '^release .*--scan 5075db97-dead-beef$' "$S/stamp.log"
+has 'its worktree is kept' 'keeping worktree .*/pr-11 on branch fix-11'
 
-# restore the staging-aware shim the rest of the --prs tests use
-cat > "$S/bin/claude" <<GH
-#!/bin/sh
-[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
-cat > "$S/prompt.txt"
-n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
-echo "\$n \$*" >> "$CLAUDE_LOG"
-echo \$((n + 1)) > "$S/claude-next"
-stage="$S/claude-stage/\$n"
-[ -d "\$stage" ] && { mkdir -p .claude-staging && cp -r "\$stage"/. .claude-staging/; }
-reply="$S/claude-replies/\$n.json"
-if [ -f "\$reply" ]; then cat "\$reply"; else
-  echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
-  echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
-fi
-GH
-chmod +x "$S/bin/claude"
+# --- the cap lands after a claim GitHub bears out: that is a done fixup ------------------
+prview 11 '["awaiting-human"]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+capkill 1 'All green.
+GRIND_STATUS: done'
+run --prs
+has 'a verified claim outranks is_error' '^.*#11: PR 11 -- sonnet, \$1\.26'
+lacks 'so it is not failed' '^FAILED'
+assert 'and grind labels nothing' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+assert 'the stamp is released on every exit, not only a failed one' grep -q 'release' "$S/stamp.log"
+
+# --- the cap lands with no claim, but Mergify already finished the fixup: done ---------
+# dotfiles#249's shape: the signed commit was on the PR and awaiting-human on
+# it before the cap killed the worker mid-turn. The label is the same word a
+# `done` claim is checked against, so the missing claim costs nothing.
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+capkill 1 'Pushing.'
+run --prs
+has 'awaiting-human outranks a missing claim' '^.*#11: PR 11 -- sonnet, \$1\.26'
+lacks 'so it is not failed' '^FAILED'
+sess=$(latest_session)
+eq 'recorded done in state' 'done' "$(jq -r '.items[0].status' "$sess")"
+assert 'and grind labels nothing' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+assert 'the stamp is released all the same' grep -q 'release' "$S/stamp.log"
+prview 11 '[]' '[]'
+
+# --- the worker dies with no result event at all: stamp released, no label -------------
+# #388's shape: killed mid-commit, nothing parseable to score. --resume retries
+# it, so fixup-hard would turn that retry into a skip; the stamp goes anyway.
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+jq -nc '{type:"assistant", session_id:"5075db97-no-result", message:{id:"m1", content:[{type:"text", text:"Committing."}], usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}}}' \
+  > "$S/claude-replies/1.json"
+run --prs
+has 'no result is not recorded, and retried' '^FAILED: .*#11 .*did not complete; not recorded'
+assert 'the stamp is released from the stream session id' grep -Eq -- '^release .*--scan 5075db97-no-result$' "$S/stamp.log"
+assert 'no fixup-hard: --resume retries this' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+has 'its worktree is kept' 'keeping worktree .*/pr-11 on branch fix-11'
 
 # --- a local branch of the same name is never force-deleted --------------------------
 # In --prs mode $branch is the PR's real head name, which a human may hold
