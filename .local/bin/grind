@@ -194,6 +194,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+[ -z "$repo" ] || [ -z "$project" ] || { printf 'grind: --repo and a project name are two scopes; pass one\n' >&2; exit 2; }
 
 command -v jq >/dev/null 2>&1 || { echo "grind: needs jq" >&2; exit 1; }
 command -v gh >/dev/null 2>&1 || { echo "grind: needs gh" >&2; exit 1; }
@@ -290,6 +291,10 @@ checkout_for() {
   case "$(cwd_repo || true)" in "$1"|*"/$1") pwd; return 0 ;; esac
   c="${GRIND_CHECKOUTS:-$HOME}/${1##*/}"
   [ "$(repo_at "$c" || true)" = "$1" ] && printf '%s' "$c"
+}
+no_checkout() {  # the one drop line, for a repo neither the cwd nor $GRIND_CHECKOUTS holds
+  printf 'grind: no local checkout of %s (not the cwd, not %s/%s); it is out of this run\n' \
+    "$1" "${GRIND_CHECKOUTS:-$HOME}" "${1##*/}" >&2
 }
 
 # --- state file ---------------------------------------------------------------
@@ -441,8 +446,13 @@ is_done_ref() {
 # --- the queue: worklist's bucket record, one scheduler across kinds ----------
 # The record is fetched fresh (the cache is stale-while-revalidate, and a
 # queue read off a stale one would work an item somebody just finished) and
-# scoped to this repo (--here) or the project, and every item carries .repo.
-record=$("$worklist_bin" "${project:---here}" --json --fresh 2>&1) \
+# scoped to this repo or the project, and every item carries .repo. --here
+# scopes worklist by its cwd, so a --repo fetch runs from that repo's
+# checkout: from anywhere else it would answer for the wrong repo, or none.
+fetch_dir=.
+[ -z "$repo" ] || fetch_dir=$(checkout_for "$repo") \
+  || { no_checkout "$repo"; printf 'grind: no repo in scope has a local checkout\n' >&2; exit 1; }
+record=$(cd "$fetch_dir" && "$worklist_bin" "${project:---here}" --json --fresh 2>&1) \
   || { printf 'grind: worklist --json failed: %s\n' "$(printf '%s' "$record" | jq -r '.error // .' 2>/dev/null | head -1)" >&2; exit 1; }
 printf '%s' "$record" | jq -e '.buckets' >/dev/null 2>&1 \
   || { echo "grind: worklist --json carries no buckets; is worklist older than grind?" >&2; exit 1; }
@@ -450,12 +460,11 @@ printf '%s' "$record" | jq -e '.buckets' >/dev/null 2>&1 \
 # Worktrees are cut from a local checkout of the item's repo -- otherwise the
 # worker is handed the wrong codebase. Resolved once, up front: a repo with
 # none is dropped here, on one line, rather than skipped item by item. A
-# --repo run only ever has the one.
+# --repo run only ever has the one, checked above.
 repos_json="[]"
 for r in $(printf '%s' "$record" | jq -r --arg repo "$repo" 'if $repo == "" then .repos[] else $repo end'); do
   if checkout_for "$r" >/dev/null; then repos_json=$(printf '%s' "$repos_json" | jq -c --arg r "$r" '. + [$r]')
-  else printf 'grind: no local checkout of %s (not the cwd, not %s/%s); it is out of this run\n' \
-         "$r" "${GRIND_CHECKOUTS:-$HOME}" "${r##*/}" >&2; fi
+  else no_checkout "$r"; fi
 done
 [ "$(printf '%s' "$repos_json" | jq 'length')" -gt 0 ] || { printf 'grind: no repo in scope has a local checkout\n' >&2; exit 1; }
 

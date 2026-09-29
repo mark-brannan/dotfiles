@@ -87,7 +87,10 @@ prs='[]'; [ -f "$S/audit.json" ] && prs=\$(jq -s -c '[.[] | select(.section == "
 cards='[]'; [ -f "$S/cards.json" ] && cards=\$(cat "$S/cards.json")
 awaiting='[]'; [ -f "$S/awaiting-human.json" ] && awaiting=\$(cat "$S/awaiting-human.json")
 repos='["o/alpha"]'
-case "\$1" in -*) ;; *) repos='["o/alpha","o/beta","o/gamma"]'
+case "\$1" in
+  -*) [ "\$PWD" = "$S/home/beta" ] && { repos='["o/beta"]'  # --here answers for the cwd
+        ready=\$(jq -c '[.[] | select(.repo == null) | {kind:"issue", repo:"o/beta", number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready-beta.json"); } ;;
+  *) repos='["o/alpha","o/beta","o/gamma"]'
   ready=\$(jq -c -s '.[0] + [.[1][] | .repo = (.repo // "o/beta")]' <(printf '%s' "\$ready") <(jq -c '[.[] | {kind:"issue", repo, number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready-beta.json")) ;; esac
 jq -nc --argjson r "\$ready" --argjson b "\$blocked" --argjson p "\$prs" --argjson c "\$cards" --argjson ah "\$awaiting" --argjson repos "\$repos" \
   '{owner:"o", repos:\$repos, buckets:{awaiting_human:\$ah, queued:[], not_ready:\$p, ready:\$r, blocked:\$b, untriaged:[], stranded:[], rulings:[], solaces:[], claudes:\$c}}'
@@ -817,6 +820,9 @@ run --repo o/other
 eq 'exit 1 when neither the cwd nor $HOME/other is a checkout of --repo' 1 "$RC"
 has 'says where it looked' "no local checkout of o/other \(not the cwd, not $HOME/other\)"
 has 'and that nothing is left in scope' 'no repo in scope has a local checkout'
+run --repo o/alpha fam
+eq 'exit 2 when --repo and a project are both given' 2 "$RC"
+has 'and says they are two scopes' 'two scopes; pass one'
 
 # --- a project: one queue over every repo carrying the topic ---------------------
 # The fake worklist answers a project name with two repos; beta's checkout is
@@ -839,6 +845,12 @@ has 'alpha item cut from the cwd' "o/alpha#5 -- Alpha item"
 has 'alpha worktree under its repo name' "git -C $S/repo worktree add -b grind-5 $TMPDIR/grind-worktrees/alpha/5"
 has 'beta item cut from $HOME/beta' "git -C $S/home/beta worktree add -b grind-5 $TMPDIR/grind-worktrees/beta/5"
 lacks 'gamma item never queued' 'o/gamma#7'
+: > "$S/worklist.log"
+cd "$S/nogit" && run --dry-run --repo o/beta; cd "$S/repo" || exit 1
+eq '--repo from outside any checkout exits 0' 0 "$RC"
+grep -q '^--here --json --fresh$' "$S/worklist.log" && ok || bad 'the record was fetched with --here'
+has 'from the named repo checkout: its item is queued' '^\[1/1\] o/beta#5 -- Beta item$'
+lacks 'and nothing from the cwd-less alpha' 'o/alpha#5'
 run fam
 eq 'a project run exits 0' 0 "$RC"
 has 'the session line names the project' 'INFO  session grind-.* on project fam: 2 item\(s\)'
