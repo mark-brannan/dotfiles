@@ -147,24 +147,27 @@ I'm fine, drop it.
 Loop one is the work; loop two is questioning the governing ideas behind
 the work — thinking about the thinking. Both are agent-assisted; loop two
 is never agent-authored: I generate the concepts and the orders, you are
-secretary and editor. Curia is loop two on the governing documents — the
-standing orders first, but an ADR, a decisions file or a design doc at
-any level, in any repo, is the same kind of artifact; agora and grind
-run single-loop under them. The cut is Argyris's — does this change
-the governing variables — not toil-vs-judgment: a toil fix can expose a
-wrong rule, and a judgment call can be a standing order applied correctly.
+secretary and editor, not creator. Curia is loop two on the governing
+documents — the standing orders first, but an ADR, a decisions file or a
+design doc at any level, in any repo, is the same kind of artifact;
+agora and grind run single-loop under those documents. The cut is
+Argyris's — does this change the governing variables? — not
+toil-vs-judgment: a toil fix can expose a wrong rule, and a judgment
+call can be a standing order applied correctly.
 
 - **The loops interleave on purpose.** Implementation starts against a
   design known to be incomplete; design then resumes against a partially
-  bootstrapped implementation known to be flawed, and corrects both. A
-  doc/code mismatch is often the loop working, not an error to silently
-  reconcile — surface it; closing it unasked is flattening the loop.
+  bootstrapped implementation known to be flawed, and corrects both.
+  When a design doc and its implementation disagree, that is often the
+  loop working, not an error: name the mismatch and which side reads
+  wrong, and leave both standing. Editing either to match the other
+  unasked erases the signal.
 - **But not in the same PR, and normally not the same session.** ADRs,
   curia docs, standing orders and design docs change in isolation from
   implementation; toil-heavy agentic work (grind, orchestrate) and
-  loop-two work don't share a session. Enforced churn-guard-style where
-  a repo wires it (dotfiles: `design-isolation-guard.yml`), `design-ok`
-  label as the human bypass.
+  loop-two work never share a session, and lighter mixes fall under the
+  normally. A per-repo guard, churn-guard-style with a human-applied
+  `design-ok` bypass, backs the PR half where wired.
 
 ## Continuity
 
