@@ -44,14 +44,13 @@ setup() {
 
 unsigned_commit() { git -C "$1" -c commit.gpgsign=false commit -q --allow-empty -m "$2"; }
 
-# Prints allow / deny / silent.
+# Sets $verdict to allow / deny / silent and $hook_out to the raw output.
 run_hook() {
-  local out
-  out=$(jq -nc --arg d "$1" '{tool_input:{command:"git push"},cwd:$d}' | sh "$HOOK")
-  case $out in
-    '') echo silent ;;
-    *'"deny"'*) echo deny ;;
-    *) echo allow ;;
+  hook_out=$(jq -nc --arg d "$1" '{tool_input:{command:"git push"},cwd:$d}' | sh "$HOOK")
+  case $hook_out in
+    '') verdict=silent ;;
+    *'"deny"'*) verdict=deny ;;
+    *) verdict=allow ;;
   esac
 }
 
@@ -66,25 +65,39 @@ unsigned_commit "$w" 'unsigned on main'
 git -C "$w" push -q origin main
 git -C "$w" switch -q feat
 git -C "$w" merge -q --no-edit main
-check "merged main's unsigned commits are not the branch's" "$(run_hook "$w")" silent
+run_hook "$w"
+check "merged main's unsigned commits are not the branch's" "$verdict" silent
 
 # The branch's own unsigned commit is still caught, and only it is named.
 unsigned_commit "$w" 'unsigned on feat'
-out=$(jq -nc --arg d "$w" '{tool_input:{command:"git push"},cwd:$d}' | sh "$HOOK")
-check "own unsigned commit is denied" "$(run_hook "$w")" deny
-check "deny names 1 commit, not main's" "$(printf '%s' "$out" | grep -c '1 unsigned commit')" 1
+run_hook "$w"
+check "own unsigned commit is denied" "$verdict" deny
+check "deny names 1 commit, not main's" "$(printf '%s' "$hook_out" | grep -c '1 unsigned commit')" 1
+
+# The remedy has the same trap: a rebase from the upstream replays main's
+# commits as new, signed duplicates. The advised command must not.
+target=$(printf '%s' "$hook_out" | grep -o 'git rebase -S --force-rebase [0-9a-f]*' | sed 's/.* //')
+check "deny advises a rebase" "${target:+yes}" yes
+check "deny says the push needs --force-with-lease" "$(printf '%s' "$hook_out" | grep -c 'force-with-lease')" 1
+git -C "$w" rebase -S --force-rebase "${target:-HEAD}" >/dev/null 2>&1
+check "advised rebase keeps main's commit, not a copy" "$(git -C "$w" merge-base --is-ancestor origin/HEAD HEAD && echo kept || echo copied)" kept
+check "advised rebase leaves only the branch's two commits past main" "$(git -C "$w" rev-list --count HEAD --not origin/HEAD)" 2
+run_hook "$w"
+check "advised rebase re-signs the branch" "$verdict" silent
 
 # No upstream: falls back to origin/HEAD.
 w=$(setup)
 git -C "$w" switch -q -c fresh
 unsigned_commit "$w" 'unsigned, never pushed'
-check "no upstream, unsigned commit is denied" "$(run_hook "$w")" deny
+run_hook "$w"
+check "no upstream, unsigned commit is denied" "$verdict" deny
 
 # All signed: silent.
 w=$(setup)
 git -C "$w" switch -q -c clean
 git -C "$w" commit -q --allow-empty -m signed
-check "signed branch passes" "$(run_hook "$w")" silent
+run_hook "$w"
+check "signed branch passes" "$verdict" silent
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

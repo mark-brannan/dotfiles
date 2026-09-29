@@ -67,15 +67,29 @@ done)
 n=$(printf '%s\n' "$unsigned" | wc -l | tr -d ' ')
 branch=$(git symbolic-ref --short HEAD)
 mb=$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")
+# Same trap in the remedy: on a branch that merged main past its upstream, a
+# rebase from the upstream replays main's commits as new ones (--rebase-merges
+# too). Rebase from the merged main tip instead. That rewrites the branch's
+# pushed commits as well, so the push needs --force-with-lease, and
+# resign-branch.sh is no help here: it refuses a branch with local commits
+# the remote lacks.
+how="Re-sign everything since the base and push again:
+  git rebase -S --force-rebase $mb
+If the branch is already on the remote, use \`resign-branch.sh $branch\` instead — it resets to the remote, re-signs, rebases onto main and force-pushes with lease."
+if [ -n "$main" ] && mbm=$(git merge-base "$main" HEAD 2>/dev/null) \
+   && ! git merge-base --is-ancestor "$mbm" "$mb" 2>/dev/null; then
+  mb=$mbm
+  how="This branch merged main after it was pushed, so re-sign from the merged main tip (a rebase from the upstream would replay main's commits as new ones), then push with --force-with-lease — the rebase rewrites the pushed commits too, and resign-branch.sh refuses a branch with local commits the remote lacks:
+  git rebase -S --force-rebase $mb"
+fi
 
 if git config user.signingkey >/dev/null 2>&1; then
   deny "no-unsigned-push: $n unsigned commit(s) on $branch would be pushed, and this machine has a signing key, so sign them first:
 
 $unsigned
 
-Re-sign everything since the base and push again:
-  git rebase -S --force-rebase $mb
-If the branch is already on the remote, use \`resign-branch.sh $branch\` instead — it resets to the remote, re-signs, rebases onto main and force-pushes with lease. Never make commits with plumbing (\`git commit-tree\`) or \`-c commit.gpgsign=false\` in a repo that requires signatures."
+$how
+Never make commits with plumbing (\`git commit-tree\`) or \`-c commit.gpgsign=false\` in a repo that requires signatures."
 fi
 
 allow_with_note "no-unsigned-push: $n unsigned commit(s) on $branch are being pushed from a machine with no signing key:
