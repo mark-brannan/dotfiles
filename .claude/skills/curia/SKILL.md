@@ -130,7 +130,10 @@ dying mid-turn.
 
 List the open curiae, newest-touched first (recency matters;
 first-in-last-out), each as its id and question in one line, with the
-count in view. Recommend one and why, in one sentence. Open nothing until
+count in view. Open means `status: open` in the header; a redirect has
+no header, so one pointing at another curia folder collapses into its
+target, and one pointing elsewhere (grandfathered) counts as open until
+its document says settled. Recommend one and why, in one sentence. Open nothing until
 Solace names an id. If the list is long, say so plainly — a perpetually
 full list is a decision-making process failure, and folding a small
 question into an existing curia is always on the table.
