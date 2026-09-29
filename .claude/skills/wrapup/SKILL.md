@@ -33,7 +33,7 @@ Read the verdict line at the top of this session's auto-checkpoint
   wrap-up and sometimes turns it into an archive.
 
 If the session's only remaining need is "the next session should start here",
-that is a resume block (step 2b, four lines), not a wrap-up.
+that is the pickup item's hand-off (step 2b, four lines), not a wrap-up.
 
 ## 1. Narrative log
 
@@ -48,6 +48,9 @@ machine one is evidence, not a substitute. Put in it:
   holds the link, not a copy;
 - what was tried and abandoned, so the next session doesn't retry it;
 - what comes next: the hand-off prompt from step 2, verbatim;
+- `## For next time`: the questions and threads this session opened and did
+  not close, one line each. This list is the only place a closing message
+  may point at (step 5); anything not on it is not carried;
 - stamp the memos that argued a question when it's ruled — a dated
   one-line annotation under the memo's H1 naming what settled it, per
   `/reconcile`'s convention. Bodies stay as evidence, never reworded;
@@ -94,33 +97,32 @@ When you do write one, it must:
 Put it in the narrative log as well as the chat. The log survives; the chat
 does not.
 
-## 2b. Write the resume block — always
+## 2b. Write the hand-off into the pickup item — always
 
 `/pickup` reads nothing from the log and nothing from the chat. It reads one
-thing: the `## Resume` block in this session's own checkpoint
-(`state/global/log/auto/<date>-<repo>-<id>.md`). A hand-off prompt that is
+thing: the body of this session's own pickup item
+(`state/global/pickup/<start>-<sid8>.md`, written by the Stop hook; an
+edited body survives every rewrite). A hand-off prompt that is
 not also there is a hand-off to nobody — the next session runs
-`pickup-list`, sees no row, and truthfully reports there is nothing to
-resume. That is the amnesia this step exists to prevent.
+`pickup-list`, sees only the hook's default prompt line, and truthfully
+reports nothing was handed off. That is the amnesia this step exists to
+prevent.
 
 So every wrap-up that produced a hand-off in step 2 — the one-line
-`continue <link>` form included — also writes the block, before the closing
-message. **Push the branch first** (`git push -u origin <branch>`): the block
-points at a branch, `pickup-list` reads the local worktree and cannot tell,
-and a `/pickup` on another machine fetches a branch that is not on origin
-and finds nothing. Same four lines as `/pickup`'s spec. `link` is
-the home step 2 found and `next` is the prompt's first action — one
-derivation, not a second one that can drift from the prose. If the
-checkpoint already holds a block (the Stop nag may have asked for one before
-`/wrapup` ran), replace it; one block per checkpoint, never two:
+`continue <link>` form included — also edits the body, before the closing
+message. **Push the branch first** (`git push -u origin <branch>`): the item
+points at a branch, and a `/pickup` on another machine fetches a branch
+that is not on origin and finds nothing. Same four lines as `/pickup`'s
+spec. `link` is the home step 2 found and the first line is the prompt's
+first action — one derivation, not a second one that can drift from the
+prose. Replace everything below the `---`; one hand-off per item, never
+two:
 
 ```
-## Resume
-
-- next: <one sentence, imperative — the prompt's first action>
-- link: <the branch, PR, issue or card the prompt names>
-- model: <opus | sonnet | haiku>
-- effort: <low | medium | high>
+<one sentence, imperative — the prompt's first action>
+link: <the branch, PR, issue or card the prompt names>
+model: <opus | sonnet | haiku>
+effort: <low | medium | high>
 ```
 
 Then check it landed:
@@ -129,8 +131,9 @@ Then check it landed:
 ~/.local/bin/pickup-list
 ```
 
-Your branch must be in the table. If it is not, the block is missing,
-malformed or already marked consumed — fix that before you close. Don't wait
+Your item must be in the list with the first line above as its text. If it
+is not, the hand-off is missing,
+malformed or the item was already marked taken — fix that before you close. Don't wait
 for the Stop nag: it arms on a context, clock or friction crossing, not on a
 wrap-up, and a session that wraps up cleanly is exactly the one it never
 asks.
@@ -153,5 +156,29 @@ session that archived in step 0 has nothing to do here.
 
 Not before step 2b has passed its check. The closing message holds exactly
 two things: the hand-off prompt, and links to the `## Needs ruling` and
-`## Solace's` cards this session wrote. Nothing else. If nothing hit a one-way door, that half is simply absent — a question
-you worked around is reported in the PR body, not here.
+`## Solace's` cards this session wrote. Nothing else. If nothing hit a
+one-way door, that half is simply absent — a question you worked around is
+reported in the PR body, not here.
+
+It **opens nothing**: no new question, no doubt, no hint, no "one thing to
+consider". A closing message may say *"next time we discuss X"* — with X
+already in the log's `## For next time` list — and never *"hold this in
+your head"*. If something is still uncaptured when you reach this step, it
+goes into that list first. The reason is Solace's, verbatim (2026-09-27):
+"it is easiest for me to park a session when a) I know all your useful work
+has been landed and b) you do NOT open new questions, new lines of inquiry,
+new doubts, new hints that a judgement call needs to be made."
+
+## 6. Solace's final word
+
+Solace speaks last. Whatever they reply after the closing message — a
+goodnight, a correction, a stray idea — append it verbatim to the narrative
+log under `## Final words (verbatim)`, dated, and answer with **one line**
+naming where it landed. A session that archived in step 0 has no log yet:
+write one holding only that section. Not the checkpoint — the Stop hook
+rewrites it every Stop. No summary, no
+new item, no question, no second hand-off. If the words change the next
+action, update the pickup item's first body line and say so inside that same
+one line. Then stop, and stay stopped: a Stop-hook block that fires after
+this point is answered with the block it asks for and the same one line,
+nothing more.

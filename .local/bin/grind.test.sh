@@ -74,6 +74,23 @@ esac
 GH
 chmod +x "$S/bin/gh"
 
+# fake worklist -- the bucket record grind reads its queue from, built at
+# call time from the same canned files the gh shim serves: ready.json is the
+# issue buckets (blocked label -> buckets.blocked), audit.json (when the --prs
+# section has written it) the not_ready PRs, cards.json the ## Claude's cards.
+cat > "$S/bin/worklist" <<WL
+#!/bin/sh
+echo "\$*" >> "$S/worklist.log"
+ready=\$(jq -c '[.[] | select(.labels|map(.name)|index("blocked")|not) | {kind:"issue", repo:"o/alpha", number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready.json")
+blocked=\$(jq -c '[.[] | select(.labels|map(.name)|index("blocked")) | {kind:"issue", repo:"o/alpha", number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready.json")
+prs='[]'; [ -f "$S/audit.json" ] && prs=\$(jq -s -c '[.[] | select(.section == "unfinished" or .section == "stale-label") | {kind:"pr", repo:"o/alpha", number, title, url, isDraft:false, labels, author}]' "$S/audit.json")
+cards='[]'; [ -f "$S/cards.json" ] && cards=\$(cat "$S/cards.json")
+awaiting='[]'; [ -f "$S/awaiting-human.json" ] && awaiting=\$(cat "$S/awaiting-human.json")
+jq -nc --argjson r "\$ready" --argjson b "\$blocked" --argjson p "\$prs" --argjson c "\$cards" --argjson ah "\$awaiting" \
+  '{owner:"o", repos:["o/alpha"], buckets:{awaiting_human:\$ah, queued:[], not_ready:\$p, ready:\$r, blocked:\$b, untriaged:[], stranded:[], rulings:[], solaces:[], claudes:\$c}}'
+WL
+chmod +x "$S/bin/worklist"
+
 # fake claude -- reads the prompt from stdin (unused), writes canned
 # stream-json lines read from $S/claude-replies/<n>.json for the current
 # item (an assistant event followed by a result event, one per line, as the
@@ -166,8 +183,8 @@ eq 'exit 0' 0 "$RC"
 eq 'two claude invocations' 2 "$(calls_claude)"
 has 'first item line: cost, tokens, running total, percent' '^o/alpha#5: First item -- sonnet, \$1\.00, 150 tokens -- running \$1\.00 / \$20\.00 -- 5%$'
 has 'second item line: running total accumulates' '^o/alpha#20: Second item -- sonnet, \$2\.00, 150 tokens -- running \$3\.00 / \$20\.00 -- 15%$'
-has 'queue exhausted, final tally' '^done: Ready queue exhausted\. Running total \$3\.00 / \$20\.00\. 0 skipped\.$'
-has 'INFO: session line names repo, count, model, caps' 'INFO  session grind-.* on o/alpha: 2 Ready item\(s\), sonnet/medium, cap \$5\.00/item \$20\.00/session'
+has 'queue exhausted, final tally' '^done: queue exhausted \(2 issue\)\. Running total \$3\.00 / \$20\.00\. 0 skipped\.$'
+has 'INFO: session line names repo, count, model, caps' 'INFO  session grind-.* on o/alpha: 2 item\(s\) \(2 issue; finish-first\), sonnet/medium, cap \$5\.00/item \$20\.00/session'
 has 'INFO: item start line' 'INFO  \[1/2\] starting o/alpha#5 -- First item'
 has 'INFO: worker line names the permission mode' 'INFO  worker running: .*--permission-mode bypassPermissions'
 has 'INFO: worker exit line' 'INFO  worker exited 0 after [0-9]+s'
@@ -227,6 +244,35 @@ has 'heartbeat line carries elapsed time, a token count, and a ~$ estimate -- bo
   'still working on o/alpha#5 \([0-9]+m elapsed, ~48k tokens, ~\$[0-9]+\.[0-9]{2} so far\)'
 has 'the final line still uses the exact total_cost_usd, not the estimate' '^o/alpha#5: First item -- sonnet, \$0\.90,'
 
+# --- heartbeat: claude -p emits one assistant event per content block, and
+# every block of one message repeats that message's identical usage -- three
+# blocks of the same message must count once, not three times ------------------
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 5, "title": "First item", "body": "do the first thing", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]}
+]
+JSON
+rm -f "$S/state/grind"/*.json
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+echo "\$*" >> "$CLAUDE_LOG"
+echo '{"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":10000,"output_tokens":5000,"cache_read_input_tokens":20000,"cache_creation_input_tokens":3000}}}'
+sleep 0.3
+echo '{"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":10000,"output_tokens":5000,"cache_read_input_tokens":20000,"cache_creation_input_tokens":3000}}}'
+sleep 0.3
+echo '{"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":10000,"output_tokens":5000,"cache_read_input_tokens":20000,"cache_creation_input_tokens":3000}}}'
+sleep 2
+echo '{"type":"result","total_cost_usd":0.30,"usage":{"input_tokens":10000,"output_tokens":5000,"cache_read_input_tokens":20000,"cache_creation_input_tokens":3000},"result":"GRIND_STATUS: done"}'
+GH
+chmod +x "$S/bin/claude"
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10 --heartbeat 1
+eq 'exit 0' 0 "$RC"
+has 'heartbeat dedupes repeated blocks of the same message.id -- three identical 38000-token blocks count once, not 114000' \
+  'still working on o/alpha#5 \([0-9]+m elapsed, ~38k tokens, ~\$[0-9]+\.[0-9]{2} so far\)'
+
 # restore the multi-item ready queue and the reply-driven claude shim
 cat > "$S/ready.json" <<'JSON'
 [
@@ -276,7 +322,7 @@ session_id=$(basename "$sess" .json)
 run --resume "$session_id"
 eq 'exit 0' 0 "$RC"
 eq 'no more items to run -- queue already exhausted' 0 "$(calls_claude)"
-has 'says the queue is done' 'Ready queue exhausted'
+has 'says the queue is done' 'queue exhausted'
 eq 'state file unchanged (still 2 items)' 2 "$(jq '.items | length' "$sess")"
 
 # --- --resume refreshes session identity (pid, claude_session_id) in the
@@ -308,7 +354,7 @@ run --session-budget 100 --pause-every 10
 eq 'exit 1 when an item was skipped' 1 "$RC"
 has 'WARN line for the skip names the item and the branch' 'WARN  skipping o/alpha#5 -- could not create worktree .* on branch grind-5'
 has 'the other item still runs' '^o/alpha#20: Second item --'
-has 'tally counts the skip' 'Ready queue exhausted\. .* 1 skipped\.$'
+has 'tally counts the skip' 'queue exhausted .*\. .* 1 skipped\.$'
 has 'ERR line at the end' 'ERR   1 item\(s\) skipped'
 
 # same skip, but the run ends on the cadence pause instead of the queue: still exit 1
@@ -337,7 +383,7 @@ reply 2.00 "done" 2
 : > "$CLAUDE_LOG"
 run --session-budget 100 --pause-every 10
 lacks 'exactly 2x median does not trip the outlier pause' '^pause: o/alpha#20 cost'
-has 'runs to completion instead' '^done: Ready queue exhausted'
+has 'runs to completion instead' '^done: queue exhausted'
 
 # --- carded: logged, not a failure, item still counted toward pause-every -------
 # The card is verified: the issue gained a comment while the worker ran.
@@ -712,12 +758,14 @@ session_id=$(basename "$sess" .json)
 run --resume "$session_id"
 eq 'failed-with-cost item retried on resume' 1 "$(calls_claude)"
 
-# --- a non-zero exit alone makes the item failed, even on a clean result ----------
+# --- a non-zero exit alone makes the item failed, unless GitHub bears the claim out --
 # Nothing in the result event says anything went wrong here: `is_error` is
 # absent and the worker even claims done. Only claude's exit status carries
 # the failure, so this is the case that goes silently wrong the moment the
-# rc file is lost.
+# rc file is lost. The claim is still checked first -- the cap can land after
+# the push -- so with no PR behind it the item is failed.
 rm -f "$S/state/grind"/*.json
+cp "$S/pr-list.json" "$S/pr-list.saved"; echo '[]' > "$S/pr-list.json"
 cat > "$S/bin/claude" <<GH
 #!/bin/sh
 [ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
@@ -733,10 +781,17 @@ chmod +x "$S/bin/claude"
 run --session-budget 100 --pause-every 10
 has 'the exact exit status is reported' 'INFO  worker exited 3 after [0-9]+s'
 lacks 'no shell error deciding the status' 'Illegal number'
-has 'a non-zero exit is a failure whatever the result claims' '^FAILED: o/alpha#7'
+has 'a non-zero exit with an unbacked claim is a failure' '^FAILED: o/alpha#7'
 lacks 'not reported as a normal completed item' '^o/alpha#7: Flaky item --'
+lacks 'failed, not unverified -- the error is the better diagnosis' 'UNVERIFIED'
+has 'a failed item keeps its worktree' 'keeping worktree .*/7 on branch grind-7'
 sess=$(latest_session)
 eq 'recorded failed on exit status alone' failed "$(jq -r '.items[0].status' "$sess")"
+mv "$S/pr-list.saved" "$S/pr-list.json"
+rm -f "$S/state/grind"/*.json
+run --session-budget 100 --pause-every 10
+has 'a non-zero exit whose claim checks out is done' '^o/alpha#7: Flaky item --'
+lacks 'and not failed' '^FAILED: o/alpha#7'
 
 # restore the real claude shim
 cat > "$S/bin/claude" <<GH
@@ -765,7 +820,7 @@ cat > "$S/ready.json" <<'JSON'
 JSON
 run
 eq 'exit 0 on an empty queue' 0 "$RC"
-has 'says nothing is ready' '^grind: no Ready items on o/alpha$'
+has 'says nothing is ready' '^grind: nothing to work on o/alpha \(kinds: issue card\)$'
 
 # --- not in a repo, no --repo given -----------------------------------------------
 cd "$S/nogit" || exit 1
@@ -822,6 +877,88 @@ assert 'lock directory released again after this clean exit' bash -c '[ ! -d "'"
 assert 'the rename-based reclaim leaves no quarantined .stale.* dir behind' \
   bash -c '! ls -d "'"$lock_dir"'".stale.* >/dev/null 2>&1'
 
+# --- the card kind: a ## Claude's card whose link names this repo ---------------
+# What matters: the card is queued after the issues (finish-first, and a
+# card starts work), on a branch named from its bold name; only cards linking
+# this repo are queued; --kind narrows the run and --prs is --kind pr; a
+# keyless machine drops the pr kind by default but refuses it when asked; a
+# verified card leaves the board, the other card stays.
+cat > "$S/cards.json" <<'JSON'
+[{"kind":"card","section":"claudes","group":"global","text":"**alpha: tidy the widget** — the widget is untidy ([o/alpha](https://github.com/o/alpha))","name":"alpha: tidy the widget","link":"https://github.com/o/alpha","repo":"o/alpha"},
+ {"kind":"card","section":"claudes","group":"global","text":"**beta: elsewhere** — not this repo ([o/beta](https://github.com/o/beta))","name":"beta: elsewhere","link":"https://github.com/o/beta","repo":"o/beta"}]
+JSON
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 20, "title": "Second item", "body": "do the second thing", "url": "https://github.com/o/alpha/issues/20", "labels": [{"name": "ready"}]},
+  {"number": 5, "title": "First item", "body": "do the first thing", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]}
+]
+JSON
+export GRIND_BOARD="$S/kanban.md"
+printf '%s\n' "## Claude's" \
+  "- [ ] **alpha: tidy the widget** — the widget is untidy ([o/alpha](https://github.com/o/alpha))" \
+  "- [ ] **beta: elsewhere** — not this repo ([o/beta](https://github.com/o/beta))" > "$GRIND_BOARD"
+rm -f "$S/state/grind"/*.json
+run --dry-run
+eq 'dry-run exit 0' 0 "$RC"
+has 'a keyless machine drops the pr kind by default, on one line' '^grind: pr kind skipped -- needs a signing key'
+has 'issues first' '\[1/3\] o/alpha#5 -- First item'
+has 'the card after them, by ref' '\[3/3\] card:alpha-tidy-the-widget -- alpha: tidy the widget'
+has 'on a branch named from its bold name' 'worktree: git worktree add -b grind-card-alpha-tidy-the-widget'
+lacks 'a card linking another repo is not queued' 'beta-elsewhere'
+run --dry-run --kind card
+has '--kind card queues only the card' '\[1/1\] card:alpha-tidy-the-widget'
+lacks 'and no issue' 'o/alpha#5'
+run --dry-run --prs
+eq '--prs on a keyless machine still refuses' 1 "$RC"
+has 'and says what the pr kind needs' '^grind: the pr kind needs a signing key'
+run --dry-run --kind widget
+eq 'an unknown kind is a usage error' 2 "$RC"
+
+rm -f "$S/state/grind"/*.json; : > "$CLAUDE_LOG"
+run --kind card --pause-every 10
+eq 'card run exit 0' 0 "$RC"
+eq 'one worker for the one card' 1 "$(calls_claude)"
+PROMPT=$(cat "$S/prompt.txt")
+prompt_has 'the worker gets the card verbatim' '**alpha: tidy the widget** — the widget is untidy'
+prompt_has 'framed as a card, not an issue' 'This item is a card from the agent'
+prompt_has 'on its branch' 'grind-card-alpha-tidy-the-widget'
+has 'the done line carries the card ref' '^card:alpha-tidy-the-widget: alpha: tidy the widget -- sonnet, \$0\.10'
+assert 'the verified card left the board' bash -c '! grep -q "tidy the widget" "'"$GRIND_BOARD"'"'
+assert 'the other card is still there' grep -q 'beta: elsewhere' "$GRIND_BOARD"
+has 'and grind said so' 'INFO  removed card .alpha: tidy the widget. from'
+eq 'the state file records the card ref' 'card:alpha-tidy-the-widget' "$(jq -r '.items[0].ref' "$(latest_session)")"
+eq 'and the kinds' card "$(jq -r '.kinds' "$(latest_session)")"
+# a card whose staged .claude/ files fail to push is UNVERIFIED and stays on
+# the board: a card removed and then left unverified would never be queued
+# again, since --resume reads the current board
+printf '%s\n' "- [ ] **alpha: tidy the widget** — the widget is untidy ([o/alpha](https://github.com/o/alpha))" >> "$GRIND_BOARD"
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json; : > "$GIT_PUSH_LOG"
+# the shim that stages what it finds under claude-stage/<n>, as above
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+n=\$(cat "$S/claude-next" 2>/dev/null || echo 1)
+echo "\$n \$*" >> "$CLAUDE_LOG"
+echo \$((n + 1)) > "$S/claude-next"
+stage="$S/claude-stage/\$n"
+[ -d "\$stage" ] && { mkdir -p .claude-staging && cp -r "\$stage"/. .claude-staging/; }
+reply="$S/claude-replies/\$n.json"
+if [ -f "\$reply" ]; then cat "\$reply"; else
+  echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+  echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
+fi
+GH
+chmod +x "$S/bin/claude"
+mkdir -p "$S/claude-stage/1/hooks"
+echo 'echo staged' > "$S/claude-stage/1/hooks/example.test.sh"
+GIT_PUSH_FAIL=1 run --kind card --pause-every 10
+has 'a card with a failed staging push is UNVERIFIED' '^UNVERIFIED: card:alpha-tidy-the-widget -- alpha: tidy the widget -- worker claimed success but its staged \.claude/ files were never pushed'
+assert 'and the card is still on the board' grep -q 'tidy the widget' "$GRIND_BOARD"
+lacks 'and grind did not say it removed it' 'removed card'
+rm -rf "$S/claude-stage"
+unset GRIND_BOARD; rm -f "$S/cards.json"
+
 # --- --prs -------------------------------------------------------------------------
 # What matters here: only the two unfinished sections become items; every skip
 # rule fires with its reason named; the run refuses outright without a signing
@@ -839,6 +976,10 @@ cp "$(cd "$(dirname "$GRIND")/../.." && pwd)/.claude/skills/pickup/SKILL.md" \
 cat > "$prroot/.claude/hooks/lib-state.sh" <<'LS'
 branch_brief() { printf 'base: main (open PR)\nconflicts: yes\nrecommend: git merge origin/main   # fixture\n'; }
 LS
+cat > "$prroot/.claude/hooks/claim-stamp.sh" <<STAMP
+#!/bin/sh
+echo "\$*" >> "$S/stamp.log"
+STAMP
 cat > "$prroot/.local/bin/pr-label-audit" <<AUDIT
 #!/bin/sh
 case " \$* " in *" --pr "*) echo "AUDIT BRIEF for \$3"; exit 0 ;; esac
@@ -909,6 +1050,7 @@ case "\$1 \$2" in
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
   "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
   "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
+  "pr edit"|"pr comment") exit 0 ;;
   "api repos/"*"/actions/runs/"*) printf '%s\n' "\${GH_RUN_ATTEMPT:-1}" ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
@@ -934,7 +1076,7 @@ has 'stale-label PR is an item, lowest number first' '^\[1/9\] .*#11 -- \[not-gr
 has 'unfinished PR is an item, with its verdict' '^\[[0-9]+/9\] .*#30 -- \[conflicted\] PR 30$'
 lacks 'a green, labelled PR is not an item' '#50'
 has 'the checkout is onto the PR head branch, not a new one' 'git worktree add -B fix-11 .* origin/fix-11'
-has 'the command names the briefs and the contract' 'claude -p <.*#11 briefs \+ fixup contract>.*--max-budget-usd 1 --model sonnet'
+has 'the command names the briefs and the contract' 'claude -p <.*#11 briefs \+ fixup contract>.*--max-budget-usd 1.25 --model sonnet'
 
 # --- every skip rule fires, with its reason ------------------------------------------
 has 'fixup-hard is skipped'      '^\[[0-9]+/9\] .*#40 -- SKIP: labelled fixup-hard$'
@@ -953,6 +1095,25 @@ git -C "$S/held" checkout -q fix-45
 run --prs --dry-run
 has 'a worktree-held branch is skipped, by name' '#45 -- SKIP: a local worktree holds fix-45$'
 git -C "$prrepo" worktree remove -f "$S/held" >/dev/null 2>&1
+
+# --- the scheduler: finish-first works the fixups before anything new ----------
+cat > "$S/cards.json" <<'JSON'
+[{"kind":"card","section":"claudes","group":"global","text":"**alpha: a card** — text ([o/alpha](https://github.com/o/alpha))","name":"alpha: a card","link":"https://github.com/o/alpha","repo":"o/alpha"}]
+JSON
+rm -f "$S/state/grind"/*.json
+run --dry-run
+eq 'all kinds, dry-run, exit 0' 0 "$RC"
+seq_of() { printf '%s\n' "$OUT" | grep -E '^\[[0-9]+/[0-9]+\]' | grep -oE '#[0-9]+|card:[a-z-]+' | tr '\n' ' '; }
+eq 'finish-first: PRs by number, then issues, then the card' \
+  '#11 #30 #40 #41 #42 #43 #44 #45 #46 #5 #20 card:alpha-a-card ' "$(seq_of)"
+run --dry-run --policy start-first
+eq 'start-first: issues, the card, then the PRs' \
+  '#5 #20 card:alpha-a-card #11 #30 #40 #41 #42 #43 #44 #45 #46 ' "$(seq_of)"
+run --dry-run --policy random
+eq 'an unknown policy is a usage error' 2 "$RC"
+run --dry-run --prs
+eq '--prs is a filter over the same queue' '#11 #30 #40 #41 #42 #43 #44 #45 #46 ' "$(seq_of)"
+rm -f "$S/cards.json"
 
 # --- a not-green PR whose failing checks are all cancelled reruns instead of working ---
 audit_row_cancelled() { # audit_row_cancelled <n> <run id> <when>
@@ -1004,7 +1165,7 @@ assert 'the first PR in the queue is the one reran' grep -Eq -- 'run rerun 9001 
 has 'the second PR is skipped for the per-pass cap, not reran' 'WARN  skipping .*#61 -- this pass already reran a PR$'
 
 # --- --prs budget defaults, and flags that still override them -----------------------
-has 'default item budget is $1' -- '--max-budget-usd 1 '
+has 'default item budget is the $1 stop plus headroom' -- '--max-budget-usd 1.25 '
 run --prs --dry-run --item-budget 3
 has 'an explicit item budget wins' -- '--max-budget-usd 3 '
 
@@ -1028,6 +1189,7 @@ prompt_has 'its stop rule came with it'         'label the PR `fixup-hard`'
 prompt_has 'the worker is told the head branch' 'on fix-11 -- the PR'
 prompt_has 'done is offered'                    'GRIND_STATUS: done'
 prompt_has 'blocked is offered'                 'GRIND_STATUS: blocked'
+prompt_has 'the worker is told the cap is above the stop' 'the process is killed at $1.25'
 lacks 'no grind-N branch is ever made for a PR' 'grind-11'
 
 # --- done with neither the label nor a signed head move is unverified ----------------
@@ -1048,6 +1210,65 @@ reply 0.20 "blocked" 1
 run --prs
 has 'a labelled give-up is a clean blocked' '^blocked: .*#11 -- PR 11'
 lacks 'and is not unverified' 'UNVERIFIED'
+
+# --- the cap kills a fixup mid-wrap-up: grind carries out the stop rule for it -------
+# grind-20260929T022433Z: both fixups hit the cap on the turn they were
+# pushing, left no label and no comment, and were recorded failed with their
+# worktrees deleted. The worker's own stop rule is grind's to finish.
+capkill() { # capkill <n> <last assistant text>
+  jq -nc --arg t "$2" '{type:"assistant", message:{id:"m1", content:[{type:"text", text:$t}], usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}}}' \
+    > "$S/claude-replies/$1.json"
+  jq -nc '{type:"result", subtype:"error_max_budget_usd", is_error:true, session_id:"5075db97-dead-beef", total_cost_usd:1.26, usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}, result:"Budget exceeded"}' \
+    >> "$S/claude-replies/$1.json"
+}
+prview 11 '[]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+capkill 1 'Pushed the rebase. Budget is nearly spent; labelling fixup-hard next.'
+run --prs
+has 'a cap-killed fixup with no claim is failed' '^FAILED: .*#11 .*Budget exceeded'
+assert 'grind labels it fixup-hard' grep -Eq -- '^pr edit 11 .*--add-label fixup-hard' "$GH_LOG"
+assert 'and leaves the one comment' grep -Eq -- '^pr comment 11 ' "$GH_LOG"
+assert 'quoting what the worker last said' grep -Eq -- '^> Pushed the rebase' "$GH_LOG"
+assert 'the worker session claim stamp is released' grep -Eq -- '^release .*--scan 5075db97-dead-beef$' "$S/stamp.log"
+has 'its worktree is kept' 'keeping worktree .*/pr-11 on branch fix-11'
+
+# --- the cap lands after a claim GitHub bears out: that is a done fixup ------------------
+prview 11 '["awaiting-human"]' '[]'
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+capkill 1 'All green.
+GRIND_STATUS: done'
+run --prs
+has 'a verified claim outranks is_error' '^.*#11: PR 11 -- sonnet, \$1\.26'
+lacks 'so it is not failed' '^FAILED'
+assert 'and grind labels nothing' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+assert 'the stamp is released on every exit, not only a failed one' grep -q 'release' "$S/stamp.log"
+
+# --- the cap lands with no claim, but Mergify already finished the fixup: done ---------
+# dotfiles#249's shape: the signed commit was on the PR and awaiting-human on
+# it before the cap killed the worker mid-turn. The label is the same word a
+# `done` claim is checked against, so the missing claim costs nothing.
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+capkill 1 'Pushing.'
+run --prs
+has 'awaiting-human outranks a missing claim' '^.*#11: PR 11 -- sonnet, \$1\.26'
+lacks 'so it is not failed' '^FAILED'
+sess=$(latest_session)
+eq 'recorded done in state' 'done' "$(jq -r '.items[0].status' "$sess")"
+assert 'and grind labels nothing' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+assert 'the stamp is released all the same' grep -q 'release' "$S/stamp.log"
+prview 11 '[]' '[]'
+
+# --- the worker dies with no result event at all: stamp released, no label -------------
+# #388's shape: killed mid-commit, nothing parseable to score. --resume retries
+# it, so fixup-hard would turn that retry into a skip; the stamp goes anyway.
+rm -f "$S/claude-replies"/*.json "$S/state/grind"/*.json; : > "$GH_LOG"; : > "$S/stamp.log"
+jq -nc '{type:"assistant", session_id:"5075db97-no-result", message:{id:"m1", content:[{type:"text", text:"Committing."}], usage:{input_tokens:100,output_tokens:50,cache_read_input_tokens:0,cache_creation_input_tokens:0}}}' \
+  > "$S/claude-replies/1.json"
+run --prs
+has 'no result is not recorded, and retried' '^FAILED: .*#11 .*did not complete; not recorded'
+assert 'the stamp is released from the stream session id' grep -Eq -- '^release .*--scan 5075db97-no-result$' "$S/stamp.log"
+assert 'no fixup-hard: --resume retries this' test "$(grep -c '^pr edit 11' "$GH_LOG")" = 0
+has 'its worktree is kept' 'keeping worktree .*/pr-11 on branch fix-11'
 
 # --- a local branch of the same name is never force-deleted --------------------------
 # In --prs mode $branch is the PR's real head name, which a human may hold
@@ -1070,7 +1291,7 @@ eq 'the local branch of the same name survives' "$mine" "$(git -C "$prrepo" rev-
 # --- empty PR queue ------------------------------------------------------------------
 jq -nc '{repos_missing_fixup_hard:[]}' > "$S/audit.json"
 run --prs
-has 'nothing to fix up says so' 'no unfinished PRs on'
+has 'nothing to fix up says so' 'nothing to work on .* \(kinds: pr\)'
 eq 'and exits 0' 0 "$RC"
 
 # --- main itself is red: the whole --prs pass pauses, not just the queued PRs --------
@@ -1079,7 +1300,7 @@ jq -nc '{repos_base_red:["alpha"]}' > "$S/audit.json"
 run --prs
 eq 'exit 0 -- a red base is not a failure' 0 "$RC"
 eq 'no worker spent' 0 "$(calls_claude)"
-has 'the pass says why it paused' 'base branch is red.*skipping the --prs pass'
+has 'the pass says why it paused' 'base branch is red.*skipping the pr kind'
 jq -nc '{repos_missing_fixup_hard:[]}' > "$S/audit.json"
 
 # --- --resume of a --prs session stays on the PR queue --------------------------------
@@ -1089,13 +1310,13 @@ jq -nc '{repos_missing_fixup_hard:[]}' > "$S/audit.json"
 prs_session=$(basename "$(ls -t "$S/state/grind"/*.json | head -1)" .json)
 eq 'the session file records the mode' 1 "$(jq -r .prs "$S/state/grind/$prs_session.json")"
 run --resume "$prs_session"
-has 'resumed without --prs, it still reads the PR queue' 'no unfinished PRs on'
-lacks 'and not the Ready queue' 'no Ready items'
+has 'resumed without --prs, it still reads the PR queue' 'nothing to work on .* \(kinds: pr\)'
+eq 'the session file records the kinds' pr "$(jq -r .kinds "$S/state/grind/$prs_session.json")"
 # A session file from before the field existed is an issue session.
-jq 'del(.prs)' "$S/state/grind/$prs_session.json" > "$S/state/grind/grind-old.json"
+jq 'del(.prs, .kinds)' "$S/state/grind/$prs_session.json" > "$S/state/grind/grind-old.json"
 run --resume grind-old --prs
 eq 'an issue session cannot be resumed as --prs' 1 "$RC"
-has 'and says why' 'worked the Ready queue, not PRs'
+has 'and says why' 'worked kinds \[issue\]; drop --prs/--kind'
 
 unset GRIND_ROOT
 cd "$S/repo" || exit 1
@@ -1113,6 +1334,76 @@ case "\$1 \$2" in
 esac
 GH
 chmod +x "$S/bin/gh"
+
+# --- review band: pause dispatch while PRs awaiting a look pile up -----------------
+# memory: review-band-five-to-ten (Solace, 2026-09-22); design rung 1b. Cap is
+# read from worklist's own buckets.awaiting_human, the record grind already
+# fetches -- no extra gh call needed to know the band is full. Base sandbox
+# ($S/repo, no signing key), so the pr kind drops itself silently and only
+# the one Ready issue queues -- exactly what makes "one claude call" legible.
+cat > "$S/ready.json" <<'JSON'
+[
+  {"number": 5, "title": "First item", "body": "do the first thing", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]}
+]
+JSON
+cat > "$S/bin/claude" <<GH
+#!/bin/sh
+[ "\$1" = auth ] && { echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0; }
+cat > "$S/prompt.txt"
+echo "\$*" >> "$CLAUDE_LOG"
+echo '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
+echo '{"type":"result","total_cost_usd":0.10,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"GRIND_STATUS: done"}'
+GH
+chmod +x "$S/bin/claude"
+rm -f "$S/state/grind"/*.json "$S/state/grind"/band-paused-* "$S/claude-replies"/*.json
+: > "$CLAUDE_LOG"
+
+jq -nc '[range(0;10)|{number:(100+.)}]' > "$S/awaiting-human.json"
+run --session-budget 100 --pause-every 10
+eq 'exit 0' 0 "$RC"
+eq 'no claude call: the band is already at ten' 0 "$(calls_claude)"
+has 'says it is pausing, names the count and the repo' \
+  '^grind: pausing -- 10 PR\(s\) awaiting your look on o/alpha \(band 5-10; resumes below 5\)$'
+assert 'a band marker was written for this repo' test -f "$S/state/grind/band-paused-o_alpha"
+
+# Still ten, or a lighter eight: the marker holds the pause either way --
+# resuming needs the count below five, not merely below ten.
+run --session-budget 100 --pause-every 10
+eq 'still paused at ten' 0 "$(calls_claude)"
+jq -nc '[range(0;8)|{number:(100+.)}]' > "$S/awaiting-human.json"
+run --session-budget 100 --pause-every 10
+eq 'still paused at eight -- hysteresis holds the ten-triggered pause' 0 "$(calls_claude)"
+has 'the repeat-hit line, not the first-hit one' \
+  '^grind: paused -- 8 PR\(s\) awaiting your look on o/alpha \(resumes below 5\)$'
+
+# Below five (strictly -- "resumes below 5" means four, not five): the
+# marker clears and dispatch resumes.
+jq -nc '[range(0;4)|{number:(200+.)}]' > "$S/awaiting-human.json"
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+eq 'exit 0' 0 "$RC"
+eq 'one claude call once the band drops below five' 1 "$(calls_claude)"
+assert 'the band marker was cleared' test ! -f "$S/state/grind/band-paused-o_alpha"
+
+# A mid-band count that never crossed ten sets no marker, and five-to-ten
+# alone is not a floor on ordinary dispatch (it only holds a pause that
+# already fired).
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+jq -nc '[range(0;7)|{number:(300+.)}]' > "$S/awaiting-human.json"
+: > "$CLAUDE_LOG"
+run --session-budget 100 --pause-every 10
+eq 'a mid-band count dispatches -- no marker was ever set' 1 "$(calls_claude)"
+
+# --dry-run never consults the band. Clear state first: a same-second
+# session id would otherwise reuse the just-written state file and read the
+# item dispatched above as already done.
+rm -f "$S/state/grind"/*.json
+jq -nc '[range(0;10)|{number:(100+.)}]' > "$S/awaiting-human.json"
+run --dry-run
+eq 'exit 0' 0 "$RC"
+has 'dry-run still shows the plan' '\[1/1\] o/alpha#5'
+
+rm -f "$S/awaiting-human.json" "$S/state/grind"/band-paused-* "$S/state/grind"/*.json "$S/claude-replies"/*.json
 
 # --- a logged-out claude is refused before any worktree or state file -------
 # The observed failure (2026-09-16): every item came back $0, 0 tokens,

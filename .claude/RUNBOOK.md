@@ -23,6 +23,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Change what the metrics readouts show](#change-what-the-metrics-readouts-show)
 - [Check a repo's prose budgets](#check-a-repos-prose-budgets)
 - [Prune stale Stop-hook salvage refs](#prune-stale-stop-hook-salvage-refs)
+- [Read the pickup items](#read-the-pickup-items)
 
 **GitHub repository**
 - [Cut and promote a prose-budget engine version](#cut-and-promote-a-prose-budget-engine-version)
@@ -34,6 +35,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Audit the `awaiting-human` label](#audit-the-awaiting-human-label)
 - [Find out which session holds a branch](#find-out-which-session-holds-a-branch)
 - [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
+- [Waive the mixed-loops gate on a PR](#waive-the-mixed-loops-gate-on-a-pr)
 - [Run the PR fixer on a timer](#run-the-pr-fixer-on-a-timer)
 
 **Troubleshooting**
@@ -327,6 +329,28 @@ prune-wip-refs --delete
 Verify: exit 0 and a final `deleted N wip ref(s)` line; each deletion line
 carries its undo. `prune-wip-refs --help` has the rules.
 
+## Read the pickup items
+
+The Stop hook writes one pickup item per session to the state repo's
+`state/global/pickup/`, every Stop, from the transcript and git; a session
+that dies mid-work still leaves its item. Newest is on top. The body below
+the `---` is the hand-off: the hook defaults it to the last prompt line and
+keeps any edit a model makes.
+
+```bash
+pickup-list                  # top five, newest first, plus the docket count
+pickup-list --all            # every open item
+pickup-list find <word>
+```
+
+To continue an item, `/pickup` in a new session, or `pickup-list take <id>`
+by hand. A question for Solace is a board card (`/card-write`); Solace's
+words on a curia land on that curia's thread, stamped by the same hook.
+
+Verify: `pickup-list` lists the session's own item within a minute of its
+last Stop, with `pickup-list show <id>` naming the branch and its
+ahead/dirty state.
+
 ## Cut and promote a prose-budget engine version
 
 An immutable `prose-budget/vX.Y.Z` tag here names the engine; a moving `v1`
@@ -577,6 +601,25 @@ repo yet — create it once:
 
 ```bash
 gh label create churn-ok --repo mark-brannan/dotfiles --color FBCA04 --description "Waives the churn-diff gate (human-applied only)"
+```
+
+## Waive the mixed-loops gate on a PR
+
+`mixed-loops-ok` lets a design document and the implementation it governs land
+in one PR (`.github/workflows/mixed-loops-guard.yml`). Human-applied:
+`public-issue-guard.sh` blocks a session from adding it by `gh` or MCP.
+
+```bash
+gh pr edit <PR#> --repo mark-brannan/dotfiles --add-label mixed-loops-ok
+```
+
+Verify: the `mixed-loops` check on the PR reruns green and its log ends
+`allowed by the mixed-loops-ok label`.
+
+If it fails with `'mixed-loops-ok' not found`, create the label once:
+
+```bash
+gh label create mixed-loops-ok --repo mark-brannan/dotfiles --color BFD4F2 --description "Human waiver: design and implementation may land in this one PR"
 ```
 
 ## Run the PR fixer on a timer

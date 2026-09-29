@@ -60,6 +60,9 @@ INSTALL="
 .claude/skills/sweep/SKILL.md
 .claude/skills/pickup/SKILL.md
 .claude/skills/orchestrate/SKILL.md
+.claude/skills/agora/SKILL.md
+.claude/skills/curia/SKILL.md
+.claude/skills/curia/template.md
 .claude/hooks/lib-state.sh
 .claude/hooks/session-metrics.jq
 .claude/hooks/lib-metrics-fmt.jq
@@ -81,6 +84,7 @@ INSTALL="
 .claude/hooks/no-delete-stacked-base.sh
 .claude/hooks/lib-shell-words.awk
 .claude/hooks/session-start-seed-refresh.sh
+.claude/hooks/local-config-push.sh
 .claude/hooks/guard-add-repo.sh
 .claude/hooks/metrics-format.sh
 .claude/hooks/metrics-live.sh
