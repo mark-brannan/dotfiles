@@ -82,9 +82,11 @@ rest. Say the id in the minting session's record.
 
 1. **Resolve the id.** Read `state/global/curia/<id>/thread.md`. A
    one-line redirect points at a document elsewhere (a grandfathered
-   curia); follow it, and that document's own loop section then governs
-   read order and prompts. No folder at all → treat as bare `/curia` and
-   say the id didn't resolve.
+   curia); follow it — that document's own loop section then governs read
+   order and replaces step 4's reading, while the LIVE check, the lint
+   and every dialogue rule still apply, with the LIVE file in the
+   redirect's folder. No folder at all → treat as bare `/curia` and say
+   the id didn't resolve.
 2. **Check for another sitting.** If the folder holds a `LIVE` file
    (session id and ISO timestamp, written at step 4) from a different
    session, say so in one line and ask — Solace runs parallel sittings on
