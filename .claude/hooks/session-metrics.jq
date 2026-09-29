@@ -557,23 +557,31 @@ def price:
       idle_seconds:    ($elapsed_s - $active_s),
       model:      ([ $E[].value | select(.type=="assistant")
                      | .message.model | select(. != null) ] | last),
-      # The stack item's floor (stop-continuity.sh): the first line of the
+      # The pickup item's floor (stop-continuity.sh): the first line of the
       # last thing the user said, cleaned and redacted like every other
-      # excerpt here, and every stack id the user named or a `stack take`
-      # ran -- the item this session continues from.
+      # excerpt here; the same words in full for the curia floor; and every
+      # curia id the transcript touched, in first-touch order -- a
+      # `state/global/curia/<id>` path, `/curia <id>` or `confer <id>`.
+      # Candidates only: the hook keeps the ones whose thread exists.
       last_prompt: ([ $E[].value
                       | select(.type == "queue-operation" and .operation == "enqueue"
                                and (.content // "") != "")
                       | .content ] | last // ""
                     | clean_human | split("\n") | map(select(test("\\S"))) | first // ""
                     | redact | .[0:200]),
-      stack_refs:  ([ ($E[].value
+      last_words:  ([ $E[].value
+                      | select(.type == "queue-operation" and .operation == "enqueue"
+                               and (.content // "") != "")
+                      | .content ] | last // ""
+                    | clean_human | redact | .[0:2000]),
+      curia_refs:  ([ ($E[].value
                        | select(.type == "queue-operation" and .operation == "enqueue")
                        | .content // ""),
-                      ($tools[] | select(.name == "Bash") | .input.command // ""
-                       | select(test("\\bstack\\s+take\\b"))) ]
-                    | map([ match("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9a-f]{6,8}"; "g").string ])
-                    | add // [] | unique),
+                      ($tools[] | (.input.command // ""), (.input.file_path // "")) ]
+                    | map([ match("(?:state/global/curia/|[Cc]uria[/ ]+|[Cc]onfer +)([a-z0-9][a-z0-9-]*)"; "g")
+                            | .captures[0].string ])
+                    | add // []
+                    | reduce .[] as $r ([]; if index($r) then . else . + [$r] end)),
       user_turns: ($humans | length),
       assistant_turns: ($amsgs | length),
       tool_calls: ($tools | length),

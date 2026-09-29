@@ -149,55 +149,109 @@ sed -i 's/^- effort: high$/&\n- consumed: session abcd1234 at 2026-09-09T13:00:0
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 has 'consumed marker survives' '^- consumed: session abcd1234' "$CKPT"
 
-# --- the stack item: one per session, machine-written, body model-editable -----
-# The floor of the continuity stack. Written on every Stop from the transcript
-# and git, so a session that ends any way at all leaves an item. The body is
-# the one line a model may improve, and it survives the rewrite only because
-# the hook overwrites nothing but the line it last wrote itself.
-STACKD="$HOME/.claude/state/global/stack"
+# --- the pickup item: one per session, machine-written, body model-editable ---
+# Written on every Stop from the transcript and git, so a session that ends
+# any way at all leaves an item for /pickup. The body is the hand-off a model
+# may write, and it survives the rewrite only because the hook overwrites
+# nothing but the text it last wrote itself.
+PICKD="$HOME/.claude/state/global/pickup"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
-ITEM=$(ls "$STACKD"/*-"${SID:0:8}".md 2>/dev/null | head -1)
-assert 'a stack item was written' test -n "$ITEM"
+ITEM=$(ls "$PICKD"/*-"${SID:0:8}".md 2>/dev/null | head -1)
+assert 'a pickup item was written' test -n "$ITEM"
 sfield() { sed -n "s/^$1: //p" "$ITEM" | head -1; }
 sbody() { awk 'f{print} /^---$/{f=1}' "$ITEM"; }
 assert 'the id is the session start minute plus the short session id' \
   bash -c "basename '$ITEM' .md | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-${SID:0:8}\$'"
-eq 'kind is work' work "$(sfield kind)"
 eq 'status opens' open "$(sfield status)"
-eq 'parent is none when nothing was taken' none "$(sfield parent)"
 eq 'the body defaults to the last prompt line' "$(sfield prompt)" "$(sbody)"
 assert 'the prompt line is the transcript'"'"'s last human line' test -n "$(sfield prompt)"
 eq 'the pushed branch with a PR records it' https://github.com/o/r/pull/7 "$(sfield pr)"
 has 'branch state names ahead and clean' '^branch: work claude/work \(0 ahead, clean\)$' "$ITEM"
 
 # A model edits the body: the next Stop keeps it.
-printf 'kind: work\nstatus: open\nupdated: x\nparent: none\nsession: %s\nmodel: m\nbranch: b\npr: %s\nwhere: w\nprompt: %s\n---\nfinish the fixtures, then open the PR\n' \
+printf 'status: open\nupdated: x\nsession: %s\nmodel: m\nbranch: b\npr: %s\nwhere: w\nprompt: %s\n---\nfinish the fixtures, then open the PR\n' \
   "$SID" "$(sfield pr)" "$(sfield prompt)" > "$ITEM"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 eq 'an edited body survives the rewrite' 'finish the fixtures, then open the PR' "$(sbody)"
 eq 'a found PR is kept without a second lookup' https://github.com/o/r/pull/7 "$(sfield pr)"
 
-# A hand-set parent is kept; a done status is kept while the prompt is unchanged.
-sed -i 's/^parent: none$/parent: 2026-09-01T10-00-aaaaaaaa/; s/^status: open$/status: done/' "$ITEM"
+# A done status is kept while the prompt is unchanged.
+sed -i 's/^status: open$/status: done/' "$ITEM"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
-eq 'parent is kept' 2026-09-01T10-00-aaaaaaaa "$(sfield parent)"
-eq 'status is kept while the prompt is unchanged' done "$(sfield status)"
+eq 'status is kept while the prompt is unchanged' 'done' "$(sfield status)"
 
 # A body that still reads as the hook left it follows the prompt; a new
-# prompt reopens the item. The parent comes from a `stack take` in the transcript.
-TP2="$S/stack-transcript.jsonl"
-mkdir -p "$STACKD"; printf 'kind: work\nstatus: open\nupdated: x\nparent: none\nsession: p\nmodel: m\nbranch: b\npr: none\nwhere: w\nprompt: p\n---\nparent item\n' > "$STACKD/2026-09-20T09-00-abcdef12.md"
+# prompt reopens the item.
+TP2="$S/pickup-transcript.jsonl"
 {
   jq -c '.' "$TP" | head -3
-  printf '{"type":"queue-operation","operation":"enqueue","content":"pick up 2026-09-20T09-00-abcdef12 and finish it","timestamp":"2026-09-26T12:00:00.000Z"}\n'
-  printf '{"type":"assistant","uuid":"u9","timestamp":"2026-09-26T12:00:01.000Z","message":{"model":"claude-fable-5-1","content":[{"type":"tool_use","name":"Bash","input":{"command":"stack take 2026-09-20T09-00-abcdef12"}}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
+  printf '{"type":"queue-operation","operation":"enqueue","content":"pick up the fixture work and finish it","timestamp":"2026-09-26T12:00:00.000Z"}\n'
 } > "$TP2"
-printf 'kind: work\nstatus: done\nupdated: x\nparent: none\nsession: %s\nmodel: m\nbranch: b\npr: none\nwhere: w\nprompt: old prompt\n---\nold prompt\n' "$SID" > "$ITEM"
+printf 'status: done\nupdated: x\nsession: %s\nmodel: m\nbranch: b\npr: none\nwhere: w\nprompt: old prompt\n---\nold prompt\n' "$SID" > "$ITEM"
 TP="$TP2" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
-ITEM=$(ls "$STACKD"/*-"${SID:0:8}".md 2>/dev/null | head -1)
-eq 'an untouched body follows the new prompt' 'pick up 2026-09-20T09-00-abcdef12 and finish it' "$(sbody)"
+ITEM=$(ls "$PICKD"/*-"${SID:0:8}".md 2>/dev/null | head -1)
+eq 'an untouched body follows the new prompt' 'pick up the fixture work and finish it' "$(sbody)"
 eq 'a new prompt reopens the item' open "$(sfield status)"
-eq 'the taken item becomes the parent' 2026-09-20T09-00-abcdef12 "$(sfield parent)"
+
+# --- curia threads: a touched thread gets the floor and the last words --------
+# The transcript names a curia (`confer <id>` here); the Stop hook stamps a
+# floor block at the end of "Where this stands" -- model text above survives
+# -- and appends the user's last words verbatim under "Solace's words". Both
+# idempotent across Stops; a model edit to the words entry is never clobbered.
+CURD="$HOME/.claude/state/global/curia/test-question"
+mkdir -p "$CURD"
+cat > "$CURD/thread.md" <<'EOF'
+# Curia: test question
+
+- id: `test-question`
+- status: open
+
+## Where this stands
+
+Model text that must survive.
+
+## Solace's words
+
+<!-- Append-only; a new dated sub-heading per sitting. -->
+EOF
+TP3="$S/curia-transcript.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"confer test-question please","timestamp":"2026-09-26T12:00:00.000Z"}\n'
+} > "$TP3"
+TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+TH="$CURD/thread.md"
+has 'the floor block is written' '^<!-- floor' "$TH"
+has 'the floor carries last-touched and the session' "^- last touched: .* session ${SID:0:8} " "$TH"
+has 'the floor carries the branch state' '^- branch: work claude/work \(0 ahead, clean\)' "$TH"
+has 'model text above the floor survives' '^Model text that must survive\.$' "$TH"
+has 'the last words land under Solace'"'"'s words' "^### .* session ${SID:0:8} \(hook\)$" "$TH"
+has 'verbatim, as a blockquote' '^> confer test-question please$' "$TH"
+assert 'the floor sits inside Where this stands' \
+  bash -c "awk '/^## Where this stands/{f=1} /^## Solace/{exit} f&&/^<!-- floor/{ok=1} END{exit !ok}' '$TH'"
+
+# A second Stop rewrites, never duplicates.
+TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'one floor block after two Stops' 1 "$(grep -c '^<!-- floor' "$TH")"
+eq 'one words entry after two Stops' 1 "$(grep -c "session ${SID:0:8} (hook)" "$TH")"
+
+# New last words replace the hook's own entry; a model-edited entry stays.
+TP4="$S/curia-transcript-2.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"confer test-question: make it so","timestamp":"2026-09-26T13:00:00.000Z"}\n'
+} > "$TP4"
+TP="$TP4" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+has 'new last words replace the hook entry' '^> confer test-question: make it so$' "$TH"
+assert 'the old hook entry is gone' bash -c "! grep -q '^> confer test-question please$' '$TH'"
+sed -i 's/^> confer test-question: make it so$/The model folded these words into the record./' "$TH"
+TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+has 'a model-edited entry is never clobbered' '^The model folded these words into the record\.$' "$TH"
+eq 'and no second entry appears' 1 "$(grep -c "session ${SID:0:8} (hook)" "$TH")"
+
+# A named curia whose thread does not exist is skipped without a write.
+assert 'no thread is invented for an unknown id' \
+  bash -c "! ls '$HOME/.claude/state/global/curia' | grep -qv '^test-question\$'"
 
 # =============================================================================
 # sc_salvage: the auto-commit at Stop (dotfiles#196)
