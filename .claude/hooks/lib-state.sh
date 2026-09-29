@@ -194,6 +194,11 @@ archivable_reasons() {
 
   if [ -z "$reasons" ]; then
     home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
+    # Stashed for the caller: stop-continuity.sh's pickup item wants the
+    # same home line and must not pay branch-home-gate.sh's gh round trip
+    # a second time in the same Stop.
+    # shellcheck disable=SC2034
+    BHG_HOME_LINE=$home
     case "$home" in
       home:*)       : ;;
       unverified:*) add_reason "branch home unverified (${home#unverified: })" ;;

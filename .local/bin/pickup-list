@@ -50,9 +50,12 @@ now_s=$(date -u +%s)
 
 field() { sed -n "s/^$2: //p" "$1" 2>/dev/null | head -1; }
 body()  { awk 'f { print } /^---$/ { f = 1 }' "$1" 2>/dev/null; }
-item_path() {  # item_path <id> -- the file, or fail
-  [ -n "$1" ] && [ -f "$PICKUP/$1.md" ] && { printf '%s' "$PICKUP/$1.md"; return 0; }
-  printf 'pickup-list: no item %s\n' "${1:-<id>}" >&2; return 1
+item_path() {  # item_path <id> -- the file, or fail; id chars only, no paths
+  case "${1:-}" in
+    ''|*[!A-Za-z0-9T-]*) printf 'pickup-list: no item %s\n' "${1:-<id>}" >&2; return 1 ;;
+  esac
+  [ -f "$PICKUP/$1.md" ] && { printf '%s' "$PICKUP/$1.md"; return 0; }
+  printf 'pickup-list: no item %s\n' "$1" >&2; return 1
 }
 
 # set_field <file> <name> <value> -- rewrite one header line and bump updated.

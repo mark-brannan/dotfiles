@@ -535,7 +535,11 @@ pickup_item() {
     miss="${TMPDIR:-/tmp}/claude-pickup-pr-miss.$(printf '%s' "$sid" | tr -c 'A-Za-z0-9_-' '_')"
     if [ "$pi_pr" = none ] && [ "$ust" = 'ahead 0' ] && [ -x "$HOOK_DIR/branch-home-gate.sh" ] \
        && [ -z "$(find "$miss" -mmin -10 2>/dev/null)" ]; then
-      home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
+      # The verdict's own home check (archivable_reasons, lib-state.sh)
+      # stashes its result; reuse it rather than paying the gh round trip
+      # twice in one Stop.
+      home=${BHG_HOME_LINE:-}
+      [ -n "$home" ] || home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
       case "$home" in
         'home: https://'*) pi_pr=$(printf '%s' "$home" | sed 's/^home: //' | grep -oE '^https://[^ ]+') ;;
         *) : > "$miss" 2>/dev/null ;;
