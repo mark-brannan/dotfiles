@@ -795,7 +795,7 @@ run --session-budget 100 --pause-every 10
 has 'a budget-capped worker is done once the PR check finds its push' '^o/alpha#7: Flaky item -- sonnet, \$1\.00'
 lacks 'not reported as a failure' '^FAILED'
 sess=$(latest_session)
-eq 'recorded done, not failed, in state' done "$(jq -r '.items[0].status' "$sess")"
+eq 'recorded done, not failed, in state' 'done' "$(jq -r '.items[0].status' "$sess")"
 
 # these blocks are back to "nothing landed" for the rest of the section
 cat > "$S/pr-list.json" <<'JSON'
@@ -1268,7 +1268,7 @@ run --prs
 has 'a budget-capped fixup is done once awaiting-human is on it' '^.*#11: PR 11 -- sonnet, \$1\.00'
 lacks 'not reported as a failure' '^FAILED'
 sess=$(latest_session)
-eq 'recorded done, not failed, in state' done "$(jq -r '.items[0].status' "$sess")"
+eq 'recorded done, not failed, in state' 'done' "$(jq -r '.items[0].status' "$sess")"
 
 # ...but the same cutoff with nothing to show for it is still failed
 prview 11 '[]' '[]'

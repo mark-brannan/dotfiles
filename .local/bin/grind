@@ -1083,15 +1083,14 @@ while [ "$i" -lt "$count" ]; do
   is_error=$(printf '%s' "$result_json" | jq -r '.is_error // false' 2>/dev/null)
 
   # A non-zero exit or an is_error result (e.g. the item cap was hit) still
-  # spent money: record the cost so the session budget stays honest, but mark
-  # it failed so --resume retries it instead of skipping it forever -- unless
-  # the item was never carded/blocked to begin with. A worker that claimed
-  # carded/blocked and then errored is not trustworthy either way and stays
-  # failed outright; a plain `done`-shaped item (no GRIND_STATUS claim at
-  # all) gets the same check a clean claim gets below, because
-  # --max-budget-usd can cut a fixup off on the very next tool call after it
-  # commits and pushes -- the exit code says nothing about whether that
-  # landed. Found 2026-09-29: dotfiles#249 and #388 both hit the item cap
+  # spent money: record the cost so the session budget stays honest. Whether
+  # it is a failure depends on the claim. A worker that claimed carded/blocked
+  # and then errored is not trustworthy either way and is failed outright. A
+  # plain `done`-shaped result (no GRIND_STATUS claim at all) gets the same
+  # GitHub check a clean claim gets below, and fails only if that finds
+  # nothing: --max-budget-usd can cut a fixup off on the very next tool call
+  # after it commits and pushes, and the exit code says nothing about whether
+  # that landed. Found 2026-09-29 on dotfiles#249/#388: both hit the item cap
   # mid-turn and were recorded failed; #249's commit had already landed.
   status=done
   case "$text" in
@@ -1100,30 +1099,25 @@ while [ "$i" -lt "$count" ]; do
   esac
   worker_errored=0
   if [ "$claude_rc" -ne 0 ] || [ "$is_error" = true ]; then worker_errored=1; fi
-  if [ "$worker_errored" -eq 1 ] && [ "$status" != done ]; then status=failed; fi
+  if [ "$worker_errored" -eq 1 ] && [ "$status" != "done" ]; then status=failed; fi
 
   # Check the claim. `blocked` asserts nothing about the world, so there is
   # nothing to check; `failed` is already a failure.
   unverified_why=""
   case "$status" in
     done)
+      # Nothing landed: an errored worker is failed (its own result text is
+      # the diagnosis), a clean one is unverified (it said done and lied).
       if [ "$kind" = pr ]; then
-        if verify_pr_fixup "$number" "$branch" "$wt_path" "$started_iso"; then
-          worker_errored=0
-        elif [ "$worker_errored" -eq 1 ]; then
-          status=failed
-        else
+        if ! verify_pr_fixup "$number" "$branch" "$wt_path" "$started_iso"; then
           unverified_why="no awaiting-human label, and no signed commit pushed to $branch"
           status=unverified
         fi
-      elif verify_pr "$branch" "$started_iso"; then
-        worker_errored=0
-      elif [ "$worker_errored" -eq 1 ]; then
-        status=failed
-      else
+      elif ! verify_pr "$branch" "$started_iso"; then
         unverified_why="no PR opened or pushed to on head branch $branch"
         status=unverified
       fi
+      if [ "$status" = unverified ] && [ "$worker_errored" -eq 1 ]; then status=failed; fi
       ;;
     blocked)
       # Ordinarily `blocked` asserts nothing about the world. Under --prs it
