@@ -24,7 +24,8 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
 3. **agent defaults to declare** — decisions an agent took that touch the
    design, named so the reader knows no human weighed in.
 4. **lint** — the last lint of the document: date, findings applied, any
-   ruling-grade finding still open. None run → `not run`, mark `--`.
+   ruling-grade finding still open. No lint record in the read-set →
+   `not found`, mark `--`; the reader cannot tell never-run from unkept.
 5. **reopen condition** — one line: the evidence from loop one that sends
    this back to deliberation. When absent, the stub is: *"unsettled;
    reopens by the user's word in an agora or a direct order; no automatic
@@ -56,7 +57,7 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
 | open questions            | 2 of 5                                    | -- |
 | decisions by owner        | user 3 (pen 2, pencil 1) · agent 1        | ok |
 | agent defaults to declare | 1 — toil (file naming)                    | ok |
-| lint                      | not run                                   | -- |
+| lint                      | not found                                 | -- |
 | reopen condition          | stub                                      | -- |
 | unverified claims         | 0                                         | ok |
 | private terms             | none                                      | ok |
