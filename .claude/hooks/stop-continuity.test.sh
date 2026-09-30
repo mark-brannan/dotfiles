@@ -531,9 +531,26 @@ rm -f "$SREPO/state/global/.last-state-push"   # past the push debounce
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
 assert 'conflicting pull: no rebase left in progress' \
   test ! -d "$(git -C "$SREPO" rev-parse --absolute-git-dir)/rebase-merge"
+assert 'conflicting pull: no apply-backend rebase left either' \
+  test ! -d "$(git -C "$SREPO" rev-parse --absolute-git-dir)/rebase-apply"
 assert 'conflicting pull: still on main' git -C "$SREPO" symbolic-ref -q HEAD
 assert 'conflicting pull: the verdict says the push failed' \
   grep -qE 'state-repo push failed' "$SREPO/state/global/log/auto/"*"-work-${SID:0:8}.md"
+
+# --- a board that fails kanban-lint stays out; a hand-staged blob comes back --
+# on_exit restores it: the one EXIT trap, which also releases the push lock.
+kb=state/global/kanban.md
+printf '# Open loops\n\n## Claude'"'"'s\n' > "$SREPO/$kb"
+gitq "$SREPO" add "$kb"; gitq "$SREPO" commit -m board
+printf -- '- staged by hand\n' >> "$SREPO/$kb"; gitq "$SREPO" add "$kb"
+staged=$(git -C "$SREPO" rev-parse ":$kb")
+printf '## Yours\n' >> "$SREPO/$kb"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+eq 'lint-failed board: the hand-staged blob is back in the index' \
+  "$staged" "$(git -C "$SREPO" rev-parse ":$kb")"
+assert 'lint-failed board: its edit is not committed' \
+  bash -c '! git -C "$1" show HEAD:"$2" | grep -q Yours' _ "$SREPO" "$kb"
+assert 'lint-failed board: the push lock is released' test ! -e "$TMPDIR/claude-state-push.lock.d"
 
 # --- a live metrics-live.sh holding the per-session lock never blocks Stop (#161) --
 # Pre-create $LIVE/<sid>.lock with meta naming this test process's own pid, so

@@ -72,7 +72,13 @@ mkdir -p "$SD/metrics/sessions" "$SD/metrics/decisions" "$SD/metrics/friction" "
 # item reads it rather than paying the gh round trip again. Fresh per Stop.
 ARCHIVABLE_HOME_FILE="${TMPDIR:-/tmp}/claude-stop-home.$$"
 rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
-trap 'state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null' EXIT TERM INT
+# One exit path, so a later step extends it rather than retyping it.
+restore_board_on_exit=
+on_exit() {
+  [ -z "$restore_board_on_exit" ] || restore_board
+  state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
+}
+trap on_exit EXIT TERM INT
 
 # Commit count comes from git, never from grepping the transcript for
 # "git commit": a heredoc that writes a script containing that string is
@@ -721,8 +727,7 @@ fi
 git add state/ >/dev/null 2>&1
 if [ "$board_ok" != 1 ]; then
   git reset -q -- "$board" >/dev/null 2>&1
-  # Chained, not replaced: the EXIT trap also releases the push lock.
-  [ -n "$board_pre_blob" ] && trap 'restore_board; state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null' EXIT
+  restore_board_on_exit=1   # on_exit puts any pre-staged blob back
 fi
 git diff --cached --quiet 2>/dev/null && exit 0   # nothing changed
 
@@ -752,7 +757,7 @@ for attempt in 1 2; do
   # A conflicted rebase left in place wedges this clone for every later Stop
   # and every hand commit; back out, and let the push below fail and say so.
   timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1 \
-    || { [ -d "$(git rev-parse --git-path rebase-merge)" ] && git rebase --abort >/dev/null 2>&1; }
+    || git rebase --abort >/dev/null 2>&1
   if timeout 120 git push -q origin HEAD >/dev/null 2>&1; then
     date -u +%s > "$PUSH_SENTINEL" 2>/dev/null
     exit 0
