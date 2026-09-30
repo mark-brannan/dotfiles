@@ -487,26 +487,34 @@ has 'behind @{u}: refused' \
   'refused: .claude/salvage. is 1 commit\(s\) behind .origin/claude/salvage.' "$CKPT"
 untouched 'behind @{u}' ' M f'
 
-# --- the lock line's own pattern does not swallow the rest of the shell's stderr --
-# `exec 9>"$LOCK" 2>/dev/null` has no command of its own, so once the redirect
-# succeeds bash applies its 2>/dev/null permanently to the shell, not just to
-# that line -- every stderr write for the rest of the run goes to /dev/null
-# instead of the transcript. Scoping the redirect to a `{ ; }` group keeps it
-# from outliving the lock attempt. Exercised directly rather than through the
-# whole hook, whose sourcing and env assume it runs from its own directory.
-assert 'the hook no longer has the unscoped form' \
-  bash -c '! grep -q "^exec 9>\"\\\$LOCK\" 2>/dev/null" '"'$HOOK'"
-has 'the hook has the scoped form' '^\{ exec 9>"\$LOCK"; \} 2>/dev/null \|\| exit 0$' "$HOOK"
+# --- no flock: a Stop still commits and pushes the state repo ----------------
+# macOS ships no flock, and a bare `flock -w 90 9 || exit 0` silently skipped
+# everything below the checkpoint write on every Mac Stop. The push lock is
+# state_lock_wait's mkdir now. A flock that fails -- as a missing one does --
+# shadows the real one on Linux, so this proves the macOS path everywhere.
+assert 'the hook never calls flock' bash -c '! grep -qE "^[^#]*\bflock\b" "$1"' _ "$HOOK"
 
-LOCKFILE="$S/pattern.lock"
-bash -c '{ exec 9>"$1"; } 2>/dev/null || exit 0; echo scoped-stderr-survives >&2' _ "$LOCKFILE" \
-  2>"$S/scoped.stderr"
-has 'the scoped form leaves later stderr alone' 'scoped-stderr-survives' "$S/scoped.stderr"
+cat > "$BIN/flock" <<'EOF'
+#!/bin/sh
+touch "${FLOCK_CALLED:-/dev/null}"; exit 127
+EOF
+chmod +x "$BIN/flock"
+export FLOCK_CALLED="$S/flock-called"
 
-bash -c 'exec 9>"$1" 2>/dev/null || exit 0; echo unscoped-stderr-swallowed >&2' _ "$LOCKFILE" \
-  2>"$S/unscoped.stderr"
-assert 'the old unscoped form really did swallow it (proves the test is real)' \
-  test ! -s "$S/unscoped.stderr"
+SRORIGIN="$S/state-origin.git"; SREPO="$S/state-repo"
+git init -q --bare "$SRORIGIN"
+git init -q -b main "$SREPO"
+gitq "$SREPO" remote add origin "$SRORIGIN"
+mkdir -p "$SREPO/state/global"; echo seed > "$SREPO/state/global/.seed"
+gitq "$SREPO" add state; gitq "$SREPO" commit -m seed
+gitq "$SREPO" push -u origin main
+
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+eq 'no flock: the state repo got the session commit' \
+  "State: work session ${SID:0:8}" "$(git -C "$SRORIGIN" log -1 --format=%s main 2>/dev/null | sed 's/ (.*//')"
+assert 'no flock: the fake flock was never called' test ! -e "$FLOCK_CALLED"
+assert 'no flock: the push lock is released after the Stop' test ! -e "$TMPDIR/claude-state-push.lock.d"
+rm -f "$BIN/flock"; unset FLOCK_CALLED
 
 # --- a live metrics-live.sh holding the per-session lock never blocks Stop (#161) --
 # Pre-create $LIVE/<sid>.lock with meta naming this test process's own pid, so

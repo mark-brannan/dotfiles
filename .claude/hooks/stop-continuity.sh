@@ -186,9 +186,8 @@ state_unlock
 
 # One pusher at a time. Parallel sessions are the norm, and two concurrent
 # rebase-and-push loops in the same worktree corrupt each other's index.
-LOCK="${TMPDIR:-/tmp}/claude-state-push.lock"
-{ exec 9>"$LOCK"; } 2>/dev/null || exit 0
-flock -w 90 9 2>/dev/null || exit 0
+# The EXIT trap's state_unlock releases it.
+state_lock_wait "$STATE_PUSH_LOCK" 90 || exit 0
 
 # ------------------------------------------------------------ work repo
 # Salvage whatever the session left uncommitted in the repo it worked on:
@@ -722,7 +721,8 @@ fi
 git add state/ >/dev/null 2>&1
 if [ "$board_ok" != 1 ]; then
   git reset -q -- "$board" >/dev/null 2>&1
-  [ -n "$board_pre_blob" ] && trap restore_board EXIT
+  # Chained, not replaced: the EXIT trap also releases the push lock.
+  [ -n "$board_pre_blob" ] && trap 'restore_board; state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null' EXIT
 fi
 git diff --cached --quiet 2>/dev/null && exit 0   # nothing changed
 
