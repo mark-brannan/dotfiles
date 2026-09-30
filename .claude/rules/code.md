@@ -93,7 +93,7 @@ in nobody's queue but this session's.
   the threads while it runs. A session idling on `gh pr checks --watch` or a
   test run while an unanswered comment sits on the PR is wasting the one
   resource that matters.
-- **Green before hand-over.** In order:
+- **Ready before hand-over.** In order:
   - every fast check the repo defines passes locally — formatter, lint,
     typecheck, build, tests; whatever that repo actually has;
   - the branch is current with its base and has no conflict — `git fetch
