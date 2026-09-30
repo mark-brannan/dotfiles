@@ -16,7 +16,7 @@
 #   metrics/blocked/<id>.jsonl    each tool call the permission layer refused
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
 #   pickup/<start>-<id>.md        this session's pickup item, which /pickup reads
-#   curia/<id>/thread.md          a floor stamped on any curia thread the
+#   curia/<id>/roll.md            a floor stamped on any curia roll the
 #                                  session touched, plus the user's last words
 #
 # One file per session, not one shared append-only log: parallel sessions are
@@ -72,7 +72,13 @@ mkdir -p "$SD/metrics/sessions" "$SD/metrics/decisions" "$SD/metrics/friction" "
 # item reads it rather than paying the gh round trip again. Fresh per Stop.
 ARCHIVABLE_HOME_FILE="${TMPDIR:-/tmp}/claude-stop-home.$$"
 rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
-trap 'state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null' EXIT TERM INT
+# One exit path, so a later step extends it rather than retyping it.
+restore_board_on_exit=
+on_exit() {
+  [ -z "$restore_board_on_exit" ] || restore_board
+  state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
+}
+trap on_exit EXIT TERM INT
 
 # Commit count comes from git, never from grepping the transcript for
 # "git commit": a heredoc that writes a script containing that string is
@@ -186,9 +192,8 @@ state_unlock
 
 # One pusher at a time. Parallel sessions are the norm, and two concurrent
 # rebase-and-push loops in the same worktree corrupt each other's index.
-LOCK="${TMPDIR:-/tmp}/claude-state-push.lock"
-{ exec 9>"$LOCK"; } 2>/dev/null || exit 0
-flock -w 90 9 2>/dev/null || exit 0
+# The EXIT trap's state_unlock releases it.
+state_lock_wait "$STATE_PUSH_LOCK" 90 || exit 0
 
 # ------------------------------------------------------------ work repo
 # Salvage whatever the session left uncommitted in the repo it worked on:
@@ -572,9 +577,9 @@ pickup_item
 # protocol: a floor block at the end of "Where this stands" (last touched,
 # branch, PR), hook-owned by its markers, model text above it untouched;
 # and, on the first thread the transcript touched, the user's last words
-# verbatim under "Solace's words", one dated sub-heading per session,
+# verbatim under "Human's words", one dated sub-heading per session,
 # overwritten only while it still reads exactly as the hook wrote it.
-curia_floor() {  # curia_floor <thread.md>
+curia_floor() {  # curia_floor <roll.md>
   local t tmp
   t=$1; tmp="$t.$$"
   awk -v now="$now" -v sid8="${sid:0:8}" -v model="$cu_model" \
@@ -603,7 +608,7 @@ curia_floor() {  # curia_floor <thread.md>
     }
   ' "$t" > "$tmp" 2>/dev/null && mv -f "$tmp" "$t" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 }
-curia_said() {  # curia_said <thread.md>; $cu_words carries the text
+curia_said() {  # curia_said <roll.md>; $cu_words carries the text
   local t tmp
   t=$1; tmp="$t.$$"
   CS_WORDS="$cu_words" awk -v sid8="${sid:0:8}" -v date="${now%%T*}" '
@@ -616,7 +621,7 @@ curia_said() {  # curia_said <thread.md>; $cu_words carries the text
       nq = split(ENVIRON["CS_WORDS"], q, "\n")
       sw = 0; swend = n + 1; own = 0; ownend = 0
       for (i = 1; i <= n; i++) {
-        if (!sw) { if (lines[i] ~ /^## Solace.s words/) sw = i }
+        if (!sw) { if (lines[i] ~ /^## Human.s words/) sw = i }
         else if (lines[i] ~ /^## /) { swend = i; break }
       }
       if (!sw) { for (i = 1; i <= n; i++) print lines[i]; exit }
@@ -663,7 +668,9 @@ cu_words=$(printf '%s' "$metrics" | jq -r '.session.last_words // empty')
 cu_model=$(printf '%s' "$metrics" | jq -r '.session.model // "?"')
 cu_first=1
 for cu_ref in $(printf '%s' "$metrics" | jq -r '.session.curia_refs[]? // empty'); do
-  cu_thread="$SD/curia/$cu_ref/thread.md"
+  cu_thread="$SD/curia/$cu_ref/roll.md"
+  # thread.md is the name before roll.md; read it until the state repo is moved.
+  [ -f "$cu_thread" ] || cu_thread="$SD/curia/$cu_ref/thread.md"
   [ -f "$cu_thread" ] || continue
   curia_floor "$cu_thread"
   [ "$cu_first" = 1 ] && [ -n "$cu_words" ] && curia_said "$cu_thread"
@@ -722,7 +729,7 @@ fi
 git add state/ >/dev/null 2>&1
 if [ "$board_ok" != 1 ]; then
   git reset -q -- "$board" >/dev/null 2>&1
-  [ -n "$board_pre_blob" ] && trap restore_board EXIT
+  restore_board_on_exit=1   # on_exit puts any pre-staged blob back
 fi
 git diff --cached --quiet 2>/dev/null && exit 0   # nothing changed
 
@@ -749,7 +756,10 @@ if [ "$verdict" != "archivable" ] && [ -f "$PUSH_SENTINEL" ]; then
 fi
 
 for attempt in 1 2; do
-  timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1
+  # A conflicted rebase left in place wedges this clone for every later Stop
+  # and every hand commit; back out, and let the push below fail and say so.
+  timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1 \
+    || git rebase --abort >/dev/null 2>&1
   if timeout 120 git push -q origin HEAD >/dev/null 2>&1; then
     date -u +%s > "$PUSH_SENTINEL" 2>/dev/null
     exit 0
