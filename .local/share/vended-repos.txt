@@ -13,3 +13,4 @@ signalk-noaa-space-weather
 symphony
 signalk-lint
 xylarium
+languette
