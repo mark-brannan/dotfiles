@@ -1,15 +1,15 @@
 ---
 name: agora
-description: Run an agora sitting — the quick decisions, in batch, one fresh subagent per item, Solace rules. Use on "/agora", "walk the decision cards", "what needs deciding", or when Solace says they have the headspace to rule on a queue of open decisions. Not for toil; that is grind. Not for a hard multi-turn question; "confer" is a closed answer here, and it sends the item to a one-off confer session, never straight to a curia.
+description: Run an agora sitting — the quick decisions, in batch, one fresh subagent per item, the user rules. Use on "/agora", "walk the decision cards", "what needs deciding", or when the user says they have the headspace to rule on a queue of open decisions. Not for toil; that is grind. Not for a hard multi-turn question; "confer" is a closed answer here, and it sends the item to a one-off confer session, never straight to a curia.
 ---
 
 # Agora
 
-Solace's analogue of grind: the sitting in which the quick judgment items
+The user's analogue of grind: the sitting in which the quick judgment items
 are consumed in batch. Each item is quick by construction; a hard one is
 answered with the one word **confer**, the sitting moves past it, and it
 goes to a one-off confer session of its own — not a curia. A curia opens
-only at the gates in the curia skill, on Solace's word in that confer.
+only at the gates in the curia skill, on the user's word in that confer.
 This skill absorbs the retired `/ruling`: the typed per-item contract below was ruling's.
 
 Ancestor concepts: GTD inbox processing, office hours, a replenishment
@@ -22,7 +22,7 @@ cadence; the ruling's default that holds is "act after a veto window".
      built. Until then: -->
 
 Pull candidates from `## Needs ruling` in kanban.md, anything `/reconcile`
-flagged as an implicit "Pending:" tail, and anything Solace names. That
+flagged as an implicit "Pending:" tail, and anything the user names. That
 list is the **agora-docket**. Count it before the first question, and show
 the count on every question. <!-- When worklist awake/asleep lands, filter
 to awake only. -->
@@ -36,14 +36,14 @@ Every item this skill touches gets, and keeps:
   `until`, `risk`. Not "figure out X"; that is unscoped work, sent back
   to be scoped.
 - **Output** — exactly one of:
-  - **Ruling** — Solace answers; written at once to `docs/decisions.md`
+  - **Ruling** — the user answers; written at once to `docs/decisions.md`
     in the primary repo, or the state repo's log if it fails the
     private-terms check.
   - **Spawned work item** — the answer was "build X to find out"; open
     the issue or card, link it, this item closes.
   - **Item (partly) unblocked** — the ruling removes one dependency; say
     which, and what still blocks.
-  - **Confer** — Solace's one word; the item leaves the sitting for a
+  - **Confer** — the user's one word; the item leaves the sitting for a
     one-off confer session (see below). Not a failure of the item; a
     rating of its difficulty and possibly of the question's quality.
     Not a curia: the agora is the second of the curia skill's gates, and
@@ -56,19 +56,19 @@ Every item this skill touches gets, and keeps:
 
 1. A fresh subagent gathers the item's context and returns the typed
    question with its four fields and a **direct link** to the stored
-   context, readable by Solace. It also lists the open curiae exactly as
+   context, readable by the user. It also lists the open curiae exactly as
    the curia skill's bare `/curia` does (`status: open` in the header; a
    redirect collapses into its target) and says whether the item is a
    sub-question of one; if so the pick is "fold
    into `<id>`" and the outcome is **Folded**. A subagent has no channel
-   to Solace, so it never asks; it only prepares. <!-- Context budget and
+   to the user, so it never asks; it only prepares. <!-- Context budget and
    return format: open (design doc, open question on the agora
    procedure). -->
 2. The sitting asks that question, as returned, in one `AskUserQuestion`
    dialog: the agent's pick first and why, then the alternatives. Every
    question carries **X of Y** and the total. Nothing else from the
    subagent enters the sitting's context.
-3. Solace rules: yes / no / a value / **confer** / other.
+3. The user rules: yes / no / a value / **confer** / other.
 4. Apply the output per the contract, immediately; don't batch.
 5. Discard the subagent. Next item.
 
@@ -79,7 +79,7 @@ On the word *confer*: record it on the card (<!-- format open -->
 nothing under `state/global/curia/`.** A curia question
 petitions the agora first; no lower-level session creates a curia. The
 agora is one gate of several; a curia opens only when
-Solace says so inside the confer session, at the curia skill's gates.
+The user says so inside the confer session, at the curia skill's gates.
 
 At the end of the sitting, print one confer prompt per deferred item,
 ready to paste, each naming model and effort:
@@ -88,7 +88,7 @@ ready to paste, each naming model and effort:
 Confer on <short name>: <the card's question, one sentence> (<card link>).
 A one-off session — a few rounds of question and answer, one at a time.
 It ends in a ruling, a spawned issue or a sharper card; open no curia
-unless Solace says so, and then only through the gates in the curia
+unless the user says so, and then only through the gates in the curia
 skill. Model: fable · Effort: high
 ```
 
@@ -98,7 +98,7 @@ context.
 ## Difficulty and model
 
 Before the first item, rate each candidate twice from its `default:` /
-`risk:` text, as a triage table does: Solace's difficulty and a
+`risk:` text, as a triage table does: the user's difficulty and a
 high-stakes agent's, each low / medium / high. If the running model is
 weaker than the hardest agent rating calls for, print one line offering a
 model switch or an `Agent` call with a `model` override for that item,

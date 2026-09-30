@@ -1,7 +1,7 @@
 # Curia: <the question, one line>
 
 - id: `<id>`
-- opened: <date>, on Solace's order: <link to the words that ordered it>
+- opened: <date>, on the user's order: <link to the words that ordered it>
 - origin: <link to the card that petitioned the agora, or the doc section that raised it>
 - related: <ids of open curiae this one touches, comma-separated, or none>
 - model: Fable · effort: high
@@ -16,7 +16,7 @@
 Not yet sat. The first sitting reads the origin and opens the dialogue at
 1 of Y.
 
-- **Solace's last words:** (none yet)
+- **The user's last words:** (none yet)
 - **Unsettled:** the question as posed above
 - **Next:** first question
 

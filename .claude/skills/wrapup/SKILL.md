@@ -1,6 +1,6 @@
 ---
 name: wrapup
-description: Close a session — write the narrative log to the state repo, list the issues the session opened or labelled, and end with a paste-ready hand-off prompt. Use when Solace says "wrap up", "log it", "hand off", "hand-off prompt", "call it there", or when a session is ending with work still open.
+description: Close a session — write the narrative log to the state repo, list the issues the session opened or labelled, and end with a paste-ready hand-off prompt. Use when the user says "wrap up", "log it", "hand off", "hand-off prompt", "call it there", or when a session is ending with work still open.
 ---
 
 # Wrapping up
@@ -83,10 +83,10 @@ When you do write one, it must:
 - carry **links, not state adjectives** — `#42`, not "PR #42 (merged, CI
   green)". State is read live at the other end; written down it is stale by
   the time it's read;
-- **never ask Solace to review or merge.** The PR is where that lives, and
+- **never ask the user to review or merge.** The PR is where that lives, and
   `worklist` shows him when it is his turn;
-- rate every item it puts in front of Solace **twice** — difficulty for
-  Solace, and difficulty for an agent with full permissions and high stakes —
+- rate every item it puts in front of the user **twice** — difficulty for
+  the user, and difficulty for an agent with full permissions and high stakes —
   and answer `could an agent do it: yes/no`. Low for an agent means do it, not
   ask;
 - name a **recommended model and difficulty (effort) setting** — both,
@@ -94,7 +94,7 @@ When you do write one, it must:
   either is not finished;
 - name `/curia <id>` only for an id whose folder already exists. A hard
   question the session left open is a `## Needs ruling` card, never a
-  proposed new curia — only Solace opens one, through the curia skill's
+  proposed new curia — only the user opens one, through the curia skill's
   gates;
 - be written so somebody who was not in this session can act on it.
 
@@ -172,9 +172,9 @@ goes into that list first. A session is easy to park only when all useful
 work has landed and the close opens no new question, line of inquiry,
 doubt or hint of a pending judgement call.
 
-## 6. Solace's final word
+## 6. The user's final word
 
-Solace speaks last. Whatever they reply after the closing message — a
+The user speaks last. Whatever they reply after the closing message — a
 goodnight, a correction, a stray idea — append it verbatim to the narrative
 log under `## Final words (verbatim)`, dated, and answer with **one line**
 naming where it landed. A session that archived in step 0 has no log yet:
