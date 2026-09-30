@@ -12,7 +12,6 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 
 **Machines**
 - [Set up a new machine](#set-up-a-new-machine)
-- [Keep machines in sync](#keep-machines-in-sync)
 - [Prune old local branches](#prune-old-local-branches)
 
 **Secrets**
@@ -30,23 +29,35 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 
 ## Set up a new machine
 
-**1 — Tooling.**
-
-```bash
-# Linux / WSL
-sudo apt-get install -y yadm age
-# sops has no apt package: grab a release binary from https://github.com/getsops/sops/releases
-command -v yadm age sops            # all three, before continuing
-```
+**1 — Tooling.** `jq`, `gh` and, on macOS, `flock` are for the hooks;
+`tmux` is optional.
 
 ```zsh
 # macOS
-brew install yadm age sops
-command -v yadm age sops            # all three, before continuing
+brew install yadm age sops jq gh flock tmux
+command -v yadm age sops jq gh flock    # all six, before continuing
 ```
 
-Claude Code itself isn't in the Debian/Ubuntu archives; it's signed and served
-from Anthropic's own repo. Check the key's fingerprint before trusting it:
+```bash
+# Linux / WSL / Raspberry Pi OS
+sudo apt-get install -y yadm age jq gh curl tmux
+```
+
+sops has no apt package; install the checksummed release binary (amd64 or
+arm64 — 32-bit Pi OS has no build):
+
+```bash
+cd "$(mktemp -d)"
+V=$(curl -fsSL https://api.github.com/repos/getsops/sops/releases/latest | jq -r .tag_name)
+B="sops-$V.linux.$(dpkg --print-architecture)"
+curl -fsSLO "https://github.com/getsops/sops/releases/download/$V/$B"
+curl -fsSLO "https://github.com/getsops/sops/releases/download/$V/sops-$V.checksums.txt"
+sha256sum --check --ignore-missing "sops-$V.checksums.txt"   # must print: <binary>: OK
+sudo install -m 0755 "$B" /usr/local/bin/sops
+command -v yadm age sops jq gh      # all five, before continuing
+```
+
+Claude Code on Linux comes from Anthropic's signed apt repo; check the key:
 
 ```bash
 sudo apt update && sudo apt install -y curl gnupg
@@ -59,9 +70,8 @@ sudo apt install -y claude-code
 claude --version                    # prints a version number
 ```
 
-**2 — The age key, before the clone.** It is never in git — restore it from the
-password manager. Without it the clone still works and the bootstrap still
-runs; you just get plaintext-less secrets and a warning.
+**2 — The age key, before the clone.** Restore it from the password manager; it is
+never in git. Without it the bootstrap runs but decrypts nothing.
 
 ```bash
 mkdir -p ~/.config/sops/age && chmod 700 ~/.config/sops/age
@@ -92,15 +102,14 @@ yadm status --short               # expect clean, or only files you know about
 sh ~/.local/bin/dotfiles-triage.sh | head -40   # read-only inventory vs policy
 ```
 
-## Keep machines in sync
+**5 — Stay in sync.** `dotsync` is an alias:
 
 ```bash
 dotsync    # alias: yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
 
-Run `yadm alt` by hand after editing any `##`-suffixed file: yadm only relinks
-alternates when it feels like it, and a stale symlink looks exactly like a
-working one.
+Run `yadm alt` by hand after editing any `##`-suffixed file; a stale alternate
+symlink looks exactly like a working one.
 
 Unattended, every five minutes, cron runs a fast-forward-only sync. `yadm
 bootstrap` installs the line; on a machine that predates it:
@@ -109,16 +118,15 @@ bootstrap` installs the line; on a machine that predates it:
 ~/.local/bin/dotfiles-sync.sh --install
 ```
 
-*Verify:* wait for the next five-minute mark, or run it once by hand, then:
+Verify: wait for the next five-minute mark, or run it once by hand, then:
 
 ```bash
 ~/.local/bin/dotfiles-sync.sh --status   # one line, timestamped within 5 min
 ```
 
-`level with origin/main` or `fast-forwarded N commit(s)` means it works. Any
-line starting `skipped:` names what a person has to do — dirty files blocking
-a fast-forward, or a checkout mid-merge. A timestamp older than five minutes
-means cron is not running the line: `crontab -l | grep dotfiles-sync`, and on
+`level with origin/main` or `fast-forwarded N commit(s)` means it works;
+`skipped:` names what you must fix. Older than five minutes, cron isn't
+running it: `crontab -l | grep dotfiles-sync`, and on
 WSL `systemctl is-active cron`.
 
 ## Prune old local branches
