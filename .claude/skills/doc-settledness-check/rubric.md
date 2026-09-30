@@ -1,4 +1,4 @@
-# The settledness rubric — thirteen rows
+# The settledness rubric — twelve rows
 
 Read by the measuring sub-agent. Each row gets a measured value and a mark:
 `ok`, `--` (a gap to declare), or a short word when neither fits
@@ -47,9 +47,6 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
     exists there. Already public → where it is.
 12. **related open work** — open curiae, issues and PRs whose question
     overlaps or depends on this one; the record names them.
-13. **AI pitfalls** — privacy, bias and fairness, security, social impact,
-    and whatever ethical guard rails apply; one line each, `n/a` allowed
-    but stated.
 
 ## Format
 
@@ -68,7 +65,6 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
 | implementation            | example-org/widget#12 open                | ok |
 | destination               | docs/adr/ exists, INDEX.md present        | ok |
 | related open work         | 1 — example-org/widget#9 (same schema)    | -- |
-| AI pitfalls               | privacy none; security n/a; bias n/a; social n/a | ok |
 
 Verdict: not yet — two open questions and no lint; the rest would ride
 as declared gaps.

@@ -1,6 +1,6 @@
 ---
 name: doc-settledness-check
-description: Measure how settled one governing document is — a curia, an ADR, a design doc, or a PR that touches one — against the thirteen-row settledness rubric, and print the table and a one-line verdict. A dry run for now: it gates nothing and edits nothing. Use on "/doc-settledness-check <target>", "how settled is X", "is this curia ready to promote". Not for running a sitting (/curia) or ruling (/agora).
+description: Measure how settled one governing document is — a curia, an ADR, a design doc, or a PR that touches one — against the twelve-row settledness rubric, and print the table and a one-line verdict. A dry run for now: it gates nothing and edits nothing. Use on "/doc-settledness-check <target>", "how settled is X", "is this curia ready to promote". Not for its effect on people, harm or flourishing (/arete-check), running a sitting (/curia) or ruling (/agora).
 ---
 
 # Settledness check
@@ -11,6 +11,10 @@ It **measures and gives a verdict; it gates nothing.** The dry run is
 the first shape, not a ruling that it stays one. It applies to any
 governing document, not only a curia. The rows and their meanings are in
 `rubric.md` beside this file.
+
+Settledness asks whether the ink is dry. Whether the item is good for the
+people it touches is a separate check, `arete-check`, with its own
+brief; neither verdict stands in for the other.
 
 ## Never
 
