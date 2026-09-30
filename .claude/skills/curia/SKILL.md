@@ -1,6 +1,6 @@
 ---
 name: curia
-description: Open or continue a curia — the hard, multi-turn decision session on one question, over as many sessions as it takes. Use on "/curia <id>" for an id whose folder already exists, or bare "/curia" to list the open ones. A confer is a one-off session, not a curia, and never a trigger for this skill. This skill never creates a curia on its own; a new one opens only on Solace's words in the current turn, after the gates below. Not for quick rulings in batch; that is /agora. Not for toil; that is grind.
+description: Open or continue a curia — the hard, multi-turn decision session on one question, over as many sessions as it takes. Use on "/curia <id>" — an id whose folder exists continues that curia; an unknown id lists the open ones and guesses the one meant — or bare "/curia" to list them. A confer is a one-off session, not a curia, and never a trigger for this skill. This skill never creates a curia on its own; a new one opens only on Solace's words in the current turn, after the gates below. Not for quick rulings in batch; that is /agora. Not for toil; that is grind.
 ---
 
 # Curia
@@ -60,6 +60,7 @@ state/global/curia/<id>/
   thread.md   the document: where it stands, the derived record, Solace's words
   notes.md    the agent's own notes, any format it likes (optional)
   inputs/     read-only side products: spikes, side-chat pastes, subagent reports
+  folded/<id>/  a curia opened past the gates and folded into this one (see below)
   minted.md   links to what this curia produced (created on the first one)
 ```
 
@@ -119,9 +120,10 @@ waive.
    for now" (Solace, 2026-09-29, mixed-loops curia, third sitting). Gate
    4's list says where the count stands against it. Soft means Solace may
    pass it, by their own word in the same turn after seeing that list; an
-   agent never does. "I do not want an errant but well-meaning agent to
-   start another parallel curia discussion while we have (primarily) just
-   the big one ongoing" (Solace, 2026-09-29).
+   agent never does. The reason, in the agent's words from the mixed-loops
+   curia record (Solace's verbatim words for it are not in the record): a
+   forcing function so that an errant but well-meaning agent cannot start
+   a parallel curia while the big one is ongoing.
 6. **Solace confirms the id.** The id is a kebab-case slug of the
    question's own words — `widget-retirement`, not a coined name — so
    confirming one names nothing. Solace renames at will; a rename moves

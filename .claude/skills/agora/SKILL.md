@@ -57,9 +57,10 @@ Every item this skill touches gets, and keeps:
 
 1. A fresh subagent gathers the item's context and returns the typed
    question with its four fields and a **direct link** to the stored
-   context, readable by Solace. It also lists the open curiae
-   (`state/global/curia/*/thread.md` with `status: open`) and says
-   whether the item is a sub-question of one; if so the pick is "fold
+   context, readable by Solace. It also lists the open curiae exactly as
+   the curia skill's bare `/curia` does (`status: open` in the header; a
+   redirect collapses into its target) and says whether the item is a
+   sub-question of one; if so the pick is "fold
    into `<id>`" and the outcome is **Folded**. A subagent has no channel
    to Solace, so it never asks; it only prepares. <!-- Context budget and
    return format: open (design doc, open question on the agora
