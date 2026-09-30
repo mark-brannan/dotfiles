@@ -17,7 +17,7 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
    an "Open questions" or "Unresolved" section, TODO/TBD markers, or
    questions left unanswered in review comments on a PR.
 2. **decisions by owner** — each decision, by who made it and at what
-   grade: Solace's *pen* (ruled), *for now* (explicitly provisional),
+   grade: the user's *pen* (ruled), *for now* (explicitly provisional),
    *pencil* (a default taken, tacit approval); or an agent's. Outside a
    curia, where grades are not written: count decisions that name an owner,
    and those that name none.
@@ -27,7 +27,7 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
    ruling-grade finding still open. None run → `not run`, mark `--`.
 5. **reopen condition** — one line: the evidence from loop one that sends
    this back to deliberation. When absent, the stub is: *"unsettled;
-   reopens by Solace's word in an agora or a direct order; no automatic
+   reopens by the user's word in an agora or a direct order; no automatic
    trigger yet."* Absent → measured `stub`, mark `--`.
 6. **unverified claims** — anything in the settled text marked unverified,
    unchecked, "should", "probably", or a path/link that does not resolve.
@@ -46,11 +46,10 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
     whether the promote machinery (an ADR directory, an index, a template)
     exists there. Already public → where it is.
 12. **related open work** — open curiae, issues and PRs whose question
-    overlaps or depends on this one; the record names them (Solace,
-    2026-09-29).
+    overlaps or depends on this one; the record names them.
 13. **AI pitfalls** — privacy, bias and fairness, security, social impact,
     and whatever ethical guard rails apply; one line each, `n/a` allowed
-    but stated (Solace, 2026-09-29).
+    but stated.
 
 ## Format
 
@@ -58,7 +57,7 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
 | check                     | measured                                  |    |
 |---------------------------|-------------------------------------------|----|
 | open questions            | 2 of 5                                    | -- |
-| decisions by owner        | Solace 3 (pen 2, pencil 1) · agent 1      | ok |
+| decisions by owner        | user 3 (pen 2, pencil 1) · agent 1        | ok |
 | agent defaults to declare | 1 — toil (file naming)                    | ok |
 | lint                      | not run                                   | -- |
 | reopen condition          | stub                                      | -- |

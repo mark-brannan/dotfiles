@@ -5,13 +5,12 @@ description: Measure how settled one governing document is — a curia, an ADR, 
 
 # Settledness check
 
-The directory name is a description, not a name; Solace names it later.
+The directory name is a description, not a name; the user names it later.
 
-It **measures and gives a verdict; it gates nothing.** Solace's words
-(2026-09-29): "initially it is like a dry run where you show me the
-result" — so the dry run is the first shape, not a ruling that it stays
-one. It applies to any governing document, not only a curia. The rows
-and their meanings are in `rubric.md` beside this file.
+It **measures and gives a verdict; it gates nothing.** The dry run is
+the first shape, not a ruling that it stays one. It applies to any
+governing document, not only a curia. The rows and their meanings are in
+`rubric.md` beside this file.
 
 ## Never
 
