@@ -50,15 +50,18 @@ to the user; the grade is theirs. The measuring agent never writes
    > read-only: no edits, no commits, no worktree, no agents, no
    > comments, no `gh` call that writes. For each area return the
    > question the user should weigh, the evidence for it with a path or
-   > line, and who the item touches there. Where an area does not apply,
-   > say why in one line. Do not grade, score or recommend; the grade is
+   > line, and who the item touches there. Evidence is a line you
+   > opened, cited by path; where none exists, write `no evidence
+   > found`, never an inferred one. Where an area does not apply, say
+   > why in one line. Do not grade, score or recommend; the grade is
    > the user's. Return only the brief in the format in areas.md.
 
 3. **Print the brief** as returned. Nothing else — no summary line of
    your own, no verdict.
 
-4. **Write the report.** Header: target, kind, date, model, "brief;
-   the grade is the user's". Then the brief, then a blank `Grade:` line
+4. **Write the report.** Header: target, kind, revision (the PR head,
+   the file's last commit, or the state repo's `HEAD`), date, model,
+   "brief; the grade is the user's". Then the brief, then a blank `Grade:` line
    for the user. Filename `arete-<slug>-<date>.md`.
    - kind `curia`: `state/global/curia/<id>/inputs/` in the state repo;
      commit it there by path.

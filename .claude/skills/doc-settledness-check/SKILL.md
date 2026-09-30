@@ -56,14 +56,17 @@ brief; neither verdict stands in for the other.
    > read-only: no edits, no commits, no worktree, no agents, no
    > comments, no `gh` call that writes. Return only the table in the
    > rubric's format, the one-line verdict, and one how-measured line per
-   > row using the rubric's five words. Where a row could not be
-   > measured, say what was missing.
+   > row using the rubric's five words. Every measured value comes
+   > from a line you opened; where the read-set does not support one,
+   > write `not found` and say what was missing, never a plausible
+   > guess.
 
 3. **Print the result** — the table and verdict as returned, then the
    how-measured lines. Nothing else.
 
-4. **Write the report.** Header: target, kind, date, model, "dry run;
-   gates nothing". Then the result.
+4. **Write the report.** Header: target, kind, revision (the PR head,
+   the file's last commit, or the state repo's `HEAD`), date, model,
+   "dry run; gates nothing". Then the result.
    Filename `settledness-<slug>-<date>.md`, the slug naming the target.
    - kind `curia`: `state/global/curia/<id>/inputs/` in the state repo;
      commit it there by path.
