@@ -92,8 +92,7 @@ in nobody's queue but this session's.
   local suite or a running GitHub check is background, so start it and go work
   the threads while it runs. A session idling on `gh pr checks --watch` or a
   test run while an unanswered comment sits on the PR is wasting the one
-  resource that matters. `--watch` is for the last look before hand-over,
-  after the threads are answered — not for the middle of the work.
+  resource that matters.
 - **Green before hand-over.** In order:
   - every fast check the repo defines passes locally — formatter, lint,
     typecheck, build, tests; whatever that repo actually has;
