@@ -117,8 +117,10 @@ in nobody's queue but this session's.
   - the merge state says so, not just the checks — `gh pr view --json
     mergeable,mergeStateStatus`. `gh pr checks` is green on a branch that
     conflicts with main, so green checks are not a mergeable PR;
-  - where CI can be read before merge, read it — `gh pr checks --watch`
-    before hand-over, not as a way to pass the time after the first push;
+  - read CI once after the push; if it is still running, hand over with the
+    link and say so — `awaiting-human` says when it is green. Never re-run
+    locally a suite a CI job runs on that platform; run locally only what CI
+    can't (macOS);
   - **the body carries a `Head: <sha>` line naming this push** — the last
     edit before hand-over, so a head that moves afterward (one more commit,
     a rebase, a resign) is visible on the PR page before anyone merges it,
