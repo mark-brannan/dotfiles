@@ -340,6 +340,16 @@ Dates are as found on 2026-09-29.
   [github.com](https://github.com/gastownhall/gastown)
   - Maps to: orchestrate and grind, at smaller scale: one worker per issue, a
     review band, and the human as the only mayor.
+- **destructive_command_guard (dcg).** Emanuel, J., created 7 January 2026;
+  about 6.1k stars across sixteen-plus agent hosts by 30 September 2026.
+  Regex-first with a tree-sitter pass for inline scripts; fails open by
+  default. Its origin was the author's own agent running destructive git
+  commands on 17 December 2025.
+  [github.com](https://github.com/Dicklesworthstone/destructive_command_guard)
+  - Maps to: the guards, now Languette. Same origin, a private incident; the
+    differences are fail-closed and a structural scanner. Its reach came from
+    an installer bundle and host breadth on a following one essay had built,
+    not from rigour or a launch: the Show HN got 3 points.
 - **The Ralph Wiggum loop.** Huntley, G., 14 July 2025. Rerun the agent on the
   same prompt until the work is done; later an official Claude Code plugin
   (plugin date unverified).
