@@ -113,14 +113,16 @@ git_event_re() {
 # stack push` leaves @{u} at origin/main while the commits go to a differently
 # named stack/ branch, so the upstream diff called pushed work unpushed. A
 # detached HEAD or a fresh branch with no upstream falls out of the same test.
-# A repo with no origin refs reads safe, as it did before.
+# `origin/wip/*` is excluded: those are the Stop hook's salvage refs, pushed
+# before this verdict is taken, and salvage is not publication -- counting
+# them read every salvaged branch as pushed. No origin refs at all reads safe.
 unpushed_state() {
   local root="$1" n
 
   # No origin refs at all (no remote, never fetched): nothing to be ahead of.
   [ -n "$(git -C "$root" for-each-ref --count=1 refs/remotes/origin 2>/dev/null)" ] \
     || { printf 'safe'; return 0; }
-  n=$(git -C "$root" rev-list --count HEAD --not --remotes=origin 2>/dev/null || printf '')
+  n=$(git -C "$root" rev-list --count HEAD --not --exclude='origin/wip/*' --remotes=origin 2>/dev/null || printf '')
   [ -n "$n" ] || { printf 'unknown'; return 0; }
   if git -C "$root" rev-parse --verify -q --symbolic-full-name '@{u}' >/dev/null 2>&1; then
     printf 'ahead %s' "$n"

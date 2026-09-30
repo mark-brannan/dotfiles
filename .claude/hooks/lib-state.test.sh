@@ -338,6 +338,8 @@ printf 'y\n' > "$STK/g"; gitq "$STK" add g; gitq "$STK" commit -q -m stacked
 ust() { bash -c '. "'"$HOOKS"'/lib-state.sh"; unpushed_state "$1" "$2"' _ "$@"; }
 eq_ust() { if [ "$2" = "$3" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL $1: expected [$2], got [$3]"; fi; }
 eq_ust "commit on no remote branch, @{u}=main: ahead 1" 'ahead 1' "$(ust "$STK" local-stack)"
+gitq "$STK" push -q origin local-stack:refs/heads/wip/sid
+eq_ust "same commit only on a wip/ salvage ref: still ahead 1" 'ahead 1' "$(ust "$STK" local-stack)"
 gitq "$STK" push -q origin local-stack:refs/heads/stack/x
 eq_ust "same commit on stack/x, @{u} still main: ahead 0" 'ahead 0' "$(ust "$STK" local-stack)"
 gitq "$STK" branch -q --unset-upstream
