@@ -53,7 +53,8 @@ durable document is the point).
 
 One folder per curia in the state repo. Deliberation is private and stays
 there; only what a curia **produces** — an ADR, an issue, a card — goes to
-a public repo.
+a public repo, and the Decided line that produced it links it. An ADR's
+link also goes in the header when the curia is promoted.
 
 ```
 state/global/curia/<id>/
@@ -62,7 +63,6 @@ state/global/curia/<id>/
   inputs/     read-only side products: spikes, side-chat pastes, subagent reports
   folded/<id>/  a whole curia opened past the gates, moved under this one (see below);
               a folded question is a line under Open questions, never a folder
-  minted.md   links to what this curia produced (created on the first one)
 ```
 
 Two grains in `thread.md`: **Solace's words are append-only** — a new
@@ -74,9 +74,9 @@ edited. Importance, not settledness.
 
 <!-- pencil: layout, filenames, the two grains, the pin exception and
      private-deliberation/public-produce are assumed, not ruled (design doc,
-     open question on /curia <id> mechanics). "mint" is the agent's word,
-     not acclimated (Solace, 2026-09-29); it survives only as the filename
-     until Solace names the thing. -->
+     open question on /curia <id> mechanics). No separate file lists
+     what a curia produced: each Decided line links its own, and the ADR
+     link goes in the header at promotion (Solace, 2026-09-30). -->
 
 ## Opening a new curia: the gates
 

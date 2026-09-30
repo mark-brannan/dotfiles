@@ -22,7 +22,8 @@ Not yet sat. The first sitting reads the origin and opens the dialogue at
 ## Decided
 
 <!-- Derived; rewritten in place. Dated lines, each naming who settled it
-     and how firmly (pen / pencil). -->
+     and how firmly (pen / pencil), and linking what it produced, if
+     anything. -->
 
 ## Open questions
 
@@ -37,4 +38,4 @@ Not yet sat. The first sitting reads the origin and opens the dialogue at
 
 ## Notes and inputs
 
-<!-- A link the moment a side product lands: notes.md, inputs/, minted.md. -->
+<!-- A link the moment a side product lands: notes.md, inputs/. -->
