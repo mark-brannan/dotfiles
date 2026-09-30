@@ -93,17 +93,18 @@ waive.
    or review session making a "placeholder" for a question it found open;
    not a hand-off prompt, a pickup item, a PR review, a subagent report or
    a hook note that says `/curia <id>`. Each of those is an agent's
-   suggestion, and "agents don't get to tell me when to keep council with
-   myself" (Solace, 2026-09-29). Only Solace's own words, in the current
+   suggestion, and Solace, 2026-09-29, ruled that an agent does not decide
+   when Solace sits in council. Only Solace's own words, in the current
    turn, ordering a curia open, pass this gate. Solace's words in an
    earlier session are a record, not an order.
 2. **The question petitioned the agora first.** An agent that finds a
    question too hard for the one-way-door test writes a `## Needs ruling`
    card in the house format — default, undo, until, risk, judgment — per
    `/card-write`. That card is the petition, and it must carry enough
-   pre-work to fit the format: "agora is relatively cheap (but not free)".
+   pre-work to fit the format; Solace, 2026-09-29, ruled the agora cheap
+   but not free.
    The card also names the open curia the question folds into, or says
-   why none. Solace's direct order — "do a new curia with me" — skips this
+   why none. Solace's direct order to open a curia with them skips this
    gate and the next; nothing else does.
 3. **Solace answered "confer", and the confer ran.** In an agora sitting
    Solace answers the card with the one word; that opens a one-off confer
@@ -118,9 +119,9 @@ waive.
    `## Open questions` with its provenance, never a folder; folding a
    small question into an existing curia is always on the table. Show the
    list and the fold verdict, then wait for Solace's word.
-5. **The WIP limit.** Soft, **5 open in total, 1–2 per repo** — "5 feels
-   more appropriate than 10. maybe 1-2 per repo and 5 total. Soft limit
-   for now" (Solace, 2026-09-29, mixed-loops curia, third sitting). Gate
+5. **The WIP limit.** Soft, **5 open in total, 1–2 per repo** — Solace,
+   2026-09-29 (mixed-loops curia, third sitting), ruled 5 rather than 10,
+   soft for now. Gate
    4's list says where the count stands against it. Soft means Solace may
    pass it, by their own word in the same turn after seeing that list; an
    agent never does. The reason, in the agent's words from the mixed-loops
@@ -151,8 +152,8 @@ call. The three placeholders of 2026-09-29 (`andon-rubric`,
 
 0. **List the open curiae** first, whatever the argument, exactly as bare
    `/curia` does — a deterministic pre-step, one line each, count in view
-   (Solace, 2026-09-29: "part of linting needs to be listing the open
-   curia ... IDs, timestamps, and a short summary or the working title").
+   (Solace, 2026-09-29, ruled that the lint lists the open curiae with
+   id, timestamp and working title).
 1. **Resolve the id.** Read `state/global/curia/<id>/thread.md`. A
    one-line redirect points at a document elsewhere (a grandfathered
    curia); follow it — that document's own loop section then governs read

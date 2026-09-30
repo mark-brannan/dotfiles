@@ -77,9 +77,9 @@ Every item this skill touches gets, and keeps:
 
 On the word *confer*: record it on the card (<!-- format open -->
 `confer: <YYYY-MM-DD>`), leave the card where it is, and move on. **Create
-nothing under `state/global/curia/`.** "It must go to the agora first
-... Creation of curia by lower level sessions is forbidden" (Solace,
-2026-09-29). The agora is one gate of several; a curia opens only when
+nothing under `state/global/curia/`.** Solace, 2026-09-29, ruled that a
+question goes to the agora first and that lower-level sessions may not
+create a curia. The agora is one gate of several; a curia opens only when
 Solace says so inside the confer session, at the curia skill's gates.
 
 At the end of the sitting, print one confer prompt per deferred item,
