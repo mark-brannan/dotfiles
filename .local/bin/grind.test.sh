@@ -69,7 +69,7 @@ case "\$1 \$2" in
   "issue list") cat "$S/ready.json" ;;
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
-  "api repos/"*"/sub_issues") f="$S/subs/\$(printf '%s' "\$2" | tr / _).json"; if [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
+  "api repos/"*"/sub_issues"*) f="$S/subs/\$(printf '%s' "\${2%%\?*}" | tr / _).json"; if [ "\$(cat "\$f" 2>/dev/null)" = FAIL ]; then exit 1; elif [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
 GH
@@ -882,10 +882,12 @@ mkdir -p "$S/subs"
 { sub o/beta 12 open ready; sub o/alpha 13 open ready; sub o/beta 14 open triage; sub o/alpha 15 closed ready; } \
   | jq -s . > "$S/subs/repos_o_alpha_issues_5_sub_issues.json"
 sub o/gamma 3 open ready | jq -s . > "$S/subs/repos_o_alpha_issues_8_sub_issues.json"
+echo FAIL > "$S/subs/repos_o_alpha_issues_9_sub_issues.json"  # gh api fails for #9
 cat > "$S/ready.json" <<'JSON'
 [{"number": 5, "title": "Two-repo parent", "body": "parent", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]},
  {"number": 6, "title": "No sub-issues", "body": "whole", "url": "https://github.com/o/alpha/issues/6", "labels": [{"name": "ready"}]},
  {"number": 8, "title": "Gamma parent", "body": "parent", "url": "https://github.com/o/alpha/issues/8", "labels": [{"name": "ready"}]},
+ {"number": 9, "title": "Unreadable parent", "body": "parent", "url": "https://github.com/o/alpha/issues/9", "labels": [{"name": "ready"}]},
  {"number": 13, "title": "Sub 13", "body": "sub 13", "url": "https://github.com/o/alpha/issues/13", "labels": [{"name": "ready"}]}]
 JSON
 run --dry-run
@@ -900,6 +902,8 @@ lacks 'nor a closed one' 'o/alpha#15'
 has 'an issue with no sub-issues is one unit, unchanged' "git -C $S/repo worktree add -b grind-6 $TMPDIR/grind-worktrees/6$"
 has 'a sub-issue whose repo has no checkout is dropped, on the usual line' "no local checkout of o/gamma \(not the cwd, not $HOME/gamma\)"
 lacks 'and never queued' 'o/gamma#3 --'
+has 'an issue whose sub-issues cannot be read is skipped, loudly' 'WARN  skipping o/alpha#9 -- could not read its sub-issues$'
+lacks 'and not worked whole' '\] o/alpha#9 --'
 jq '[.[0]]' "$S/ready.json" > "$S/ready.json.tmp" && mv "$S/ready.json.tmp" "$S/ready.json"
 jq '[.[0]]' "$S/subs/repos_o_alpha_issues_5_sub_issues.json" > "$S/subs/x" && mv "$S/subs/x" "$S/subs/repos_o_alpha_issues_5_sub_issues.json"
 : > "$GH_LOG"
@@ -1145,7 +1149,7 @@ case "\$1 \$2" in
   "issue list") cat "$S/ready.json" ;;
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
-  "api repos/"*"/sub_issues") f="$S/subs/\$(printf '%s' "\$2" | tr / _).json"; if [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
+  "api repos/"*"/sub_issues"*) f="$S/subs/\$(printf '%s' "\${2%%\?*}" | tr / _).json"; if [ "\$(cat "\$f" 2>/dev/null)" = FAIL ]; then exit 1; elif [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
   "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
   "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
   "pr edit"|"pr comment") exit 0 ;;
@@ -1428,7 +1432,7 @@ case "\$1 \$2" in
   "issue list") cat "$S/ready.json" ;;
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
-  "api repos/"*"/sub_issues") f="$S/subs/\$(printf '%s' "\$2" | tr / _).json"; if [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
+  "api repos/"*"/sub_issues"*) f="$S/subs/\$(printf '%s' "\${2%%\?*}" | tr / _).json"; if [ "\$(cat "\$f" 2>/dev/null)" = FAIL ]; then exit 1; elif [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
 GH

@@ -541,7 +541,7 @@ items=$(printf '%s' "$record" | jq -c --argjson repos "$repos_json" --argjson re
 # A parent whose sub-issues cannot be read is skipped, not worked whole.
 subs="{}"
 for p in $(printf '%s' "$items" | jq -r '.[] | select(.kind == "issue") | "\(.repo)#\(.number)"'); do
-  s=$(gh api "repos/${p%#*}/issues/${p##*#}/sub_issues" 2>/dev/null) || { warn "skipping $p -- could not read its sub-issues"; s=null; }
+  s=$(gh api "repos/${p%#*}/issues/${p##*#}/sub_issues?per_page=100" 2>/dev/null) || { warn "skipping $p -- could not read its sub-issues"; s=null; }
   subs=$(printf '%s' "$subs" | jq -c --arg p "$p" --argjson s "$s" '.[$p] = $s')
 done
 # shellcheck disable=SC2016  # jq program, not shell
