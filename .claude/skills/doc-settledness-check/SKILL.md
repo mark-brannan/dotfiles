@@ -16,15 +16,15 @@ and their meanings are in `rubric.md` beside this file.
 ## Never
 
 - open a PR, file an issue, comment, label, or push to a public repo;
-- edit the target, its thread, its `minted.md`, or anything it links;
+- edit the target, its thread, or anything it links;
 - let the measuring agent spawn agents or take a worktree.
 
 ## Steps
 
 1. **Resolve the one target.** Exactly one of:
    - **curia id** — `~/claude_prompts_scratch/state/global/curia/<id>/thread.md`
-     exists. Kind `curia`. Read-set: the folder (`thread.md`, `minted.md`,
-     `inputs/`, `notes.md`).
+     exists. Kind `curia`. Read-set: the folder (`thread.md`, `inputs/`,
+     `notes.md`).
    - **path** — a file in any repo on this machine. Kind `adr` if it sits
      under an `adr/` directory or is named `*.adr.md`; otherwise `design`.
      Read-set: the file, its repo's ADR index if any, `git log` for it.

@@ -33,13 +33,13 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
    unchecked, "should", "probably", or a path/link that does not resolve.
 7. **private terms** — hosts, boats, accounts, private plans in the text
    bound for (or already in) a public repo. A curia's derived sections are
-   bound for the mint, so they are measured even though the thread is
+   bound for a public repo, so they are measured even though the thread is
    private. `n/a (private)` only when nothing in the target is bound
    anywhere public.
 8. **sittings** — *curia only*: how many, and any sitting left unclosed.
    Elsewhere `n/a`.
-9. **promoted so far** — *curia only*: each link in `minted.md` with its PR
-   or issue state. Elsewhere `n/a`.
+9. **promoted so far** — *curia only*: each link a Decided line carries to what
+   the curia produced, with its PR or issue state. Elsewhere `n/a`.
 10. **implementation** — whether loop one has an issue or PR against this
     design. Informational, never blocking; an ADR may precede its code.
 11. **destination** — where the public record goes in this repo, and
