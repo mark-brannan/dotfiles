@@ -60,7 +60,8 @@ state/global/curia/<id>/
   thread.md   the document: where it stands, the derived record, Solace's words
   notes.md    the agent's own notes, any format it likes (optional)
   inputs/     read-only side products: spikes, side-chat pastes, subagent reports
-  folded/<id>/  a curia opened past the gates and folded into this one (see below)
+  folded/<id>/  a whole curia opened past the gates, moved under this one (see below);
+              a folded question is a line under Open questions, never a folder
   minted.md   links to what this curia produced (created on the first one)
 ```
 
