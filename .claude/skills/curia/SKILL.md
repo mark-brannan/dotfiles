@@ -47,13 +47,13 @@ public repo.
 
 ```
 state/global/curia/<id>/
-  thread.md   the document: where it stands, the derived record, Solace's words
-  notes.md    the agent's own notes, any format it likes (optional)
+  roll.md     the document: where it stands, the derived record, Solace's words
+  agent-notes.md  the agent's own notes, any format it likes (optional)
   inputs/     read-only side products: spikes, side-chat pastes, subagent reports
   minted.md   links to what this curia minted (created when it first mints something)
 ```
 
-Two grains in `thread.md`: **Solace's words are append-only** — a new
+Two grains in `roll.md`: **Solace's words are append-only** — a new
 dated sub-heading per sitting, old ones never edited. The **derived
 sections** (where it stands, decided, open questions) are rewritten in
 place. The one exception to the append-only grain is a **pin**: a passage
@@ -71,16 +71,16 @@ sitting on the word *confer*, or any session where Solace says "confer on
 X". The id is a kebab-case slug of the question's own words —
 `widget-retirement`, not a coined name — so minting one is not naming
 anything. Solace renames at will; a rename moves the folder and leaves a
-one-line redirect `thread.md` at the old id.
+one-line redirect `roll.md` at the old id.
 
 To mint: create the folder, copy [template.md](template.md) to
-`thread.md`, fill in the question, the origin link and the date, and
+`roll.md`, fill in the question, the origin link and the date, and
 commit. That placeholder is the whole mint; the first sitting does the
 rest. Say the id in the minting session's record.
 
 ## Opening (`/curia <id>`)
 
-1. **Resolve the id.** Read `state/global/curia/<id>/thread.md`. A
+1. **Resolve the id.** Read `state/global/curia/<id>/roll.md`. A
    one-line redirect points at a document elsewhere (a grandfathered
    curia); follow it — that document's own loop section then governs read
    order and replaces step 4's reading, while the LIVE check, the lint
