@@ -115,8 +115,9 @@ waive.
 5. **The WIP limit.** Soft, **5 open in total, 1–2 per repo**. Gate 4's
    list says where the count stands against it. Soft means the user may
    pass it, by their own word in the same turn after seeing that list; an
-   agent never does. The reason: a forcing function so that an errant but well-meaning agent cannot start
-   a parallel curia while the big one is ongoing.
+   agent never does. The reason: a forcing function so that an errant but
+   well-meaning agent cannot start a parallel curia while the big one is
+   ongoing.
 6. **The user confirms the id.** The id is a kebab-case slug of the
    question's own words — `widget-retirement`, not a coined name — so
    confirming one names nothing. The user renames at will; a rename moves
