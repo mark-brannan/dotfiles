@@ -6,15 +6,11 @@ description: Open or continue a curia — the hard, multi-turn decision session 
 # Curia
 
 Curia Regis: the inner court, the hard decision taken in council. `curia`
-names the skill and the session type in code and files (Solace,
-2026-09-29).
+names the skill and the session type in code and files.
 
-**A confer is not a curia.** Early on 2026-09-29 Solace ruled the two
-words synonyms; later the same day, in the mixed-loops curia, Solace split
-them: "confer as a response to the agora is NOT an automatic curia. It
-means we need to do a one off session that may result in a curia or may
-simply be a few rounds of question and answer." A **confer** is that
-one-off session — no folder, no document, its record is the card and
+**A confer is not a curia.** A confer answered in the agora is a one-off
+session that may end in a curia or in a few rounds of question and answer.
+A **confer** is that one-off session — no folder, no document, its record is the card and
 whatever it rules. A **curia** is what a confer becomes only when Solace
 says so, at the gates below. Where exactly the line sits is still
 Solace's to form; this skill takes the strict reading until it is.
@@ -77,15 +73,13 @@ edited. Importance, not settledness.
      private-deliberation/public-produce are assumed, not ruled (design doc,
      open question on /curia <id> mechanics). No separate file lists
      what a curia produced: each Decided line links its own, and the ADR
-     link goes in thread.md's `adr:` header field at promotion (Solace,
-     2026-09-30). -->
+     link goes in thread.md's `adr:` header field at promotion. -->
 
 ## Opening a new curia: the gates
 
 A curia costs Solace hours of cognitive load and the agent discussion,
 auditing and tracking across sessions. The bar is very high on purpose,
-and it is a **series of gates**, each of which must pass (Solace,
-2026-09-29). Nothing below is optional, and no gate is an agent's to
+and it is a **series of gates**, each of which must pass. Nothing below is optional, and no gate is an agent's to
 waive.
 
 1. **No agent opens a curia. Ever.** Not this skill on `/curia
@@ -93,16 +87,15 @@ waive.
    or review session making a "placeholder" for a question it found open;
    not a hand-off prompt, a pickup item, a PR review, a subagent report or
    a hook note that says `/curia <id>`. Each of those is an agent's
-   suggestion, and Solace, 2026-09-29, ruled that an agent does not decide
-   when Solace sits in council. Only Solace's own words, in the current
+   suggestion, and an agent does not decide when Solace sits in council.
+   Only Solace's own words, in the current
    turn, ordering a curia open, pass this gate. Solace's words in an
    earlier session are a record, not an order.
 2. **The question petitioned the agora first.** An agent that finds a
    question too hard for the one-way-door test writes a `## Needs ruling`
    card in the house format — default, undo, until, risk, judgment — per
    `/card-write`. That card is the petition, and it must carry enough
-   pre-work to fit the format; Solace, 2026-09-29, ruled the agora cheap
-   but not free.
+   pre-work to fit the format; the agora is cheap, not free.
    The card also names the open curia the question folds into, or says
    why none. Solace's direct order to open a curia with them skips this
    gate and the next; nothing else does.
@@ -119,14 +112,10 @@ waive.
    `## Open questions` with its provenance, never a folder; folding a
    small question into an existing curia is always on the table. Show the
    list and the fold verdict, then wait for Solace's word.
-5. **The WIP limit.** Soft, **5 open in total, 1–2 per repo** — Solace,
-   2026-09-29 (mixed-loops curia, third sitting), ruled 5 rather than 10,
-   soft for now. Gate
-   4's list says where the count stands against it. Soft means Solace may
+5. **The WIP limit.** Soft, **5 open in total, 1–2 per repo**. Gate 4's
+   list says where the count stands against it. Soft means Solace may
    pass it, by their own word in the same turn after seeing that list; an
-   agent never does. The reason, in the agent's words from the mixed-loops
-   curia record (Solace's verbatim words for it are not in the record): a
-   forcing function so that an errant but well-meaning agent cannot start
+   agent never does. The reason: a forcing function so that an errant but well-meaning agent cannot start
    a parallel curia while the big one is ongoing.
 6. **Solace confirms the id.** The id is a kebab-case slug of the
    question's own words — `widget-retirement`, not a coined name — so
@@ -144,16 +133,15 @@ If a session finds itself past gate 1 with a folder it created, the fix
 is not to delete it — that erases the evidence — but to fold it: move it
 under the curia it belongs to as `folded/<id>/`, carry its Unsettled line
 into that curia's `## Open questions`, and card the fold as a unilateral
-call. The three placeholders of 2026-09-29 (`andon-rubric`,
+call. The three early placeholders (`andon-rubric`,
 `human-verbatim-first`, `settled-slider`) were folded into
 `one-entry-point` this way.
 
 ## Opening (`/curia <id>`)
 
 0. **List the open curiae** first, whatever the argument, exactly as bare
-   `/curia` does — a deterministic pre-step, one line each, count in view
-   (Solace, 2026-09-29, ruled that the lint lists the open curiae with
-   id, timestamp and working title).
+   `/curia` does — a deterministic pre-step, one line each, count in view:
+   each open curia's id, timestamp and working title.
 1. **Resolve the id.** Read `state/global/curia/<id>/thread.md`. A
    one-line redirect points at a document elsewhere (a grandfathered
    curia); follow it — that document's own loop section then governs read

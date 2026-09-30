@@ -168,10 +168,9 @@ It **opens nothing**: no new question, no doubt, no hint, no "one thing to
 consider". A closing message may say *"next time we discuss X"* — with X
 already in the log's `## For next time` list — and never *"hold this in
 your head"*. If something is still uncaptured when you reach this step, it
-goes into that list first. The reason is Solace's, verbatim (2026-09-27):
-"it is easiest for me to park a session when a) I know all your useful work
-has been landed and b) you do NOT open new questions, new lines of inquiry,
-new doubts, new hints that a judgement call needs to be made."
+goes into that list first. A session is easy to park only when all useful
+work has landed and the close opens no new question, line of inquiry,
+doubt or hint of a pending judgement call.
 
 ## 6. Solace's final word
 

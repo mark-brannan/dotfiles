@@ -10,8 +10,7 @@ are consumed in batch. Each item is quick by construction; a hard one is
 answered with the one word **confer**, the sitting moves past it, and it
 goes to a one-off confer session of its own — not a curia. A curia opens
 only at the gates in the curia skill, on Solace's word in that confer.
-This skill absorbs `/ruling` (retired by Solace, 2026-09-29, in the design
-confer): the typed per-item contract below was ruling's.
+This skill absorbs the retired `/ruling`: the typed per-item contract below was ruling's.
 
 Ancestor concepts: GTD inbox processing, office hours, a replenishment
 cadence; the ruling's default that holds is "act after a veto window".
@@ -77,9 +76,9 @@ Every item this skill touches gets, and keeps:
 
 On the word *confer*: record it on the card (<!-- format open -->
 `confer: <YYYY-MM-DD>`), leave the card where it is, and move on. **Create
-nothing under `state/global/curia/`.** Solace, 2026-09-29, ruled that a
-question goes to the agora first and that lower-level sessions may not
-create a curia. The agora is one gate of several; a curia opens only when
+nothing under `state/global/curia/`.** A curia question
+petitions the agora first; no lower-level session creates a curia. The
+agora is one gate of several; a curia opens only when
 Solace says so inside the confer session, at the curia skill's gates.
 
 At the end of the sitting, print one confer prompt per deferred item,
