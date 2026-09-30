@@ -516,6 +516,25 @@ assert 'no flock: the fake flock was never called' test ! -e "$FLOCK_CALLED"
 assert 'no flock: the push lock is released after the Stop' test ! -e "$TMPDIR/claude-state-push.lock.d"
 rm -f "$BIN/flock"; unset FLOCK_CALLED
 
+# --- a conflicting state-repo pull is backed out, never left mid-rebase ---------
+# Upstream and this clone both add one path with different bytes: the Stop's
+# own commit conflicts on `pull --rebase`, and a rebase left in place would
+# wedge the clone for every later Stop.
+SRCLONE="$S/state-clone"
+git clone -q -b main "$SRORIGIN" "$SRCLONE" >/dev/null 2>&1
+rel=state/global/both.txt
+echo upstream > "$SRCLONE/$rel"
+gitq "$SRCLONE" add "$rel"; gitq "$SRCLONE" commit -m upstream-conflict; gitq "$SRCLONE" push origin main
+echo local > "$SREPO/$rel"
+rm -f "$SREPO/state/global/.last-state-push"   # past the push debounce
+
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+assert 'conflicting pull: no rebase left in progress' \
+  test ! -d "$(git -C "$SREPO" rev-parse --absolute-git-dir)/rebase-merge"
+assert 'conflicting pull: still on main' git -C "$SREPO" symbolic-ref -q HEAD
+assert 'conflicting pull: the verdict says the push failed' \
+  grep -qE 'state-repo push failed' "$SREPO/state/global/log/auto/"*"-work-${SID:0:8}.md"
+
 # --- a live metrics-live.sh holding the per-session lock never blocks Stop (#161) --
 # Pre-create $LIVE/<sid>.lock with meta naming this test process's own pid, so
 # state_lock sees a live holder on this host and refuses to reclaim it -- the

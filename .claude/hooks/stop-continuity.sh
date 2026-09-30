@@ -749,7 +749,10 @@ if [ "$verdict" != "archivable" ] && [ -f "$PUSH_SENTINEL" ]; then
 fi
 
 for attempt in 1 2; do
-  timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1
+  # A conflicted rebase left in place wedges this clone for every later Stop
+  # and every hand commit; back out, and let the push below fail and say so.
+  timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1 \
+    || { [ -d "$(git rev-parse --git-path rebase-merge)" ] && git rebase --abort >/dev/null 2>&1; }
   if timeout 120 git push -q origin HEAD >/dev/null 2>&1; then
     date -u +%s > "$PUSH_SENTINEL" 2>/dev/null
     exit 0
