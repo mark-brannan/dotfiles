@@ -1,0 +1,12 @@
+# Home-wide default: spaces, never tabs, except where a tool requires them.
+#
+# No `root = true`: a repo's own .editorconfig is found first and, if it
+# sets root, wins outright. This file only speaks for repos that say nothing.
+
+[*]
+indent_style = space
+indent_size = 2
+
+# make requires a literal tab before every recipe line; gofmt emits tabs.
+[{Makefile,makefile,GNUmakefile,*.mk,*.go}]
+indent_style = tab
