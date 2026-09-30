@@ -5,6 +5,7 @@
 - origin: <link to the card that petitioned the agora, or the doc section that raised it>
 - related: <ids of open curiae this one touches, comma-separated, or none>
 - model: Fable · effort: high
+- adr: <link to the ADR, once the curia is promoted, or none>
 - status: open
 
 ## Where this stands
