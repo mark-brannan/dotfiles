@@ -94,7 +94,7 @@ R="$SCRATCH/legacy"; mkrepo "$R"
 cat > "$R/kanban.md" <<'EOF'
 # Open loops
 
-## Solace's
+## Human's
 - [ ] **Run the review session** — the memos ([log](log/memos.md)) why you: learn
 
 ## Deferred — pre-1.0
@@ -228,17 +228,17 @@ has 'L4 names the verb'            '^5: L4 "decide"'
 has 'L4 points at the ruling section' '## Needs ruling'
 gitq "$NR" checkout -- kanban.md
 
-# ## Solace's is the third section: click work, with its two proofs (L9).
+# ## Human's is the third section: click work, with its two proofs (L9).
 cat >> "$NR/kanban.md" <<'EOF'
 
-## Solace's
+## Human's
 - [ ] **Install the App** — consent screen ([org](https://github.com/o)) why you: no API installs an App on an org why this: the workflow's 403 names the missing installation ([run](https://github.com/o/r/actions/runs/1))
 - [ ] **Rocq in the IDE** — set up the extension ([doc](https://example.invalid/rocq)) why you: learn
 - [ ] **Rotate the key** — on the boat ([log](log/key.md))
 - [ ] **Update the secret** — in GitHub ([log](log/secret.md)) why you: the value exists only in the user's password manager
 - [ ] **Half learn** — the setup ([log](log/l.md)) Why You: learner
 EOF
-run 1 'a ## Solace'"'"'s section: proofs pass, missing proofs fail L9' --diff "$NR" kanban.md
+run 1 'a ## Human'"'"'s section: proofs pass, missing proofs fail L9' --diff "$NR" kanban.md
 lacks 'no L3 on the third section'          'L3'
 lacks 'both proofs present passes'          '^7: '
 lacks 'a learn card needs no why this'      '^8: '
@@ -256,7 +256,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 EOF
 run 1 'a ## Yours heading added fails L3' --diff "$NR" kanban.md
 has 'L3 names the heading'      '^6: L3 new heading "## Yours"'
-has 'L3 names the sections'     '## Needs ruling, ## Solace'"'"'s and ## Claude'"'"'s'
+has 'L3 names the sections'     '## Needs ruling, ## Human'"'"'s and ## Claude'"'"'s'
 gitq "$NR" checkout -- kanban.md
 
 # --- heading-only diffs: a card is re-scoped without its own line changing ---
@@ -269,8 +269,8 @@ has 'L7 fires though only the heading line was added'    '^4: L7 '
 has 'L8 fires though only the heading line was added'    '^4: L8 '
 gitq "$NR" checkout -- kanban.md
 
-printf '# Open loops\n\n## Solace'"'"'s\n- [ ] **Fix the awk** — drops the first bullet ([o/r#90](https://github.com/o/r/pull/90))\n' > "$NR/kanban.md"
-run 1 'a heading-only diff into ## Solace'"'"'s still validates the untouched card beneath it' --diff "$NR" kanban.md
+printf '# Open loops\n\n## Human'"'"'s\n- [ ] **Fix the awk** — drops the first bullet ([o/r#90](https://github.com/o/r/pull/90))\n' > "$NR/kanban.md"
+run 1 'a heading-only diff into ## Human'"'"'s still validates the untouched card beneath it' --diff "$NR" kanban.md
 has 'L9 fires though only the heading line was added'    '^4: L9 click-work card missing why you:'
 gitq "$NR" checkout -- kanban.md
 
@@ -295,7 +295,7 @@ D="$SCRATCH/diff"; mkrepo "$D"; mkdir -p "$D/state/global"
 cat > "$D/state/global/kanban.md" <<'EOF'
 # Open loops
 
-## Solace's
+## Human's
 - [x] **Merge [o/r#29](https://github.com/o/r/pull/29)** — CI green, awaiting you
 - [ ] **Rule on [o/r#32](https://github.com/o/r/issues/32)** — the aground question
 
@@ -333,7 +333,7 @@ has 'L3 on the added heading' '^10: L3 new heading "## Deferred"'
 gitq "$D" checkout -- state/global/kanban.md
 
 # Moving an existing heading is not a new heading.
-printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Solace'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn\n' > "$D/state/global/kanban.md"
+printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Human'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn\n' > "$D/state/global/kanban.md"
 run 0 'reordering headings already in HEAD passes' --diff "$D" state/global/kanban.md
 gitq "$D" checkout -- state/global/kanban.md
 
