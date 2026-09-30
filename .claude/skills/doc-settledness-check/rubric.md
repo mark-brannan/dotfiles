@@ -32,8 +32,10 @@ query), `git` (history), or `read` (judgment on reading). A row measured by
 6. **unverified claims** — anything in the settled text marked unverified,
    unchecked, "should", "probably", or a path/link that does not resolve.
 7. **private terms** — hosts, boats, accounts, private plans in the text
-   bound for (or already in) a public repo. Target in a private repo only →
-   `n/a (private)`.
+   bound for (or already in) a public repo. A curia's derived sections are
+   bound for the mint, so they are measured even though the thread is
+   private. `n/a (private)` only when nothing in the target is bound
+   anywhere public.
 8. **sittings** — *curia only*: how many, and any sitting left unclosed.
    Elsewhere `n/a`.
 9. **promoted so far** — *curia only*: each link in `minted.md` with its PR
