@@ -4,6 +4,8 @@
 cat<<EOF
 dotfiles
 symphony
+saferspacesllc
+stranger-loops
 EOF
 cat ~/.local/share/vended-repos.txt
 } | while read i
