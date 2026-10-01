@@ -600,6 +600,7 @@ claude_cards() {
     txt != "" && !skip { t = $0; sub(/^[ \t]+/, "", t); txt = txt " " t; seen(FNR) }
     END { flush() }
   ' - "$f"
+}
 
 # --- Ruling-card readiness -------------------------------------------------------
 # ruling_readiness <card text> -- prints `ready` or `waiting` for one
@@ -630,7 +631,7 @@ ruling_until() {
   printf '%s\n' "$1" | awk '
     { l = tolower($0); p = index(l, "until:"); if (!p) exit 1
       v = substr($0, p + 6)
-      if (match(tolower(v), /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this):/)) v = substr(v, 1, RSTART - 1)
+      if (match(tolower(v), /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this|id):/)) v = substr(v, 1, RSTART - 1)
       sub(/^[ \t*]+/, "", v); sub(/[ \t*.;,]+$/, "", v); print v; found = 1; exit }
     END { if (!found) exit 1 }'
 }

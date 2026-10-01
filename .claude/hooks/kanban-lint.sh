@@ -159,7 +159,7 @@ run_lint() {
     function until_problem(t,   p, v, d, y, m, dd, ml) {
       p = index(t, "until:"); if (!p) return ""
       v = substr(t, p + 6)
-      if (match(v, /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this):/)) v = substr(v, 1, RSTART - 1)
+      if (match(v, /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this|id):/)) v = substr(v, 1, RSTART - 1)
       sub(/^[ \t*]+/, "", v); sub(/[ \t*.;,]+$/, "", v)
       if (v == "") return "until: is empty"
       while (match(v, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) {
