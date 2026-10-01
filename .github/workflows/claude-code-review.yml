@@ -35,6 +35,12 @@ jobs:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     with:
+      # The default allowed-bots list (mergify[bot],mark-brannan-release-please[bot])
+      # doesn't cover claude[bot] -- overriding replaces rather than extends the
+      # default, so all three must be listed. See dotfiles#195: a PR that GitHub
+      # attributes to claude[bot] as .actor otherwise fails claude-code-action's
+      # non-human-actor check even though the commit author is human.
+      allowed-bots: mergify[bot],mark-brannan-release-please[bot],claude[bot]
       prompt: |
         Review this pull request diff to a personal dotfiles repo.
 

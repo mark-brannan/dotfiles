@@ -1,150 +1,100 @@
 #!/usr/bin/env bash
 # Tests for pickup-list. Run: bash .local/bin/pickup-list.test.sh
-# Set AWK_PATH to a directory whose `awk` is another implementation to run the
-# same cases under it; CI does this for each.
-#
-# What matters: zero, one and two blocks each render right; a consumed block is
-# gone; a block whose branch is level with main or whose PR merged is dropped;
-# a block that cannot be checked is KEPT and says why, because dropping what we
-# could not look at is exactly how work gets lost; newest first; --files gives
-# /pickup the paths it needs to mark one consumed.
+# What matters: newest is on top and --oldest reverses it; a taken item
+# leaves the default view but stays findable; the docket count reads the
+# board's `## Needs ruling` and nothing else; nothing is ever dropped for
+# being uncheckable.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
-
-RL="$(cd "$(dirname "$0")" && pwd)/pickup-list"
+PL="$(cd "$(dirname "$0")" && pwd)/pickup-list"
 pass=0; fail=0
 S=$(mktemp -d); trap 'rm -rf "$S"' EXIT
 export HOME="$S/home"; mkdir -p "$HOME"
-export TMPDIR="$S/tmp"; mkdir -p "$TMPDIR"
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-
-SR="$S/state"; AUTO="$SR/state/global/log/auto"
-mkdir -p "$AUTO" "$SR/.git"
+SR="$S/state"; PICKUP="$SR/state/global/pickup"; mkdir -p "$SR/.git" "$PICKUP"
 export CLAUDE_STATE_REPO="$SR"
 
-gitq() { git -C "$1" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
-
-# --- a fake gh: GH_MERGED lists the branches whose PR is merged --------------
-BIN="$S/bin"; mkdir -p "$BIN"
-cat > "$BIN/gh" <<'EOF'
-#!/bin/sh
-[ "${GH_FAIL:-0}" = 1 ] && { echo "gh: not logged in" >&2; exit 1; }
-b=""
-while [ $# -gt 0 ]; do [ "$1" = --head ] && { shift; b=$1; }; shift; done
-for m in ${GH_MERGED:-}; do [ "$m" = "$b" ] && { echo '[{"number":1}]'; exit 0; }; done
-echo '[]'
-EOF
-chmod +x "$BIN/gh"
-export PATH="$BIN:$PATH"
-
-# --- a work repo with a main and some branches -------------------------------
-ORIGIN="$S/origin.git"; WORK="$S/work"
-git init -q --bare "$ORIGIN"
-git init -q -b main "$WORK"
-gitq "$WORK" remote add origin "$ORIGIN"
-echo one > "$WORK/f"; gitq "$WORK" add f; gitq "$WORK" commit -m base
-gitq "$WORK" push -u origin main
-for b in claude/alpha claude/beta claude/merged; do
-  gitq "$WORK" checkout -b "$b" main
-  echo "$b" >> "$WORK/f"; gitq "$WORK" add f; gitq "$WORK" commit -m "$b"
-done
-gitq "$WORK" checkout -b claude/level main        # level with main: nothing ahead
-gitq "$WORK" checkout main
-
-# --- fixtures ----------------------------------------------------------------
-# ckpt <slug> <branch> <worktree> <next> [consumed]
-ckpt() {
-  local f="$AUTO/2026-09-09-demo-$1.md"
-  {
-    printf '# Auto-checkpoint — demo @ `%s`\n\n' "$2"
-    printf '**Verdict:** not archivable: worktree dirty\n\n'
-    printf -- '- worktree `%s`\n' "$3"
-    printf -- '- session `%s` · opus · started 2026-09-09T00:00:00Z\n\n' "$1"
-    printf '## Resume\n\n'
-    printf -- '- next: %s\n' "$4"
-    printf -- '- link: https://github.com/o/demo/pull/1\n'
-    printf -- '- model: opus\n'
-    printf -- '- effort: high\n'
-    [ -n "${5:-}" ] && printf -- '- consumed: %s\n' "$5"
-    printf '\n## Commits this session\n\n- none\n'
-  } > "$f"
-  printf '%s' "$f"
-}
-# A checkpoint with no resume block at all: must never appear.
-printf '# Auto-checkpoint — demo @ `claude/nothing`\n\n**Verdict:** archivable\n\n- worktree `%s`\n' \
-  "$WORK" > "$AUTO/2026-09-09-demo-none.md"
-
-run() { OUT=$("$RL" "$@" 2>&1); RC=$?; }
 assert() { local m=$1; shift; if "$@"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: $m"; fi; }
-has()  { assert "$1: /$2/ in output" grep -qE "$2" <<<"$OUT" || printf '%s\n' "$OUT" | sed 's/^/    /'; }
-hasnt() { assert "$1: /$2/ absent" bash -c '! grep -qE "$1" <<<"$2"' _ "$2" "$OUT"; }
-eq()   { assert "$1: expected $2, got $3" test "$2" = "$3"; }
+eq() { assert "$1: expected [$2], got [$3]" test "$2" = "$3"; }
+item() {  # item <id> <updated> <status> <text>
+  printf 'status: %s\nupdated: %s\nsession: x\nmodel: claude-sonnet-5\nbranch: r b (1 ahead, clean)\npr: none\nwhere: w\nprompt: %s\n---\n%s\n' \
+    "$3" "$2" "$4" "$4" > "$PICKUP/$1.md"
+}
+ids() { sh "$PL" "$@" | grep -oE '^ +[0-9]{4}-[0-9-]+T[0-9-]+-[0-9a-f]+$' | tr -d ' '; }
 
-# --- zero blocks --------------------------------------------------------------
-run
-eq 'exit 0' 0 "$RC"
-eq 'zero blocks prints none' 'Resume: none' "$OUT"
+eq 'an empty dir says so' 'Pickup: none' "$(sh "$PL")"
 
-# --- one block ----------------------------------------------------------------
-A=$(ckpt alpha claude/alpha "$WORK" "Wire the verdict into the checkpoint")
-touch -t 202609090800 "$A"
-run
-has 'one row counted' '^Resume, showing 1 of 1$'
-has 'table header' '^\| Branch \| Next step \| Age \| Model \| Notes \|$'
-has 'branch cell' '\| `claude/alpha` \|'
-has 'next step' 'Wire the verdict into the checkpoint'
-has 'model and effort' 'opus · high'
-has 'repo and worktree in notes' "demo · $WORK"
+item 2026-09-01T10-00-aaaaaaaa 2026-09-01T10:00:00Z open "oldest work"
+item 2026-09-02T10-00-bbbbbbbb 2026-09-02T10:00:00Z open "middle work"
+item 2026-09-03T10-00-deadbeef 2026-09-03T10:00:00Z open "newest work"
+eq 'newest first' '2026-09-03T10-00-deadbeef' "$(ids | head -1)"
+eq '--oldest reverses' '2026-09-01T10-00-aaaaaaaa' "$(ids --oldest | head -1)"
 
-# --- two blocks, newest first --------------------------------------------------
-B=$(ckpt beta claude/beta "$WORK" "Write the resume-list fixtures")
-touch -t 202609091200 "$B"
-run
-has 'two rows counted' '^Resume, showing 2 of 2$'
-eq 'newest first' 'claude/beta' \
-  "$(grep -o '`claude/[a-z]*`' <<<"$OUT" | head -1 | tr -d '`')"
+sh "$PL" take 2026-09-02T10-00-bbbbbbbb >/dev/null
+eq 'taken leaves the default view' '' "$(ids | grep bbbbbbbb || true)"
+eq 'taken is still there with --closed' '2026-09-02T10-00-bbbbbbbb' "$(ids --closed | grep bbbbbbbb)"
+eq 'taken is findable' '2026-09-02T10-00-bbbbbbbb' "$(ids find middle)"
+eq 'status is written' taken "$(sed -n 's/^status: //p' "$PICKUP/2026-09-02T10-00-bbbbbbbb.md")"
+sh "$PL" open 2026-09-02T10-00-bbbbbbbb >/dev/null
+eq 'open puts it back' '2026-09-02T10-00-bbbbbbbb' "$(ids | grep bbbbbbbb)"
+assert 'take of a missing id fails' bash -c "! sh '$PL' take nope 2>/dev/null"
 
-# --- a consumed block is gone ----------------------------------------------------
-ckpt beta claude/beta "$WORK" "Write the resume-list fixtures" \
-  "session abcd1234 at 2026-09-09T13:00:00Z" >/dev/null
-run
-has 'consumed block dropped' '^Resume, showing 1 of 1$'
-hasnt 'consumed branch absent' 'claude/beta'
+for i in 1 2 3 4 5 6; do item "2026-09-1${i}T10-00-cccccc0$i" "2026-09-1${i}T10:00:00Z" open "filler $i"; done
+eq 'default shows five' 5 "$(ids | wc -l | tr -d ' ')"
+assert 'and says how many more' bash -c "sh '$PL' | grep -q ' more '"
+eq '--all shows every open item' 9 "$(ids --all | wc -l | tr -d ' ')"
+assert 'show prints the file' bash -c "sh '$PL' show 2026-09-03T10-00-deadbeef | grep -q '^prompt: newest work'"
+printf 'status: open\nupdated: 2026-09-20T10:00:00Z\nsession: x\nmodel: m\nbranch: b\npr: none\nwhere: w\nuntil: 2026-10-15\nprompt: waits\n---\nwaits\n' > "$PICKUP/2026-09-20T10-00-0a0a0a0a.md"
+assert 'show prints until:' bash -c "sh '$PL' show 2026-09-20T10-00-0a0a0a0a | grep -qx 'until: 2026-10-15'"
+rm -f "$PICKUP/2026-09-20T10-00-0a0a0a0a.md"
+assert 'show of a missing id fails' bash -c "! sh '$PL' show nope 2>/dev/null"
 
-# --- level with main, and a merged PR, are both dropped ---------------------------
-L=$(ckpt level claude/level "$WORK" "Nothing left ahead of main")
-M=$(ckpt merged claude/merged "$WORK" "Its PR already merged")
-GH_MERGED="claude/merged" run
-hasnt 'branch level with main dropped' 'claude/level'
-hasnt 'merged PR dropped' 'claude/merged'
-has 'the live one survives' 'claude/alpha'
-rm -f "$L" "$M"
+# The docket count is the board's `## Needs ruling` open boxes, nothing else.
+cat > "$SR/state/global/kanban.md" <<'EOF'
+# Board
 
-# --- what cannot be checked is kept, and says so -----------------------------------
-G=$(ckpt gone claude/gone "$S/not-here" "Worktree was thrown away")
-run
-has 'missing worktree kept' 'claude/gone'
-has 'and named' 'worktree gone'
-rm -f "$G"
+## Needs ruling
 
-GH_FAIL=1 run
-has 'gh failure keeps the row' 'claude/alpha'
-has 'and names it' 'PR state unverified \(gh\)'
+- [ ] one question
+- [x] a ruled one
+- [ ] another question
 
-# --- --brief caps and cuts ----------------------------------------------------------
-long="A next step written well past the eighty character mark so that brief output has to cut it somewhere sensible"
-P=$(ckpt long claude/alpha "$WORK" "$long")
-run --brief
-assert 'brief cuts the next step' test "$(grep -c "$long" <<<"$OUT")" -eq 0
-run
-has 'full output does not cut' "$long"
-rm -f "$P"
+## Human's
 
-# --- --files gives /pickup the path --------------------------------------------------
-run --files
-eq 'files: one line per block' 1 "$(grep -c '^' <<<"$OUT")"
-has 'files: branch then path' "^claude/alpha	$AUTO/"
-eq 'files: silent when empty' '' "$(rm -f "$A"; "$RL" --files)"
+- [ ] click work does not count
+EOF
+assert 'the docket counts open Needs-ruling boxes' bash -c "sh '$PL' | grep -q '^Docket: 2 awaiting an agora'"
+rm "$SR/state/global/kanban.md"
+assert 'no board, no docket line' bash -c "! sh '$PL' | grep -q '^Docket:'"
+
+# --- cards on the board's `## Claude's` are pickup items too -----------------
+# An example.invalid link is no GitHub card, so a take is the ledger alone -- the part a
+# second run reads.
+export TMPDIR="$S/tmp"; mkdir -p "$TMPDIR"
+unset CI GITHUB_ACTIONS
+CARD=https://example.invalid/card-1
+cat > "$SR/state/global/kanban.md" <<EOF
+# Board
+
+## Needs ruling
+
+### global
+- [ ] a ruling ([x](https://example.invalid/ruling)) default: a undo: b until: c risk: d judgment: values
+
+## Claude's
+
+- [ ] **Card one** -- a card a session can take ([x]($CARD)) model: opus effort: high
+EOF
+assert 'a card is listed with pickup items' bash -c "sh '$PL' --all | grep -qxF '    $CARD'"
+assert 'a ruling is not a pickup candidate' bash -c "! sh '$PL' --all | grep -q 'example.invalid/ruling'"
+assert 'nor can it be taken' bash -c "! sh '$PL' take https://example.invalid/ruling 1111111122223333 2>/dev/null"
+assert 'take of a card needs a session id' bash -c "! CLAUDE_CODE_SESSION_ID= sh '$PL' take '$CARD' 2>/dev/null"
+eq 'take on a card claims it' "taken $CARD" "$(sh "$PL" take "$CARD" 1111111122223333)"
+eq 'a second run sees it taken' '' "$(sh "$PL" --all | grep -F "$CARD" || true)"
+assert 'and shows the holder with --closed' bash -c "sh '$PL' --closed | grep -q 'taken by 11111111'"
+assert 'a second session cannot take it' bash -c "! sh '$PL' take '$CARD' 4444444455556666 2>/dev/null"
+assert 'done refuses a card' bash -c "! sh '$PL' done '$CARD' 2>/dev/null"
+sh "$PL" open "$CARD" >/dev/null
+assert 'open releases it' bash -c "sh '$PL' --all | grep -qxF '    $CARD'"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

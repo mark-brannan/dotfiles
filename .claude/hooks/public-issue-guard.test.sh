@@ -46,8 +46,8 @@ LAST=""
 check() {
   local want=$1 desc=$2 json=$3 state=${4:-$CLAUDE_STATE_REPO} out got
   out=$(printf '%s' "$json" | CLAUDE_STATE_REPO="$state" sh "$HOOK" 2>&1)
-  if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then got=deny
-  elif [ -z "$out" ] || printf '%s' "$out" | grep -q '"permissionDecision":"allow"'; then got=allow
+  if grep -q '"permissionDecision":"deny"' <<<"$out"; then got=deny
+  elif [ -z "$out" ] || grep -q '"permissionDecision":"allow"' <<<"$out"; then got=allow
   else got=invalid; fi
   if [ "$got" = "$want" ]; then pass=$((pass + 1)); else
     fail=$((fail + 1)); printf 'FAIL (want %s, got %s): %s\n' "$want" "$got" "$desc"
@@ -55,8 +55,8 @@ check() {
   fi
   LAST=$out
 }
-reason() { if printf '%s' "$LAST" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -- "$2"; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL (reason lacks [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
-no_reason() { if printf '%s' "$LAST" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -Fq -- "$2"; then fail=$((fail + 1)); printf 'FAIL (reason has [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass + 1)); fi; }
+reason() { if grep -Fq -- "$2" <<<"$(jq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$LAST")"; then pass=$((pass + 1)); else fail=$((fail + 1)); printf 'FAIL (reason lacks [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; fi; }
+no_reason() { if grep -Fq -- "$2" <<<"$(jq -r '.hookSpecificOutput.permissionDecisionReason' <<<"$LAST")"; then fail=$((fail + 1)); printf 'FAIL (reason has [%s]): %s\n  %s\n' "$2" "$1" "$LAST"; else pass=$((pass + 1)); fi; }
 updated_field() { printf '%s' "$LAST" | jq -r ".hookSpecificOutput.updatedInput$1 // empty"; }
 
 # bash_in <cwd> <command>
@@ -164,6 +164,15 @@ check deny 'add-label CHURN-OK'      "$(bash_in "$PUB" 'gh pr edit 12 --add-labe
 check deny 'churn-ok through gh api' "$(bash_in "$PUB" 'gh api repos/mark-brannan/dotfiles/issues/12/labels -f "labels[]=churn-ok"')"
 check allow 'another label is fine'  "$(bash_in "$PUB" 'gh pr edit 12 --add-label ready')"
 check allow 'the label named in a body' "$(bash_in "$PUB" 'gh pr comment 12 -b "this needs the churn-ok label"')"
+# mixed-loops-ok waives the mixed-loops gate the same way, and the deny
+# list is one place: adding a label there closes every route at once.
+check deny 'add-label mixed-loops-ok' "$(bash_in "$PUB" 'gh pr edit 12 --label mixed-loops-ok')"
+reason 'names the label'             'mixed-loops-ok'
+# The MCP route: a labels field on an issue or PR write is a label applied.
+check deny 'MCP labels mixed-loops-ok' "$(mcp_in mcp__github__update_pull_request '{"owner":"o","repo":"r","pullNumber":12,"labels":["ready","mixed-loops-ok"]}')"
+reason 'names the label'             'mixed-loops-ok'
+check deny 'MCP labels churn-ok, private repo too' "$(mcp_in mcp__github__update_issue "{\"owner\":\"mark-brannan\",\"repo\":\"claude_prompts_scratch\",\"issue_number\":12,\"labels\":[\"Churn-OK\"]}")"
+check allow 'MCP other labels'       "$(mcp_in mcp__github__update_issue '{"owner":"o","repo":"r","issue_number":12,"labels":["ready"]}')"
 
 # --- the gate is loud when it cannot see ------------------------------------------
 check deny '-F - with no heredoc'    "$(bash_in "$PUB" 'cat notes.md | gh issue create -t x -F -')"
@@ -228,6 +237,141 @@ EOF
 gh issue create -t x --body-file $SCRATCH/absent.md")"
 reason 'names the file'              'absent.md'
 
+# The path is resolved as the shell will resolve it (measured 2026-09-30:
+# 218 denials for a --body-file "that cannot be read", 176 of them retried
+# and passed with the same file; 88 still had a literal $SP in the path the
+# hook tried, 30 missed a cd or a ..). Slice 1: . and .. are collapsed, and
+# the file IS then scanned: a term in it still denies.
+mkdir -p "$SCRATCH/proj/sub"; cp "$SCRATCH/clean.md" "$SCRATCH/body.md" "$SCRATCH/proj/"
+check allow './ and .. in a relative --body-file, clean file' \
+  "$(bash_in "$SCRATCH/proj/sub" 'gh pr comment 3 --body-file ./../clean.md')"
+check deny  '.. in a relative --body-file, file still scanned' \
+  "$(bash_in "$SCRATCH/proj/sub" 'gh pr comment 3 --body-file ../body.md')"
+reason 'names the term'              'Wanderlust'
+check allow '.. in an absolute --body-file' \
+  "$(bash_in "$PUB" "gh pr comment 3 --body-file $SCRATCH/proj/sub/../clean.md")"
+check allow '.. in the path a heredoc writes and posts' \
+  "$(bash_in "$SCRATCH/proj" "cat > sub/../new.md <<'EOF'
+all public
+EOF
+gh pr create -t x --body-file ./new.md")"
+# Slice 2: a cd or pushd before the gh moves where a relative path is read
+# from. popd, cd -, a bare pushd and a cd to somewhere the hook cannot
+# resolve make that place unknown, and a relative path after it is denied.
+check allow 'cd then a relative --body-file' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj && gh pr comment 3 --body-file ./clean.md")"
+check deny  'cd then a relative --body-file, file still scanned' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj/sub && gh pr comment 3 --body-file ../body.md")"
+reason 'names the term'              'Wanderlust'
+check allow 'bare cd is $HOME' \
+  "$(cp "$SCRATCH/clean.md" "$HOME/b.md"; bash_in "$PUB" 'cd; gh pr comment 3 -F b.md')"
+check allow 'cd ~ is $HOME' \
+  "$(bash_in "$PUB" 'cd ~ && gh pr comment 3 -F ./b.md')"
+check allow 'cd ~ then .. collapses' \
+  "$(mkdir -p "$HOME/d"; cp "$SCRATCH/clean.md" "$HOME/b.md"; bash_in "$PUB" 'cd ~/d; gh pr comment 3 -F ../b.md')"
+check allow 'two cds, the second relative' \
+  "$(bash_in "$PUB" "cd $SCRATCH; cd proj; gh pr comment 3 -F clean.md")"
+check allow 'pushd then a relative --body-file' \
+  "$(bash_in "$PUB" "pushd $SCRATCH/proj >/dev/null; gh pr comment 3 -F clean.md")"
+check deny  'pushd, popd, then a relative --body-file is unknowable' \
+  "$(bash_in "$SCRATCH" "pushd $SCRATCH/proj >/dev/null; popd >/dev/null; gh pr comment 3 -F clean.md")"
+reason 'names the path as spelled'   'clean.md cannot be read'
+# A directory literally named $X with a clean decoy in it must not let the
+# literal text stand in for the value the shell will use.
+mkdir -p "$SCRATCH/\$X"; cp "$SCRATCH/clean.md" "$SCRATCH/\$X/"
+check deny  'cd to an unassigned $VAR makes a relative path unknowable, even past a literal $X decoy' \
+  "$(bash_in "$SCRATCH" 'cd "$X" && gh pr comment 3 --body-file clean.md')"
+mkdir -p "$SCRATCH/\`id\`"; cp "$SCRATCH/clean.md" "$SCRATCH/\`id\`/"
+check deny  'cd to a backtick substitution is unknowable, even past a literal `id` decoy' \
+  "$(bash_in "$SCRATCH" 'cd "`id`" && gh pr comment 3 --body-file clean.md')"
+reason 'names the path as spelled'   'clean.md cannot be read'
+check deny  'pushd +1 rotates to somewhere unseen' \
+  "$(bash_in "$SCRATCH" 'pushd +1 >/dev/null; gh pr comment 3 --body-file clean.md')"
+check deny  'cd - makes a relative path unknowable' \
+  "$(bash_in "$SCRATCH" 'cd - && gh pr comment 3 --body-file clean.md')"
+check allow 'cd - then an absolute path is still fine' \
+  "$(bash_in "$PUB" "cd - && gh pr comment 3 --body-file $SCRATCH/clean.md")"
+check allow 'cd inside sh -c does not move the outer command' \
+  "$(bash_in "$SCRATCH" "sh -c 'cd /nowhere'; gh pr comment 3 --body-file clean.md")"
+# A cd that runs in a pipeline, a subshell or the background does not move
+# the shell that runs the gh: its place is unknown, so a relative path denies.
+check deny  'cd in a pipeline does not move the later gh' \
+  "$(bash_in "$SCRATCH" "cd $SCRATCH/proj | cat; gh pr comment 3 -F clean.md")"
+check deny  'cd in a background job does not move the later gh' \
+  "$(bash_in "$SCRATCH" "cd $SCRATCH/proj & gh pr comment 3 -F clean.md")"
+check deny  'cd in a ( ) subshell, then a relative path' \
+  "$(bash_in "$SCRATCH" "(cd $SCRATCH/proj); gh pr comment 3 -F clean.md")"
+check deny  'a CDPATH prefix on the cd sends it somewhere unseen' \
+  "$(bash_in "$SCRATCH" "CDPATH=/elsewhere cd proj && gh pr comment 3 -F clean.md")"
+check allow 'cd after && still moves the shell' \
+  "$(bash_in "$PUB" "true && cd $SCRATCH/proj && gh pr comment 3 -F clean.md")"
+check allow 'a cd in a pipeline is fine when the path is absolute' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj | cat; gh pr comment 3 -F $SCRATCH/clean.md")"
+# A ( ) subshell inherits the cwd and its cd dies at the ): a paren that
+# belongs to a neighbouring statement, or encloses both the cd and the gh,
+# moves nothing. Only an unmatched ) means the shell is somewhere unseen.
+check allow 'a ( ) statement before the cd does not touch it' \
+  "$(bash_in "$PUB" "(true); cd $SCRATCH/proj; gh pr comment 3 -F clean.md")"
+check allow 'a & ending the previous command does not background the cd' \
+  "$(bash_in "$PUB" "true & cd $SCRATCH/proj && gh pr comment 3 -F clean.md")"
+check allow 'the gh in a ( ) subshell inherits the cd before it' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj; (gh pr comment 3 -F clean.md)")"
+check allow 'cd and gh inside the same ( ) subshell' \
+  "$(bash_in "$PUB" "true; (cd $SCRATCH/proj && gh pr comment 3 -F clean.md)")"
+check allow 'a cd inside ( ) dies at the ), restoring the cwd before it' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj; (cd /); gh pr comment 3 -F clean.md")"
+check deny  'nested ( ): the inner ) restores, the outer ) loses the cd' \
+  "$(bash_in "$PUB" "(cd $SCRATCH/proj; (cd /)); gh pr comment 3 -F clean.md")"
+# Slice 3: a variable this same command assigns before the gh is expanded
+# in the path (88 of the measured denials). One it never assigned, or a
+# prefix assignment on the gh itself, stays a $ and is denied. A path
+# inside sh -c is read as spelled: literal and absolute, or denied.
+mkdir -p "$SCRATCH/sp"; cp "$SCRATCH/clean.md" "$SCRATCH/body.md" "$SCRATCH/sp/"
+check allow '$VAR assigned in the same command, clean file' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; gh pr create -t x --body-file \"\$SP/clean.md\"")"
+check deny  '$VAR assigned in the same command, file still scanned' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; gh pr create -t x --body-file \"\$SP/body.md\"")"
+reason 'names the term'              'Wanderlust'
+check allow '${VAR} via $HOME, chained through a second assignment' \
+  "$(bash_in "$PUB" 'export SP="$HOME"; S=$SP; gh issue create -t x --body-file ${S}/b.md')"
+check allow '$VAR assigned, heredoc writes the file in the same command' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp
+cat > \"\$SP/new.md\" <<'EOF'
+all public
+EOF
+gh pr create -t x --body-file \"\$SP/new.md\"")"
+check allow 'cd to a $VAR, then a relative path' \
+  "$(bash_in "$PUB" "D=$SCRATCH; cd \$D/sp && gh pr comment 3 -F clean.md")"
+check allow 'a later assignment wins' \
+  "$(bash_in "$PUB" "SP=/nowhere; SP=$SCRATCH/sp; gh pr comment 3 -F \$SP/clean.md")"
+check deny  '$VAR not assigned in this command' \
+  "$(bash_in "$PUB" 'gh pr create -t x --body-file "$SP/clean.md"')"
+reason 'names the path as spelled'   '$SP/clean.md'
+reason 'says earlier commands are invisible' 'earlier command is invisible'
+check deny  'prefix assignment on the gh does not feed its own path' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp gh pr create -t x --body-file \"\$SP/clean.md\"")"
+check deny  'a quoted word leading a segment is not an assignment list' \
+  "$(mkdir -p "$SCRATCH/decoy"; cp "$SCRATCH/clean.md" "$SCRATCH/decoy/notes.md"; cp "$SCRATCH/body.md" "$SCRATCH/sp/notes.md"; bash_in "$PUB" "SP=$SCRATCH/sp
+\"touch x\" SP=$SCRATCH/decoy
+gh pr create -t x --body-file \"\$SP/notes.md\"")"
+reason 'reads the real path, not the decoy' 'Wanderlust'
+check deny  'a single-quoted $ in a value is literal, so the path is unknowable' \
+  "$(bash_in "$PUB" "SP='\$HOME'; gh pr create -t x --body-file \"\$SP/b.md\"")"
+check deny  'a quoted ~ in a value is literal, so the path is unknowable' \
+  "$(mkdir -p "$PUB/~"; cp "$SCRATCH/body.md" "$PUB/~/b.md"; bash_in "$PUB" "X='~'; gh pr create -t x --body-file \"\$X/b.md\"")"
+check deny  'a double-quoted ~ is literal too' \
+  "$(bash_in "$PUB" 'X="~/d"; gh pr create -t x --body-file "$X/../b.md"')"
+check allow 'SP=~ unquoted expands at assignment' \
+  "$(bash_in "$PUB" 'SP=~; gh pr comment 3 -F $SP/b.md')"
+check deny  '$VAR from $(...) stays unknowable' \
+  "$(bash_in "$PUB" 'SP=$(mktemp -d); gh pr create -t x --body-file "$SP/clean.md"')"
+check deny  'a $VAR inside sh -c is not fed by the outer assignment' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; sh -c 'gh pr create -t x --body-file \$SP/clean.md'")"
+check deny  'a ~ path inside sh -c is not expanded' \
+  "$(bash_in "$PUB" "sh -c 'gh pr create -t x --body-file ~/b.md'")"
+check allow 'an absolute path inside sh -c is read as spelled' \
+  "$(bash_in "$PUB" "sh -c 'gh pr create -t x --body-file $SCRATCH/sp/clean.md'")"
+
 # The exemption is the gate's weakest point: it says "that file will hold the
 # heredoc body I read". Two ways that stops being true, both denied.
 # 1. `<<` inside a heredoc BODY is body text, not a redirect: content the
@@ -250,12 +394,12 @@ reason 'names the file'              'mut.md'
 # denylist missing: a state repo with no private-terms.txt, and no repo at all
 EMPTY="$SCRATCH/empty"; mkdir -p "$EMPTY/.git" "$EMPTY/state/global"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1); LAST=$out
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: denylist missing should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: denylist missing should deny: $out"; fi
 reason 'says the denylist is unreadable' 'denylist is unreadable'
 reason 'asks about the state repo'   'state repo checked out'
 reason 'offers the private repo'     "--repo $PRIVATE"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO='' sh "$HOOK" 2>&1)
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: no state repo anywhere should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: no state repo anywhere should deny: $out"; fi
 out=$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -b Wanderlust" | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1)
 if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: private repo needs no denylist: $out"; fi
 out=$(bash_in "$PUB" 'gh issue list' | CLAUDE_STATE_REPO=$EMPTY sh "$HOOK" 2>&1)
@@ -266,7 +410,7 @@ if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: 
 BLANK="$SCRATCH/blank"; mkdir -p "$BLANK/.git" "$BLANK/state/global"
 printf '# comments only\n\n   \n' > "$BLANK/state/global/private-terms.txt"
 out=$(bash_in "$PUB" 'gh issue create -t x -b "all public"' | CLAUDE_STATE_REPO=$BLANK sh "$HOOK" 2>&1); LAST=$out
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: empty denylist should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: empty denylist should deny: $out"; fi
 reason 'says the denylist has no terms' 'no terms in it'
 out=$(bash_in "$PUB" "gh issue create --repo $PRIVATE -t x -b Wanderlust" | CLAUDE_STATE_REPO=$BLANK sh "$HOOK" 2>&1)
 if [ -z "$out" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: private repo needs no denylist terms: $out"; fi
@@ -359,7 +503,7 @@ reason 'still names the other term' 'Wanderlust'
 # no awk: deny, do not crash quiet
 mkdir -p "$SCRATCH/noawk"; for b in jq cat dirname mktemp rm sed grep tr git head; do ln -s "$(command -v $b)" "$SCRATCH/noawk/$b"; done
 out=$(bash_in "$PUB" 'gh issue create -t x -b hi' | PATH="$SCRATCH/noawk" /bin/sh "$HOOK" 2>&1); LAST=$out
-if printf '%s' "$out" | grep -q '"permissionDecision":"deny"'; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: awk absent should deny: $out"; fi
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL: awk absent should deny: $out"; fi
 reason 'names awk as missing'        'awk missing'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"

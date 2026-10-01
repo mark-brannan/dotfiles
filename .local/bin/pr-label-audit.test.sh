@@ -30,9 +30,10 @@ pr() { # pr <repo> <number> <title> <draft> <mergeable> <labels-json> <threads-j
   cat <<EOF
 { "number": $2, "title": "$3", "isDraft": $4,
   "url": "https://github.com/testowner/$1/pull/$2",
-  "repository": { "name": "$1" }, "mergeable": "$5",
+  "repository": { "name": "$1", "owner": { "login": "testowner" } }, "mergeable": "$5",
   "labels": { "nodes": $6 }, "reviewThreads": { "nodes": $7 },
-  "commits": { "nodes": [ { "commit": { "statusCheckRollup": $8 } } ] } }
+  "commits": { "nodes": [ { "commit": { "oid": "abc", "committedDate": "2026-01-01T00:00:00Z",
+    "statusCheckRollup": $8 } } ] } }
 EOF
 }
 green='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"SUCCESS"}]}}'
@@ -73,6 +74,12 @@ case "$*" in
   *graphql*)
     [ "${GH_FAIL:-0}" = 1 ] && { echo "gh: API rate limit exceeded" >&2; exit 1; }
     case "$*" in
+      *pullRequest\(number:*)
+        # --pr mode: a single-PR lookup, not a search page.
+        cat "$PR_SINGLE_JSON"
+        exit 0 ;;
+    esac
+    case "$*" in
       *after=*)
         if [ -n "${SEARCH_JSON_SEQ_LAST:-}" ]; then
           n=$(( $(cat "$COUNTFILE" 2>/dev/null || echo 1) + 1 ))
@@ -90,14 +97,40 @@ case "$*" in
     esac
     exit 0 ;;
 esac
+# repos/<owner>/<repo>/commits/HEAD/check-runs: a REST-shaped payload, lower
+# case as the real API spells it, run through the caller's own --jq filter so
+# a filter or casing mistake fails here rather than only against GitHub. The
+# gate fails for any repo named in GH_BASE_RED; without `check_name` the gate
+# is off the first page, as it can be for real.
+case "$*" in
+  *check-runs*)
+    repo=$(printf '%s' "$*" | sed -n 's#.*repos/[^ ]*/\([^/]*\)/commits/.*#\1#p')
+    concl=success
+    for r in ${GH_BASE_RED:-}; do [ "$repo" = "$r" ] && concl=failure; done
+    case "$*" in *"check_name=ci-gate / gate"*) runs='[{"name":"ci-gate / gate","conclusion":"'$concl'"}]' ;; *) runs='[]' ;; esac
+    filter=$(for a; do [ "${prev:-}" = --jq ] && printf '%s' "$a"; prev=$a; done)
+    printf '{"check_runs":%s}' "$runs" | jq -r "$filter"; exit ;;
+esac
 # repos/<owner>/<repo>/labels: only `alpha` defines it, and any repo named in
 # GH_LABEL_FAIL cannot be read at all.
 for r in ${GH_LABEL_FAIL:-}; do
   case "$*" in *"/$r/labels"*) echo "gh: Not Found" >&2; exit 1 ;; esac
 done
 case "$*" in
-  */alpha/labels*) echo awaiting-human; echo bug; exit 0 ;;
+  */alpha/labels*) echo awaiting-human; echo bug; echo fixup-hard; exit 0 ;;
   */labels*)       echo bug; exit 0 ;;
+esac
+# `gh api user -q .login`: the account `--refresh` posts as.
+case "$*" in
+  *"api user"*) echo "${GH_LOGIN:-mergify-bot}"; exit 0 ;;
+esac
+# `gh pr comment <n> -R owner/repo --body ...`: record it instead of posting,
+# so the test can assert on what would have been sent.
+case "$*" in
+  "pr comment "*)
+    [ "${GH_COMMENT_FAIL:-0}" = 1 ] && { echo "gh: could not comment" >&2; exit 1; }
+    echo "$*" >> "$(dirname "$0")/.comments"
+    exit 0 ;;
 esac
 exit 1
 EOF
@@ -232,6 +265,232 @@ EMPTY="$S/empty"; mkdir -p "$EMPTY"
 OUT=$(PATH="$EMPTY" /bin/sh "$AUDIT" 2>&1); RC=$?
 eq 'no gh: exit 1' 1 "$RC"
 has 'no gh: names the tool' 'pr-label-audit: gh is required'
+
+# --- --json: one row per PR, mapped 1:1 onto the human section headings ----------------
+# repo `nolabel` still lacks both labels here (fixup-hard is added back to its
+# label list where a test needs it defined instead).
+runargs() { OUT=$(sh "$AUDIT" "$@" 2>&1); RC=$?; }
+# How many recorded `gh pr comment` calls match a pattern -- 0 when none, or
+# when nothing was recorded at all. (`grep -c` prints 0 AND exits 1 on no
+# match, so `|| echo 0` would print a second 0.)
+posted() { { grep -c -- "$1" "$BIN/.comments" 2>/dev/null; } | { read -r n; echo "${n:-0}"; }; }
+row() { # row <repo#number> -- the one JSON object for that PR, from ndjson output
+  printf '%s\n' "$OUT" | jq -c "select(has(\"number\")) | select(\"\\(.repo)#\\(.number)\" == \"$1\")"
+}
+
+{
+  printf '{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":['
+  pr alpha 1 "green and labelled"   false MERGEABLE   "$lab" '[]' "$green"
+  printf ,; pr alpha 2 "green unlabelled" false MERGEABLE '[]' '[]' "$green"
+  printf ,; pr alpha 3 "stale label"      false MERGEABLE "$lab" '[]' "$red"
+  printf ,; pr alpha 4 "no gate at all"   false MERGEABLE '[]' '[]' 'null'
+  printf ,; pr nolabel 1 "repo lacks the label" false MERGEABLE '[]' '[]' "$green"
+  printf ']}}}\n'
+} > "$S/search.json"
+runargs --json
+eq '--json exits 0' 0 "$RC"
+eq 'green + labelled maps to your-turn' 'your-turn' "$(row 'alpha#1' | jq -r .section)"
+eq 'green + unlabelled maps to green-unlabelled' 'green-unlabelled' "$(row 'alpha#2' | jq -r .section)"
+eq 'labelled + red maps to stale-label (one row, not two)' 'stale-label' "$(row 'alpha#3' | jq -r .section)"
+eq 'no gate maps to no-gate' 'no-gate' "$(row 'alpha#4' | jq -r .section)"
+eq 'green + unlabelled + repo missing the label maps to no-label-repo' 'no-label-repo' "$(row 'nolabel#1' | jq -r .section)"
+eq 'exactly one JSON row per PR' 1 "$(printf '%s\n' "$OUT" | jq -c 'select(has("number"))' | grep -c 'alpha#3\|"number":3')"
+has '--json also carries the repo-level fixup-hard fact' 'repos_missing_fixup_hard'
+eq 'nolabel is missing fixup-hard' 'nolabel' "$(printf '%s\n' "$OUT" | jq -r 'select(has("repos_missing_fixup_hard")) | .repos_missing_fixup_hard[]' | grep -x nolabel)"
+eq 'each row carries mergeable' 'MERGEABLE' "$(row 'alpha#1' | jq -r .mergeable)"
+eq 'and its labels array' '["awaiting-human"]' "$(row 'alpha#1' | jq -c .labels)"
+
+# --- --pr: a single PR, restricted to one repository's query --------------------------
+PR_SINGLE_JSON="$S/single.json"
+cat > "$PR_SINGLE_JSON" <<EOF
+{"data":{"repository":{"pullRequest":
+$(pr colregs 193 "single PR lookup" false CONFLICTING '[]' '[]' "$green")
+}}}
+EOF
+export PR_SINGLE_JSON
+runargs --pr mark-brannan/colregs#193
+eq '--pr exits 0' 0 "$RC"
+has '--pr text mode still renders the human report' 'colregs#193'
+runargs --pr mark-brannan/colregs#193 --json
+eq '--pr --json exits 0' 0 "$RC"
+eq '--pr --json is a single object, addressable with plain jq .field' \
+  'CONFLICTING' "$(printf '%s\n' "$OUT" | jq -r 'select(has("number")) | .mergeable')"
+eq '--pr --json has no repos_missing_fixup_hard line -- it is a fleet-wide fact, out of scope for one PR' \
+  '' "$(printf '%s\n' "$OUT" | jq -r 'select(has("repos_missing_fixup_hard"))')"
+eq '--pr --json carries the head commit date, not the API-deprecated pushedDate' \
+  '2026-01-01T00:00:00Z' "$(printf '%s\n' "$OUT" | jq -r 'select(has("number")) | .head_committed_at')"
+
+cat > "$PR_SINGLE_JSON" <<EOF
+{"data":{"repository":{"pullRequest":
+$(pr colregs 194 "a draft" true MERGEABLE '[]' '[]' "$green")
+}}}
+EOF
+runargs --pr mark-brannan/colregs#194 --json
+eq '--pr on a draft exits 0' 0 "$RC"
+has '--pr on a draft says so instead of printing nothing' 'colregs#194 is a draft'
+hasnt '--pr on a draft emits no row' '"number"'
+
+# --- argument parsing: strict, because --refresh writes ------------------------------
+runargs --jsno
+eq 'an unknown flag exits 1' 1 "$RC"
+has 'and names it' 'unknown argument: --jsno'
+runargs --pr
+eq 'a bare --pr exits 1' 1 "$RC"
+has 'and prints usage' 'usage: pr-label-audit'
+runargs --pr nonsense
+eq '--pr without owner/repo#n exits 1' 1 "$RC"
+
+# --- failing_checks: only checks that finished badly ---------------------------------
+mixed='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"SUCCESS"},{"name":"slow","status":"IN_PROGRESS","conclusion":null},{"name":"skipped","conclusion":"SKIPPED"},{"name":"lint","conclusion":"FAILURE","detailsUrl":"https://example.test/lint"},{"context":"legacy","state":"PENDING"}]}}'
+page false "$(pr alpha 9 'mixed checks' false MERGEABLE '[]' '[]' "$mixed")" > "$S/search.json"
+runargs --json
+eq 'a running, skipped or pending check is not a failing one' '["lint"]' "$(row 'alpha#9' | jq -c '[.failing_checks[].name]')"
+eq 'and a failing check carries its url' 'https://example.test/lint' "$(row 'alpha#9' | jq -r '.failing_checks[0].url')"
+run
+eq 'a red check outside the gate is unfinished work -- Mergify wants #check-failure=0' \
+  '## Gated, unlabelled -- a session left these unfinished' "$(section_of 'alpha#9')"
+has 'and the report names the check' 'alpha#9 \[checks-red: lint\]'
+hasnt 'rather than indicting the rule' 'Green and thread-free but NOT labelled'
+runargs --json
+eq 'a real failure is not cancelled_only' false "$(row 'alpha#9' | jq -r '.cancelled_only')"
+
+# --- cancelled_only: true only when every failing check was cancelled, not merely absent of failures ---
+all_cancelled='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"CANCELLED"},{"name":"lint","conclusion":"CANCELLED"}]}}'
+page false "$(pr alpha 10 'all cancelled' false MERGEABLE '[]' '[]' "$all_cancelled")" > "$S/search.json"
+runargs --json
+eq 'every failing check cancelled -> cancelled_only true' true "$(row 'alpha#10' | jq -r '.cancelled_only')"
+
+mixed_cancelled='{"contexts":{"nodes":[{"name":"ci-gate / gate","conclusion":"CANCELLED"},{"name":"lint","conclusion":"FAILURE"}]}}'
+page false "$(pr alpha 11 'one real failure too' false MERGEABLE '[]' '[]' "$mixed_cancelled")" > "$S/search.json"
+runargs --json
+eq 'one non-cancelled failure among them -> cancelled_only false' false "$(row 'alpha#11' | jq -r '.cancelled_only')"
+
+page false "$(pr alpha 1 'green and labelled' false MERGEABLE "$lab" '[]' "$green")" > "$S/search.json"
+runargs --json
+eq 'no failing checks at all -> cancelled_only false, not vacuously true' false "$(row 'alpha#1' | jq -r '.cancelled_only')"
+
+# --- --refresh: idempotent, and never fires without the flag ---------------------------
+rm -f "$BIN/.comments"
+page false "$(pr alpha 1 'stale label' false MERGEABLE "$lab" '[]' "$red")" > "$S/search.json"
+run
+eq 'default (no --refresh) still exits 0' 0 "$RC"
+[ -f "$BIN/.comments" ] && { fail=$((fail + 1)); echo "FAIL: no --refresh: a comment was posted anyway"; } || pass=$((pass + 1))
+
+rm -f "$BIN/.comments"
+GH_LOGIN=mergify-bot runargs --refresh
+eq '--refresh (nothing already posted) exits 0' 0 "$RC"
+eq 'exactly one comment was posted, to the stale-label PR, by number and -R repo' 1 \
+  "$(posted '^pr comment 1 -R testowner/alpha ')"
+eq 'the comment text is exactly the refresh trigger' 1 \
+  "$(posted '--body @mergifyio refresh')"
+
+# A green-but-unlabelled PR in a repo that defines the label is the other
+# refresh target; a green-and-labelled one is not.
+rm -f "$BIN/.comments"
+page false "$(pr alpha 2 'green unlabelled' false MERGEABLE '[]' '[]' "$green"),$(pr alpha 1 'green and labelled' false MERGEABLE "$lab" '[]' "$green")" > "$S/search.json"
+GH_LOGIN=mergify-bot runargs --refresh
+eq 'green-unlabelled is refreshed' 1 "$(posted '^pr comment 2 -R testowner/alpha ')"
+eq 'green-and-labelled is left alone' 0 "$(posted '^pr comment 1 ')"
+
+# Re-running --refresh right after must not repost: the fixture's PR now
+# carries a lastComments entry matching what was just "posted".
+page false "$(cat <<JSON
+{ "number": 1, "title": "stale label", "isDraft": false,
+  "url": "https://github.com/testowner/alpha/pull/1",
+  "repository": { "name": "alpha", "owner": {"login": "testowner"} }, "mergeable": "MERGEABLE",
+  "labels": { "nodes": $lab }, "reviewThreads": { "nodes": [] },
+  "lastComments": { "nodes": [ { "author": {"login": "mergify-bot"}, "body": "@mergifyio refresh",
+    "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" } ] },
+  "commits": { "nodes": [ { "commit": { "oid": "abc", "pushedDate": "2026-01-01T00:00:00Z", "statusCheckRollup": $red } } ] } }
+JSON
+)" > "$S/search.json"
+rm -f "$BIN/.comments"
+GH_LOGIN=mergify-bot runargs --refresh
+eq 'already-refreshed within 24h: exits 0' 0 "$RC"
+[ -f "$BIN/.comments" ] && { fail=$((fail + 1)); echo "FAIL: idempotency: reposted anyway"; } || pass=$((pass + 1))
+unset GH_LOGIN
+
+# --- a nested connection that truncates is a refusal, not an under-report (dotfiles#277) --
+# `pr()` never sets totalCount, so it defaults to 0 and never trips this --
+# these fixtures set it by hand to simulate GitHub reporting more items than
+# the `first:` page actually returned.
+trunc_labels='{ "number": 30, "title": "truncated labels", "isDraft": false,
+  "url": "https://github.com/testowner/alpha/pull/30",
+  "repository": { "name": "alpha", "owner": {"login": "testowner"} }, "mergeable": "MERGEABLE",
+  "labels": { "totalCount": 25, "nodes": [{"name":"awaiting-human"}] },
+  "reviewThreads": { "nodes": [] },
+  "commits": { "nodes": [ { "commit": { "oid": "abc", "committedDate": "2026-01-01T00:00:00Z",
+    "statusCheckRollup": '"$green"' } } ] } }'
+page false "$trunc_labels" > "$S/search.json"
+run
+eq 'a truncated labels connection is a refusal' 1 "$RC"
+has 'and names the PR and which connection truncated' 'alpha#30: labels truncated \(25 total, 1 fetched\)'
+hasnt 'rather than a report built on partial data' '## Your turn'
+
+trunc_threads='{ "number": 31, "title": "truncated threads", "isDraft": false,
+  "url": "https://github.com/testowner/alpha/pull/31",
+  "repository": { "name": "alpha", "owner": {"login": "testowner"} }, "mergeable": "MERGEABLE",
+  "labels": { "nodes": [] },
+  "reviewThreads": { "totalCount": 150, "nodes": [] },
+  "commits": { "nodes": [ { "commit": { "oid": "abc", "committedDate": "2026-01-01T00:00:00Z",
+    "statusCheckRollup": '"$green"' } } ] } }'
+page false "$trunc_threads" > "$S/search.json"
+run
+eq 'a truncated reviewThreads connection is a refusal too' 1 "$RC"
+has 'named specifically' 'alpha#31: reviewThreads truncated \(150 total, 0 fetched\)'
+
+trunc_checks='{ "number": 32, "title": "truncated checks", "isDraft": false,
+  "url": "https://github.com/testowner/alpha/pull/32",
+  "repository": { "name": "alpha", "owner": {"login": "testowner"} }, "mergeable": "MERGEABLE",
+  "labels": { "nodes": [] }, "reviewThreads": { "nodes": [] },
+  "commits": { "nodes": [ { "commit": { "oid": "abc", "committedDate": "2026-01-01T00:00:00Z",
+    "statusCheckRollup": {"contexts": {"totalCount": 120,
+      "nodes": [{"name":"ci-gate / gate","conclusion":"SUCCESS"}]}} } } ] } }'
+page false "$trunc_checks" > "$S/search.json"
+run
+eq 'a truncated check-contexts connection is a refusal too' 1 "$RC"
+has 'named specifically' 'alpha#32: checks truncated \(120 total, 1 fetched\)'
+
+# A PR with no truncation at all, alongside the exact page sizes (20 labels,
+# 100 threads, 100 contexts), must not false-positive.
+full_labels=$(seq 1 20 | { i=0; out='['; while read -r n; do [ "$i" -gt 0 ] && out="$out,"; out="$out{\"name\":\"label-$n\"}"; i=$((i+1)); done; echo "$out]"; })
+exact_pr='{ "number": 33, "title": "exactly at the page size", "isDraft": false,
+  "url": "https://github.com/testowner/alpha/pull/33",
+  "repository": { "name": "alpha", "owner": {"login": "testowner"} }, "mergeable": "MERGEABLE",
+  "labels": { "totalCount": 20, "nodes": '"$full_labels"' },
+  "reviewThreads": { "totalCount": 0, "nodes": [] },
+  "commits": { "nodes": [ { "commit": { "oid": "abc", "committedDate": "2026-01-01T00:00:00Z",
+    "statusCheckRollup": {"contexts": {"totalCount": 1,
+      "nodes": [{"name":"ci-gate / gate","conclusion":"SUCCESS"}]}} } } ] } }'
+page false "$exact_pr" > "$S/search.json"
+run
+eq 'totalCount equal to the fetched count is not a truncation' 0 "$RC"
+has 'the PR is reported normally' 'alpha#33'
+
+# --- --pr mode goes through the same truncation check -----------------------------------
+cat > "$PR_SINGLE_JSON" <<EOF
+{"data":{"repository":{"pullRequest":$trunc_labels}}}
+EOF
+runargs --pr mark-brannan/alpha#30
+eq '--pr on a truncated PR is a refusal too' 1 "$RC"
+has 'with the same message' 'alpha#30: labels truncated'
+unset PR_SINGLE_JSON
+
+# --- base-red: main's own gate failing recolors the verdict, and leads the report -------
+page false "$(pr alpha 40 'looks broken but is not' false MERGEABLE '[]' '[]' "$red")" > "$S/search.json"
+GH_BASE_RED=alpha runargs --json
+eq 'a repo whose base is red gets verdict base-red, not not-green' \
+  'base-red' "$(row 'alpha#40' | jq -r .verdict)"
+eq 'and the section matches, so grind does not pick it up as unfinished' \
+  'base-red' "$(row 'alpha#40' | jq -r .section)"
+eq 'the json trailing fact names the repo' 'alpha' \
+  "$(printf '%s\n' "$OUT" | jq -r 'select(has("repos_base_red")) | .repos_base_red[]' | grep -x alpha)"
+GH_BASE_RED=alpha runargs
+eq 'text mode leads with it' 0 "$(printf '%s\n' "$OUT" | grep -m1 '^## ' | grep -q 'is red'; echo $?)"
+has 'and lists the held pull request under it, not nowhere' 'alpha#40 \[base-red\]'
+GH_BASE_RED="" runargs --json
+eq 'and a green base leaves the ordinary verdict alone' \
+  'unfinished' "$(row 'alpha#40' | jq -r .section)"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

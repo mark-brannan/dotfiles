@@ -6,8 +6,7 @@
 #
 #   git clone -q https://github.com/mark-brannan/dotfiles \
 #     "$HOME/.local/share/dotfiles-seed" 2>/dev/null
-#   CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh"
-#   exit 0
+#   CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh" || true
 #
 # Deliberately NOT yadm. This repo uses no yadm encryption (secrets are
 # sops+age, and the age key never reaches a VM) and its only alternate is
@@ -59,6 +58,11 @@ INSTALL="
 .claude/skills/worklist/SKILL.md
 .claude/skills/sweep/SKILL.md
 .claude/skills/pickup/SKILL.md
+.claude/skills/orchestrate/SKILL.md
+.claude/skills/agora/SKILL.md
+.claude/skills/curia/SKILL.md
+.claude/skills/curia/template.md
+.claude/skills/scoping/SKILL.md
 .claude/hooks/lib-state.sh
 .claude/hooks/session-metrics.jq
 .claude/hooks/lib-metrics-fmt.jq
@@ -70,7 +74,6 @@ INSTALL="
 .claude/hooks/no-late-pr-subscribe.sh
 .claude/hooks/pr-ownership-context.sh
 .claude/hooks/pr-threads-gate.sh
-.claude/hooks/no-draft-pr.sh
 .claude/hooks/no-unsigned-push.sh
 .claude/hooks/no-update-branch.sh
 .claude/hooks/no-git-footguns.sh
@@ -80,7 +83,9 @@ INSTALL="
 .claude/hooks/no-delete-stacked-base.sh
 .claude/hooks/lib-shell-words.awk
 .claude/hooks/session-start-seed-refresh.sh
+.claude/hooks/local-config-push.sh
 .claude/hooks/guard-add-repo.sh
+.claude/hooks/metrics-format.sh
 .claude/hooks/metrics-live.sh
 .claude/hooks/metrics-rollup.sh
 .claude/hooks/log-commit.sh
@@ -91,6 +96,7 @@ INSTALL="
 .claude/hooks/kanban-lint.sh
 .claude/hooks/kanban-gate.sh
 .claude/hooks/branch-home-gate.sh
+.claude/hooks/claim-stamp.sh
 .claude/hooks/public-issue-guard.sh
 .claude/hooks/fixtures
 .local/bin/metrics-preview.sh
@@ -98,6 +104,7 @@ INSTALL="
 .local/bin/prose-budget
 .local/bin/worklist
 .local/bin/pickup-list
+.local/bin/scoping-lock
 .local/bin/gh-resolve-thread
 .local/bin/pr-label-audit
 "

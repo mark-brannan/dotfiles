@@ -1,6 +1,14 @@
 #!/usr/bin/env sh
 
-while read i
+{
+cat<<EOF
+dotfiles
+symphony
+saferspacesllc
+stranger-loops
+EOF
+cat ~/.local/share/vended-repos.txt
+} | while read i
 do
     echo "============================== ($i)"
     cd ~/"$i" || { echo "No such directory for '$i'"; continue; }
@@ -8,4 +16,4 @@ do
     git -c color.ui=always status -s -b --untracked-files=no
     git checkout main -q || echo "Could not checkout main"
     git pull origin main --rebase --autostash || echo "Failed to pull/rebase $i" 
-done <~/.local/share/vended-repos.txt
+done

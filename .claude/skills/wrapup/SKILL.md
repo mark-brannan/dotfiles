@@ -1,6 +1,6 @@
 ---
 name: wrapup
-description: Close a session — write the narrative log to the state repo, list the issues the session opened or labelled, dry-run the board sweep, and end with a paste-ready hand-off prompt. Use when Solace says "wrap up", "log it", "hand off", "hand-off prompt", "call it there", or when a session is ending with work still open.
+description: Close a session — write the narrative log to the state repo, list the issues the session opened or labelled, and end with a paste-ready hand-off prompt. Use when the user says "wrap up", "log it", "hand off", "hand-off prompt", "call it there", or when a session is ending with work still open.
 ---
 
 # Wrapping up
@@ -13,7 +13,7 @@ meant, what is still open, and how the next one starts.
 
 ## 0. Should this session wrap up at all
 
-Check first, every time. A wrap-up costs a log, a sweep and a prompt, and it
+Check first, every time. A wrap-up costs a log and a prompt, and it
 was being paid every session — including sessions whose work already had a
 home, where all it produced was a second copy of what GitHub held.
 
@@ -23,13 +23,17 @@ Read the verdict line at the top of this session's auto-checkpoint
 - **`archivable`** — the branch has a PR or a pointer, the worktree is clean,
   nothing is unpushed, the state repo pushed — **and** every open loop has a
   home (an issue, a PR or a card): say so in one line, name where the work
-  lives, and **stop**. No log, no hand-off prompt. Archivable means archive.
+  lives, and **stop**. No log, no hand-off prompt. Archivable means archive;
+  it does not mean silent: if a next session should continue there, write
+  the four-line block (spec in step 2b) with `link` = where the work lives
+  and `next` = the one thing that session does there first. There is no
+  step-2 prompt on this path to derive from, and none is needed.
 - **`not archivable: <reasons>`**, or a loop with no home: continue below.
   The reasons name what to fix; fixing them is usually cheaper than the
   wrap-up and sometimes turns it into an archive.
 
 If the session's only remaining need is "the next session should start here",
-that is a resume block (`/pickup`, four lines), not a wrap-up.
+that is the pickup item's hand-off (step 2b, four lines), not a wrap-up.
 
 ## 1. Narrative log
 
@@ -44,10 +48,12 @@ machine one is evidence, not a substitute. Put in it:
   holds the link, not a copy;
 - what was tried and abandoned, so the next session doesn't retry it;
 - what comes next: the hand-off prompt from step 2, verbatim;
+- `## For next time`: the questions and threads this session opened and did
+  not close, one line each. This list is the only place a closing message
+  may point at (step 5); anything not on it is not carried;
 - stamp the memos that argued a question when it's ruled — a dated
   one-line annotation under the memo's H1 naming what settled it, per
   `/reconcile`'s convention. Bodies stay as evidence, never reworded;
-- the `/sweep --dry-run` output from step 3;
 - observations worth keeping. They go here, silently — never as an aside in
   chat.
 
@@ -77,37 +83,106 @@ When you do write one, it must:
 - carry **links, not state adjectives** — `#42`, not "PR #42 (merged, CI
   green)". State is read live at the other end; written down it is stale by
   the time it's read;
-- **never ask Solace to review or merge.** The PR is where that lives, and
-  `worklist` shows him when it is his turn;
-- rate every item it puts in front of Solace **twice** — difficulty for
-  Solace, and difficulty for an agent with full permissions and high stakes —
+- **never ask the user to review or merge.** The PR is where that lives, and
+  `worklist` shows them when it is their turn;
+- rate every item it puts in front of the user **twice** — difficulty for
+  the user, and difficulty for an agent with full permissions and high stakes —
   and answer `could an agent do it: yes/no`. Low for an agent means do it, not
   ask;
 - name a **recommended model and difficulty (effort) setting** — both,
   every time, e.g. `Model: opus · Effort: high`. A hand-off prompt missing
   either is not finished;
+- name `/curia <id>` only for an id whose folder already exists. A hard
+  question the session left open is a `## Needs ruling` card, never a
+  proposed new curia — only the user opens one, through the curia skill's
+  gates;
 - be written so somebody who was not in this session can act on it.
 
 Put it in the narrative log as well as the chat. The log survives; the chat
 does not.
 
-## 3. Board sweep — last, and announced
+## 2b. Write the hand-off into the pickup item — always
 
-Only now, after the log and hand-off prompt are already written: run
-`/sweep --dry-run`, announcing it first — "running `/sweep --dry-run` now —
-N cards to check" (N from counting `## Needs ruling` + `## Solace's` in
-`kanban.md`) — so it reads as a labelled, bounded step, not a silent delay
-before the useful output. Put its output in the narrative log. It's the slow
-step in this skill (O(cards) proof-hunts, not a cheap read — measured at
-~4s/card for a metadata-only check, more once comment content is read;
-dotfiles#211); running it after the log and hand-off exist means a session
-cut short here still leaves both behind. Nothing else here — no board edits,
-no issue listing, no checking what merged. `worklist` reads GitHub live; a
-wrap-up that copies it is a second copy.
+`/pickup` reads nothing from the log and nothing from the chat. It reads one
+thing: the body of this session's own pickup item
+(`state/global/pickup/<start>-<sid8>.md`, written by the Stop hook; an
+edited body survives every rewrite). A hand-off prompt that is
+not also there is a hand-off to nobody — the next session runs
+`pickup-list`, sees only the hook's default prompt line, and truthfully
+reports nothing was handed off. That is the amnesia this step exists to
+prevent.
 
-## 4. The closing message
+So every wrap-up that produced a hand-off in step 2 — the one-line
+`continue <link>` form included — also edits the body, before the closing
+message. **Push the branch first** (`git push -u origin <branch>`): the item
+points at a branch, and a `/pickup` on another machine fetches a branch
+that is not on origin and finds nothing. Same four lines as `/pickup`'s
+spec. `link` is the home step 2 found and the first line is the prompt's
+first action — one derivation, not a second one that can drift from the
+prose. Replace everything below the `---`; one hand-off per item, never
+two:
 
-The closing message holds exactly two things: the hand-off prompt, and links
-to the `## Needs ruling` and `## Solace's` cards this session wrote. Nothing
-else. If nothing hit a one-way door, that half is simply absent — a question
-you worked around is reported in the PR body, not here.
+```
+<one sentence, imperative — the prompt's first action>
+link: <the branch, PR, issue or card the prompt names>
+model: <opus | sonnet | haiku>
+effort: <low | medium | high>
+```
+
+Then check it landed:
+
+```
+~/.local/bin/pickup-list
+```
+
+Your item must be in the list with the first line above as its text. If it
+is not, the hand-off is missing,
+malformed or the item was already marked taken — fix that before you close. Don't wait
+for the Stop nag: it arms on a context, clock or friction crossing, not on a
+wrap-up, and a session that wraps up cleanly is exactly the one it never
+asks.
+
+## 3. No board sweep here
+
+`/sweep` is a standalone command, run on request. Not a wrap-up step.
+
+## 4. Release the branch
+
+`~/.claude/hooks/claim-stamp.sh release -C . --scan <this session id>` — it deletes
+this session's claim stamp from the card, drops any board card it took, and
+costs nothing when there is none.
+Skip it only when the session is *pausing* mid-work and keeping its worktree;
+then the branch is still held and the stamp should say so.
+
+The Stop hook does this by itself whenever the verdict is `archivable`, so a
+session that archived in step 0 has nothing to do here.
+
+## 5. The closing message
+
+Not before step 2b has passed its check. The closing message holds exactly
+two things: the hand-off prompt, and links to the `## Needs ruling` and
+`## Human's` cards this session wrote. Nothing else. If nothing hit a
+one-way door, that half is simply absent — a question you worked around is
+reported in the PR body, not here.
+
+It **opens nothing**: no new question, no doubt, no hint, no "one thing to
+consider". A closing message may say *"next time we discuss X"* — with X
+already in the log's `## For next time` list — and never *"hold this in
+your head"*. If something is still uncaptured when you reach this step, it
+goes into that list first. A session is easy to park only when all useful
+work has landed and the close opens no new question, line of inquiry,
+doubt or hint of a pending judgement call.
+
+## 6. The user's final word
+
+The user speaks last. Whatever they reply after the closing message — a
+goodnight, a correction, a stray idea — append it verbatim to the narrative
+log under `## Final words (verbatim)`, dated, and answer with **one line**
+naming where it landed. A session that archived in step 0 has no log yet:
+write one holding only that section. Not the checkpoint — the Stop hook
+rewrites it every Stop. No summary, no
+new item, no question, no second hand-off. If the words change the next
+action, update the pickup item's first body line and say so inside that same
+one line. Then stop, and stay stopped: a Stop-hook block that fires after
+this point is answered with the block it asks for and the same one line,
+nothing more.

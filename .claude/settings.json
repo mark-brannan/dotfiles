@@ -5,8 +5,10 @@
   },
   "permissions": {
     "allow": [
+      "Bash(git add :*)",
       "Bash(git branch -D claude/*)",
       "Bash(git branch -d claude/*)",
+      "Bash(git commit :*)",
       "Bash(git fetch *)",
       "Bash(git merge-base *)",
       "Bash(gh-resolve-thread:*)",
@@ -15,10 +17,15 @@
       "Bash(npm run typecheck)",
       "Bash(npm test)",
       "Bash(yadm log *)",
+      "Bash(resign-branch.sh *)",
+      "Bash(/home/solace/.local/bin/resign-branch.sh *)",
       "mcp__Claude_Code_Remote__add_repo"
     ],
     "deny": [
       "Bash(git reset --hard:*)"
+    ],
+    "additionalDirectories": [
+      "~/claude_prompts_scratch"
     ]
   },
   "disableClaudeAiConnectors": true,
@@ -179,15 +186,6 @@
         ]
       },
       {
-        "matcher": "Bash|mcp__.*__create_pull_request",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "h=\"$HOME/.claude/hooks/no-draft-pr.sh\"; [ -f \"$h\" ] && bash \"$h\" || true"
-          }
-        ]
-      },
-      {
         "matcher": "Bash|mcp__.*__update_pull_request_branch",
         "hooks": [
           {
@@ -285,6 +283,15 @@
             "timeout": 300
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/local-config-push.sh\"; [ -f \"$h\" ] && bash \"$h\" 2>/dev/null || true",
+            "timeout": 60
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -348,6 +355,12 @@
           },
           {
             "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/claim-stamp.sh\"; [ -f \"$h\" ] && sh \"$h\" session-start || true",
+            "timeout": 30,
+            "statusMessage": "Claiming this branch on its card"
+          },
+          {
+            "type": "command",
             "command": "h=\"$HOME/.claude/hooks/session-start-continuity.sh\"; [ -f \"$h\" ] && bash \"$h\" || true"
           },
           {
@@ -362,7 +375,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" prompt 2>/dev/null || true"
+            "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" prompt 0 show 2>/dev/null || true"
           }
         ]
       }
@@ -386,6 +399,12 @@
         "repo": "sailingnaturali/claude-skills"
       }
     }
+  },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Running ~/.local/bin/resign-branch.sh <branch> [<remote>] is always allowed, including its rebase (-S resign) and force-push-with-lease. It is a reviewed, idempotent personal script for the one operational fix for unsigned-commit blocks on a ruleset-protected repo: it refuses to run against the default branch, refuses if the branch has local commits the remote lacks, and aborts without touching anything on a rebase conflict."
+    ]
   },
   "theme": "dark",
   "crossSessionInbound": "hold",

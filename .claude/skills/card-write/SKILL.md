@@ -11,7 +11,7 @@ exact wording still exist.
 
 **The default owner is you.** An item exists because an agent found work: do
 the work, or prove there is none and close it with the proof. Handing an item
-to Solace needs a written reason, on the card.
+to the user needs a written reason, on the card.
 
 **A migration is a triage, never a copy.** A bulk move between trackers applies
 the destination's bar to every item and records the counts kept and dropped;
@@ -24,6 +24,12 @@ GitHub home. Take the first line that fits:
 
 - **Work state** — open, merged, closed, CI, threads — lives on the PR or
   issue and nowhere else. Never write it down; `worklist` reads it live.
+- **A tentative design decision for the colregs family** (colregs,
+  colregs-engine, searoom; nav-wright if it ever has one) → a
+  `kind: tentative ADR` card under `## Needs ruling`, never a draft ADR in
+  the public repo. Before a ruling session writes it up, the decision is
+  something the codebase is living with, not settled; the card is its only
+  home.
 - **A question** → **the one-way-door test.** *Name the default and its
   undo; if there is a default, and the undo is a revert in a repo you
   control before anyone else has seen or built on the choice, take the
@@ -34,8 +40,14 @@ GitHub home. Take the first line that fits:
   flashed, adopted by a user, or inherited by later decisions. Only then →
   a card under `## Needs ruling`. There is no `needs-ruling` label and no
   ruling issue.
+- **A question that wants a curia** — deep, multi-turn, a governing idea in
+  doubt — is still only a `## Needs ruling` card: the petition. Never a
+  folder under `state/global/curia/`; only the user opens one, through the
+  gates in the curia skill, after the agora and a confer. The card names
+  the open curia the question folds into, or why none (`folds: <id>` or
+  `folds: none — <why>`).
 - **A check** — "verify X", "confirm Y still works" — is not a loop and never
-  reaches Solace. Run it now. A check that needs a future event and has a
+  reaches the user. Run it now. A check that needs a future event and has a
   stated expected output goes on `## Claude's` as your own queue, unmentioned;
   one costly enough to plan is a research issue under the issue bar; one with
   no expected output is dropped.
@@ -62,7 +74,7 @@ GitHub home. Take the first line that fits:
   epic file's session list; a `ready` issue when no epic owns it.
 - **Half-done agent work** → the log and the hand-off prompt, as bare links
   with no state adjectives. A pushed branch has a PR or is a finding.
-- **Click work only Solace can do** → a card under `## Solace's`, and only
+- **Click work only the user can do** → a card under `## Human's`, and only
   when both proofs below are on the line. "Needs a credential" is not a
   reason unless the credential cannot be given to an agent.
 - **An agent rabbit-trail** not worth an issue, or too private for one →
@@ -80,10 +92,10 @@ Three sections, in this order:
 - `## Needs ruling` — decisions that failed the one-way-door test. Cards
   are grouped under `### <project>` subheadings, `### global` when no
   project owns it; `###` headings appear nowhere else on the board.
-- `## Solace's` — click work an agent cannot do, or that Solace has chosen
+- `## Human's` — click work an agent cannot do, or that the user has chosen
   to do by hand to learn it.
 - `## Claude's` — agent rabbit-trails and future checks. One flat list,
-  never surfaced to Solace.
+  never surfaced to the user.
 
 ## The line
 
@@ -91,8 +103,11 @@ Every card: one line, a link, the action in the imperative, a short name
 distinctive enough for a later session to find. **The link is never
 optional** — a card nobody but its author can resolve is not a card; neither
 is an action that cannot be stated without private paths, hosts or ports.
-Add `blocked: <dependency>` only when it is actually blocked. Sections and
-checkboxes, not a table. **Order is priority:** the top card in a section is
+Add `blocked: <dependency>` only when it is actually blocked. A
+`## Claude's` card whose link is evidence in another repo — the PR where the
+bug surfaced, not the repo that fixes it — ends with `repo: <owner/name>`:
+grind works a card in the repo it names, and falls back to the link's repo
+without it. Sections and checkboxes, not a table. **Order is priority:** the top card in a section is
 the next to pull; place a new card where it belongs.
 
 ```markdown
@@ -102,7 +117,32 @@ the next to pull; place a new card where it belongs.
 A ruling card carries your evaluation, so that the ruling is one word:
 
 ```markdown
-- [ ] **Short name** — the question ([link](https://...)) default: <what you would do> undo: <the reversal and its cost> until: <event or date it can wait for> risk: <consequence if the default is wrong>
+- [ ] **Short name** — the question ([link](https://...)) default: <what you would do> undo: <the reversal and its cost> until: <event or date it can wait for> risk: <consequence if the default is wrong> judgment: <values | risk | direction | legal | people>
+```
+
+Any card may also carry `model:` and `effort:` (sonnet/opus/fable, and
+low/medium/high, as a hand-off names them) and an `until:` that is a date, an
+event or a PR/issue link; the card is ready, or waiting until that. All three
+are optional on a `## Claude's` card and the lint never checks them:
+
+```markdown
+- [ ] **Short name** — action in the imperative ([link](https://...)) model: sonnet effort: medium until: https://github.com/o/r/pull/5
+```
+
+`judgment:` is the gate. A call you cannot file under one of those five
+kinds is toil however unsure you feel: take the default, record it where
+the work lands, and write no card.
+
+A tentative-ADR card is a ruling card whose decision is already tentatively
+taken, living with the codebase until a ruling session writes it up as a
+colregs-family ADR (the next number in `docs/adr/`, a budget entry in
+`docs/budgets.json`) — never a direct edit to a public repo's docs. It
+carries `kind: tentative ADR` and `gates:`/`settle:`/`repos:` in place of
+`default:`/`undo:`/`until:`/`risk:`; the decision itself is the card's own
+sentence, and `judgment:` gates it as it gates any ruling card:
+
+```markdown
+- [ ] **Short name** — the decision, one sentence ([link](https://...)) kind: tentative ADR gates: <what it gates> settle: <what would settle it> repos: <repo(s) it touches> judgment: <values | risk | direction | legal | people>
 ```
 
 A click-work card carries two proofs:
@@ -114,7 +154,7 @@ A click-work card carries two proofs:
 `why this:` is what stops "update the secret in GitHub" when the workflow
 was failing for a different reason, and "update the key on the boat" when
 sops already held it. A `learn` card has no `why this:`; it drops only when
-Solace says she has it.
+the user says they have it.
 
 ## The lint
 
@@ -132,9 +172,13 @@ repo's uncommitted board diff again at Stop. It rejects:
 5. a state word: merged, awaiting, not merged, CI green, open as;
 6. a card with no link;
 7. a ruling card with no `### <project>` group above it;
-8. a ruling card missing any of `default:`, `undo:`, `until:`, `risk:`;
-9. a `## Solace's` card missing `why you:`, or missing `why this:` when
-   `why you:` is not `learn`.
+8. a ruling card missing any of `default:`, `undo:`, `until:`, `risk:`,
+   `judgment:`, or whose `judgment:` is not one of the five kinds
+   (skipped for a `kind: tentative ADR` card, which rule 10 checks instead);
+9. a `## Human's` card missing `why you:`, or missing `why this:` when
+   `why you:` is not `learn`;
+10. a `kind: tentative ADR` card missing any of `gates:`, `settle:`, `repos:`,
+    `judgment:`, or whose `judgment:` is not one of the five kinds.
 
 ## Lifecycle
 

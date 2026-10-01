@@ -32,6 +32,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
+concurrency:
+  group: churn-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -68,8 +72,12 @@ jobs:
                 case "$f" in
                   *.jq) printf '%s\n' "$f"; continue ;;
                 esac
-                # `|| sig=` : head closing the pipe early is not a failure.
-                sig=$(git show "HEAD:$f" 2>/dev/null | head -c 2) || sig=
+                # `|| true` inside the substitution, not after it: head closes
+                # the pipe after two bytes, and under pipefail git's SIGPIPE
+                # fails the whole assignment, so an outer `|| sig=` blanked the
+                # signature of every script over the pipe buffer (~64 KiB) --
+                # the biggest ones were the ones the gate never saw (#409).
+                sig=$(git show "HEAD:$f" 2>/dev/null | head -c 2 || true)
                 case "$sig" in
                   '#!') printf '%s\n' "$f" ;;
                 esac

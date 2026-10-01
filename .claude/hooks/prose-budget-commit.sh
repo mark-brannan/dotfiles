@@ -9,7 +9,10 @@
 # exit 0 silently. CI (--base) is the real gate; this is the fast local one.
 # Detection is structural via lib-shell-words.awk, so a commit message that
 # mentions `git commit` is not a commit. `cd DIR && git commit` and
-# `git -C DIR commit` run the engine in DIR.
+# `git -C DIR commit` run the engine in DIR. `git merge --continue` is
+# treated as a commit too, since resolving a conflict finishes the merge;
+# the engine's own `--staged` mode already skips every check mid-merge
+# (Checker.is_merging in prose-budget), so nothing extra happens here.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -54,6 +57,9 @@ function segment(lo, hi, nested,   g, i, dir) {
     i++
   }
   if (i <= hi && w[i] == "commit") { print "COMMIT\t" CD "\t" dir; exit }
+  if (i <= hi && w[i] == "merge") {
+    for (j = i + 1; j <= hi; j++) if (w[j] == "--continue") { print "COMMIT\t" CD "\t" dir; exit }
+  }
 }')
 case "$hit" in COMMIT*) ;; *) exit 0 ;; esac
 

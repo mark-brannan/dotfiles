@@ -7,7 +7,7 @@
 # other way, which on an ephemeral cloud container is most of them. So this
 # runs unconditionally on Stop and needs nothing from the conversation.
 #
-# It writes four things, all derived from the transcript and from git:
+# It writes six things, all derived from the transcript and from git:
 #   metrics/sessions/<id>.json    cost and shape of the session
 #   metrics/decisions/<id>.jsonl  each decision pushed to the user, typed by cost
 #   metrics/friction/<id>.jsonl   each friction event, typed by cost -- see
@@ -15,6 +15,9 @@
 #                                  2026-08-21-friction-metric-spec.md
 #   metrics/blocked/<id>.jsonl    each tool call the permission layer refused
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
+#   pickup/<start>-<id>.md        this session's pickup item, which /pickup reads
+#   curia/<id>/roll.md            a floor stamped on any curia roll the
+#                                  session touched, plus the user's last words
 #
 # One file per session, not one shared append-only log: parallel sessions are
 # normal here, and per-session paths mean two of them never touch the same
@@ -56,8 +59,26 @@ metrics=$(jq -s \
 [ -n "$metrics" ] || exit 0
 
 SD=$(state_dir)
+LIVE="$SD/metrics/live"
 mkdir -p "$SD/metrics/sessions" "$SD/metrics/decisions" "$SD/metrics/friction" "$SD/metrics/blocked" \
-         "$SD/log/auto" 2>/dev/null || exit 0
+         "$SD/log/auto" "$LIVE" 2>/dev/null || exit 0
+
+# The per-session lock metrics-live.sh's nag read-modify-write also takes
+# (dotfiles#161). state_lock installs no trap of its own (lib-state.sh), so
+# this is where it is armed; a failed acquisition degrades to running
+# unlocked rather than skipping the write -- a metrics hook never blocks Stop.
+# archivable_reasons() runs inside $(...) below, so the home line it fetches
+# comes back through this file (lib-state.sh), not a variable; the pickup
+# item reads it rather than paying the gh round trip again. Fresh per Stop.
+ARCHIVABLE_HOME_FILE="${TMPDIR:-/tmp}/claude-stop-home.$$"
+rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
+# One exit path, so a later step extends it rather than retyping it.
+restore_board_on_exit=
+on_exit() {
+  [ -z "$restore_board_on_exit" ] || restore_board
+  state_unlock; rm -f "$ARCHIVABLE_HOME_FILE" 2>/dev/null
+}
+trap on_exit EXIT TERM INT
 
 # Commit count comes from git, never from grepping the transcript for
 # "git commit": a heredoc that writes a script containing that string is
@@ -76,7 +97,12 @@ printf '%s\n' "$metrics" | jq -c '.blocked[]' > "$SD/metrics/blocked/$sid.jsonl"
 
 # The live snapshot has served its purpose; the finished session file
 # supersedes it, so drop it rather than leaving two records of one session.
+# Locked against a concurrent metrics-live.sh writing the same path (#161
+# finding 4); a lock that could not be taken still gets the delete, just
+# unprotected -- deleting nothing is not a safer failure than a stale file.
+state_lock "$LIVE/$sid.lock"
 rm -f "$SD/metrics/live/$sid.json" 2>/dev/null
+state_unlock
 bash "$HOOK_DIR/metrics-rollup.sh" 2>/dev/null || true
 
 # ---------------------------------------------------------------- checkpoint
@@ -87,7 +113,10 @@ ckpt="$SD/log/auto/$today-$work_repo-${sid:0:8}.md"
 # be lifted out of the old copy and put back, or the next Stop silently eats
 # the hand-off the model was told to write. Everything from the `## Resume`
 # heading to the next `## ` heading is carried verbatim, including the
-# `- consumed:` marker a resuming session appends.
+# `- consumed:` marker a resuming session appends. Locked (#161 finding 2):
+# metrics-live.sh's resume_ckpt() greps this same file, and the truncate
+# below must not land mid-read.
+state_lock "$LIVE/$sid.lock"
 resume_block=""
 [ -f "$ckpt" ] && resume_block=$(awk '
   /^## Resume[[:space:]]*$/ { f = 1; print; next }
@@ -117,6 +146,10 @@ resume_block=""
     "- decisions: \(.decisions.total) total (\(.decisions.scoping) scoping, \(.decisions.inline) inline, \(.decisions.gate) gate)",
     "- friction: \(.friction.total) total (\(.friction.correction) correction, \(.friction.override) override, \(.friction.rebuke) rebuke, \(.friction.pushback) pushback)",
     "- blocked: \(.blocked.total // 0) tool calls refused (\(.blocked.classifier // 0) classifier, \(.blocked.rule // 0) rule, \(.blocked.user // 0) user-declined)"'
+
+  rate=$(decision_rate "$(printf '%s' "$metrics" | jq -r '.session.decisions.total // 0')" \
+           "$(printf '%s' "$metrics" | jq -r '.session.prompt_span_seconds // 0')")
+  [ -n "$rate" ] && echo "- decision rate: $rate"
 
   if [ -n "$resume_block" ]; then
     echo
@@ -159,18 +192,19 @@ resume_block=""
     printf '%s\n' "$dq"
   fi
 } > "$ckpt" 2>/dev/null
+state_unlock
 
 # One pusher at a time. Parallel sessions are the norm, and two concurrent
 # rebase-and-push loops in the same worktree corrupt each other's index.
-LOCK="${TMPDIR:-/tmp}/claude-state-push.lock"
-exec 9>"$LOCK" 2>/dev/null || exit 0
-flock -w 90 9 2>/dev/null || exit 0
+# The EXIT trap's state_unlock releases it.
+state_lock_wait "$STATE_PUSH_LOCK" 90 || exit 0
 
 # ------------------------------------------------------------ work repo
 # Salvage whatever the session left uncommitted in the repo it worked on:
-# commit to the current branch and push. Silent when there is nothing to
-# do; every refusal after that is named in the checkpoint so it can carry
-# whatever detail turns out to be useful.
+# commit it to this session's own `wip/<session-id>` ref and push that, never
+# the branch the session is working on. Silent when there is nothing to do;
+# every refusal after that is named in the checkpoint so it can carry whatever
+# detail turns out to be useful.
 sc_note() { printf '\n## Stop-commit\n\n%s\n' "$1" >> "$ckpt"; }
 
 # ------------------------------------------------------------ the verdict
@@ -205,7 +239,7 @@ set_verdict() {
   # disagree about what "archivable" means (#149).
   if [ "$_archivable_reasons_cached" -eq 0 ]; then
     if [ -n "$work_root" ]; then
-      _archivable_reasons=$(archivable_reasons "$work_root" "$work_branch")
+      _archivable_reasons=$(archivable_reasons "$work_root" "$work_branch" "$sid")
     else
       _archivable_reasons="no PR and no pointer for \`$work_branch\`"
     fi
@@ -249,10 +283,16 @@ sc_salvage() {
   work_branch=$(git -C "$work_root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
   # --- named refusals: something is dirty but we will not touch it ---------
-  # These three cases are a provisional best-effort fallback, NOT a decided
-  # policy. Real per-repo policy -- where it lives, which repos commit
-  # direct to main, what the fallback should be -- is open in issue #61.
-  # Don't treat what runs here as the intended design just because it runs.
+  # Settled policy, ruled by Solace on 2026-09-22 in issue #61: there is no
+  # policy table and none is coming. The conservative default lives here, in
+  # this public repo, reviewable beside the code it governs; the only inputs
+  # from outside are reduce-only (CLAUDE_STOP_COMMIT=off, the CI refusal), so
+  # nothing outside this file can grant the hook privilege it does not have.
+  # Only the private state repo goes direct to main -- its own code path at
+  # the bottom of this script, not a policy entry -- and the fallback for
+  # everything else is the `wip/<session>` ref below, never the session's own
+  # branch. These refusals fail closed on purpose: the files stay on disk,
+  # with the reason in the checkpoint.
   # dotfiles: the worktree is $HOME and only yadm's pre_commit gate may
   # commit there.
   if [ "$work_root" = "$HOME" ]; then
@@ -329,29 +369,324 @@ EOF
     fi
   fi
 
+  # dotfiles#280: a worktree checked out before some upstream commit deleted
+  # a file still carries that file on disk, untracked, and `git add -A`
+  # cannot tell it from real new work. Path history alone doesn't settle it
+  # either -- a branch that itself added, deleted and is now legitimately
+  # recreating the same path leaves an identical trail. What distinguishes
+  # the two is content: only when the untracked file was tracked at some
+  # commit in HEAD's own history, is missing from `$base`, *and* the working
+  # copy still matches that commit's content byte for byte is it the old
+  # leftover rather than new work -- a session's freshly written file
+  # essentially never matches old bytes by chance. A shallow checkout can
+  # hide the commit that first added a long-lived path, so unshallow first;
+  # unable to, refuse rather than guess. Paths are read NUL-delimited so
+  # control characters and non-ASCII names survive intact.
+  if git -C "$work_root" rev-parse -q --verify "$base" >/dev/null 2>&1; then
+    if [ "$(git -C "$work_root" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ] \
+       && ! timeout 60 git -C "$work_root" fetch -q --unshallow origin >/dev/null 2>&1; then
+      sc_note "refused: repo is shallow and could not be unshallowed -- can't tell a real stale leftover from new work; not committing"
+      return 0
+    fi
+    stale=""
+    while IFS= read -r -d '' f; do
+      [ -n "$f" ] || continue
+      ever_tracked=$(git -C "$work_root" log -1 --format=%H HEAD -- "$f" 2>/dev/null)
+      [ -n "$ever_tracked" ] || continue
+      git -C "$work_root" cat-file -e "$base:$f" 2>/dev/null && continue
+      # The last commit to touch the path may be the one that deleted it, so
+      # there is no blob there to compare -- fall back to its parent, the
+      # last commit where the path actually existed.
+      last_live="$ever_tracked"
+      git -C "$work_root" cat-file -e "$last_live:$f" 2>/dev/null || last_live="$last_live^"
+      cmp -s <(git -C "$work_root" show "$last_live:$f" 2>/dev/null) "$work_root/$f" || continue
+      stale="$stale $f"
+    done < <(git -C "$work_root" ls-files -z --others --exclude-standard 2>/dev/null)
+    if [ -n "$stale" ]; then
+      sc_note "refused: untracked path(s) were tracked in this branch's history, are gone from \`$base\` now, and still match their last tracked content -- stale leftovers from before this checkout last synced, not new work; not committing:$stale"
+      return 0
+    fi
+  fi
+
   # --- the commit: repo hooks run as configured, signing is required -------
   # `commit.gpgsign=true` rather than the machine's setting: a cloud session
   # has no signing key, so "as configured" meant unsigned, and the salvage
   # commit is how unsigned commits kept reaching open pull requests. Fail
   # closed -- the commit is refused and the files are left for a machine that
   # can sign.
-  if ! git -C "$work_root" add -A >/dev/null 2>&1 \
+  #
+  # The commit is made on the current branch because that is the only way the
+  # repo's own hooks and signing config run over it -- and it is moved straight
+  # off again, below, before anything is pushed. The branch never keeps it.
+  wip_ref="wip/$sid"
+  head_before=$(git -C "$work_root" rev-parse HEAD 2>/dev/null)
+  if [ -z "$head_before" ] \
+     || ! git -C "$work_root" add -A >/dev/null 2>&1 \
      || ! timeout 30 git -C "$work_root" -c commit.gpgsign=true commit -q \
           -m "wip: session ${sid:0:8} at Stop ($today)" \
           -m "Co-Authored-By: Claude <noreply@anthropic.com>" >/dev/null 2>&1; then
     git -C "$work_root" reset -q >/dev/null 2>&1
     sc_note "refused: commit failed (hook or signing) — files left as they were"; return 0
   fi
-  if timeout 120 git -C "$work_root" push -q -u origin -- "$work_branch" >/dev/null 2>&1; then
-    sc_note "committed and pushed to \`$work_branch\`"
+
+  # --- and off the branch again: the destination is this session's wip ref --
+  # dotfiles#285, and the #61 ruling behind it. The session's branch is the
+  # head of an open PR; a machine commit pushed there is what #177, #196 and
+  # #280 have in common, and no reader can tell it from work a human meant to
+  # publish. So the commit lands on `refs/heads/wip/<session-id>` -- a ref no
+  # PR points at, named for the one session that writes it -- and the branch
+  # is put back where it was with a mixed reset, which leaves the files in the
+  # working tree exactly as the session left them. Salvage, not publication:
+  # the next session picks the ref up from the checkpoint.
+  salvaged=$(git -C "$work_root" rev-parse HEAD 2>/dev/null)
+  git -C "$work_root" update-ref "refs/heads/$wip_ref" "$salvaged" >/dev/null 2>&1
+  wrote_ref=$?
+  # Unconditional, and before the ref write is judged: whatever else happened,
+  # the work branch must not be left carrying the commit.
+  if ! git -C "$work_root" reset -q "$head_before" >/dev/null 2>&1; then
+    sc_note "committed \`${salvaged:-?}\` but could not put \`$work_branch\` back at \`$head_before\` — that commit is sitting on the branch; move or drop it before pushing"
+    return 0
+  fi
+  if [ "$wrote_ref" -ne 0 ]; then
+    sc_note "refused: could not write \`refs/heads/$wip_ref\` — nothing committed, files left as they were"; return 0
+  fi
+
+  # --force, and only ever this ref: `wip/<session-id>` has exactly one
+  # writer, and each Stop's snapshot is a sibling of the last (same parent,
+  # supersetting content), so a fast-forward push would fail from the second
+  # Stop of every session onwards.
+  if timeout 120 git -C "$work_root" push -q --force origin -- \
+       "refs/heads/$wip_ref:refs/heads/$wip_ref" >/dev/null 2>&1; then
+    sc_note "salvaged to \`$wip_ref\` and pushed it (\`$salvaged\`); \`$work_branch\` is untouched and the files are still in the working tree"
   else
-    sc_note "committed to \`$work_branch\` but push failed — push by hand"
+    sc_note "salvaged to \`$wip_ref\` (\`$salvaged\`) but the push failed — the commit is local only; \`$work_branch\` is untouched"
   fi
 }
 sc_salvage
-# After the salvage, not before: a session whose work this hook just committed
-# and pushed is not "dirty, unpushed".
+# After the salvage, not before: the verdict has to describe the tree the
+# salvage leaves behind. It leaves it dirty on purpose -- the work is safe on
+# the wip ref, not landed on the branch -- so "worktree dirty" stays the truth
+# and the session is not archivable until a human lands it.
 set_verdict
+
+# The session claim stamp on the branch's card (dotfiles#287). Archivable
+# means this session is done with the branch, so the claim comes off; anything
+# else means it is still holding it, so the timestamp is bumped -- which is
+# what makes another machine able to tell a live session from a dead one.
+#
+# Free when this session never claimed anything: both paths read a per-session
+# record under TMPDIR first and return without a network call when there is
+# none, and the refresh is debounced besides. Stop fires on every turn, so
+# that has to stay true.
+if [ -n "$work_root" ] && [ -x "$HOOK_DIR/claim-stamp.sh" ]; then
+  if [ "$verdict" = archivable ]; then
+    sh "$HOOK_DIR/claim-stamp.sh" release -C "$work_root" "$sid" >/dev/null 2>&1 || true
+  else
+    sh "$HOOK_DIR/claim-stamp.sh" refresh -C "$work_root" "$sid" >/dev/null 2>&1 || true
+  fi
+fi
+
+# ------------------------------------------------------- the pickup item
+# One item per session in pickup/, which /pickup reads in place of the old
+# checkpoint resume block (dotfiles#110). The resume block depended on a
+# model remembering to write it, and a session that ends any other way --
+# context ceiling, a closed laptop, a reaped container -- hands off to
+# nobody. This needs nothing from the model: status, branch state, PR,
+# model and the first line of the last user prompt are all machine facts,
+# and `pickup-list` shows them newest first. The body is the hand-off a
+# model may write over the hook's default (the prompt line); on later
+# Stops the hook only replaces a body that still reads exactly as it last
+# set it, so an edited body survives every rewrite and the model never has
+# to flag that it edited.
+#
+# The id is the session's start minute plus its short id, so every Stop of
+# a session finds the same file and two sessions never share one. `pr:` is
+# looked up only while empty and only once the branch is on origin (a PR
+# cannot exist before that), and a miss is cached ten minutes so a pushed
+# branch with no PR does not pay a gh call every turn.
+pi_branch_line=none; pi_pr=none
+pickup_item() {
+  local dir id f start prompt body status \
+        old_prompt old_body old_status old_pr old_until ust ust_desc dirty \
+        home miss tmp
+  dir="$SD/pickup"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  start=$(printf '%s' "$metrics" | jq -r '.session.started_at // empty')
+  [ -n "$start" ] || start=$now
+  id="$(printf '%s' "$start" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2}):([0-9]{2}).*/\1T\2-\3/')-${sid:0:8}"
+  f="$dir/$id.md"
+  prompt=$(printf '%s' "$metrics" | jq -r '.session.last_prompt // empty')
+
+  old_prompt=""; old_body=""; old_status=""; old_pr=""; old_until=""
+  if [ -f "$f" ]; then
+    old_prompt=$(sed -n 's/^prompt: //p' "$f" | head -1)
+    old_status=$(sed -n 's/^status: //p' "$f" | head -1)
+    old_pr=$(sed -n 's/^pr: //p' "$f" | head -1)
+    # Header only: a hand-off body may well hold a line starting "until: ".
+    old_until=$(awk '/^---$/ { exit } sub(/^until: /, "") { print; exit }' "$f")
+    old_body=$(awk 'f { print } /^---$/ { f = 1 }' "$f")
+  fi
+
+  body=$old_body
+  if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ] || [ "$body" = "$old_prompt" ]; then
+    body=$prompt
+  fi
+  status=$old_status
+  # A new prompt reopens a session's item: the last thing talked about is
+  # what the next session picks up, whatever the item said before.
+  { [ -z "$status" ] || [ "$prompt" != "$old_prompt" ]; } && status=open
+
+  pi_pr=${old_pr:-none}
+  if [ -n "$work_root" ]; then
+    ust=$(unpushed_state "$work_root" "$work_branch")
+    case "$ust" in
+      'ahead '*)     ust_desc="${ust#ahead } ahead" ;;
+      never-pushed)  ust_desc="never pushed" ;;
+      safe)          ust_desc="nothing ahead" ;;
+      *)             ust_desc="ahead unknown" ;;
+    esac
+    dirty=clean
+    [ -z "$(git -C "$work_root" status --porcelain 2>/dev/null)" ] || dirty=dirty
+    pi_branch_line="$work_repo $work_branch ($ust_desc, $dirty)"
+    miss="${TMPDIR:-/tmp}/claude-pickup-pr-miss.$(printf '%s' "$sid" | tr -c 'A-Za-z0-9_-' '_')"
+    if [ "$pi_pr" = none ] && [ "$ust" = 'ahead 0' ] && [ -x "$HOOK_DIR/branch-home-gate.sh" ] \
+       && [ -z "$(find "$miss" -mmin -10 2>/dev/null)" ]; then
+      # The verdict's own home check (archivable_reasons, lib-state.sh)
+      # left its line in ARCHIVABLE_HOME_FILE; reuse it rather than paying
+      # the gh round trip twice in one Stop.
+      home=$(cat "$ARCHIVABLE_HOME_FILE" 2>/dev/null)
+      [ -n "$home" ] || home=$(sh "$HOOK_DIR/branch-home-gate.sh" --check "$work_root" 2>/dev/null)
+      case "$home" in
+        'home: https://'*) pi_pr=$(printf '%s' "$home" | sed 's/^home: //' | grep -oE '^https://[^ ]+') ;;
+        *) : > "$miss" 2>/dev/null ;;
+      esac
+      [ -n "$pi_pr" ] || pi_pr=none
+    fi
+  fi
+
+  tmp="$f.$$"
+  {
+    printf 'status: %s\nupdated: %s\nsession: %s\nmodel: %s\n' \
+      "$status" "$now" "$sid" \
+      "$(printf '%s' "$metrics" | jq -r '.session.model // "?"')"
+    printf 'branch: %s\npr: %s\nwhere: %s\n' \
+      "$pi_branch_line" "$pi_pr" "log/auto/$(basename "$ckpt")"
+    # until: is written by a model or the user (a date, an event or a PR/issue
+    # link); the hook only carries it across rewrites, and writes no empty
+    # line for an item that has none.
+    [ -z "$old_until" ] || printf 'until: %s\n' "$old_until"
+    printf 'prompt: %s\n---\n%s\n' "$prompt" "$body"
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+pickup_item
+
+# ------------------------------------------------------- curia threads
+# A session that touched a curia -- a state/global/curia/<id> path, a
+# `/curia <id>` or `confer <id>` in the transcript -- leaves the machine
+# floor on that thread, so a sitting that dies any way at all still hands
+# off. Two writes per Stop, both under the pickup item's body-ownership
+# protocol: a floor block at the end of "Where this stands" (last touched,
+# branch, PR), hook-owned by its markers, model text above it untouched;
+# and, on the first thread the transcript touched, the user's last words
+# verbatim under "Human's words", one dated sub-heading per session,
+# overwritten only while it still reads exactly as the hook wrote it.
+curia_floor() {  # curia_floor <roll.md>
+  local t tmp
+  t=$1; tmp="$t.$$"
+  awk -v now="$now" -v sid8="${sid:0:8}" -v model="$cu_model" \
+      -v branch="$pi_branch_line" -v pr="$pi_pr" '
+    function floor() {
+      print "<!-- floor: stop-continuity.sh; text above survives, this block does not -->"
+      print "- last touched: " now " \302\267 session " sid8 " \302\267 " model
+      print "- branch: " branch " \302\267 pr: " pr
+      print "<!-- /floor -->"
+    }
+    /^<!-- floor/ { drop = 1; next }
+    /^<!-- \/floor -->$/ { drop = 0; next }
+    drop { next }
+    { lines[++n] = $0 }
+    END {
+      ws = 0; ins = 0
+      for (i = 1; i <= n; i++) {
+        if (!ws) { if (lines[i] ~ /^## Where this stands/) ws = i }
+        else if (lines[i] ~ /^## /) { ins = i; break }
+      }
+      for (i = 1; i <= n; i++) {
+        if (ins && i == ins) { floor(); print "" }
+        print lines[i]
+      }
+      if (!ins) floor()
+    }
+  ' "$t" > "$tmp" 2>/dev/null && mv -f "$tmp" "$t" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+curia_said() {  # curia_said <roll.md>; $cu_words carries the text
+  local t tmp
+  t=$1; tmp="$t.$$"
+  CS_WORDS="$cu_words" awk -v sid8="${sid:0:8}" -v date="${now%%T*}" '
+    function entry(   j) {
+      print ""
+      for (j = 1; j <= nq; j++) print "> " q[j]
+    }
+    { lines[++n] = $0 }
+    END {
+      nq = split(ENVIRON["CS_WORDS"], q, "\n")
+      sw = 0; swend = n + 1; own = 0; ownend = 0
+      for (i = 1; i <= n; i++) {
+        if (!sw) { if (lines[i] ~ /^## Human.s words/) sw = i }
+        else if (lines[i] ~ /^## /) { swend = i; break }
+      }
+      if (!sw) { for (i = 1; i <= n; i++) print lines[i]; exit }
+      for (i = sw + 1; i < swend; i++)
+        if (lines[i] ~ /^### / && index(lines[i], "session " sid8 " (hook)")) {
+          own = i; ownend = swend
+          for (j = i + 1; j < swend; j++)
+            if (lines[j] ~ /^#/) { ownend = j; break }
+          break
+        }
+      if (own) {
+        # Overwrite only a body that still reads as the hook wrote it: a
+        # pure blockquote. Model-edited text stays, whatever it says.
+        hookish = 1; same = 1; k = 0
+        for (j = own + 1; j < ownend; j++) {
+          if (lines[j] ~ /^[[:space:]]*$/) continue
+          if (substr(lines[j], 1, 2) != "> ") hookish = 0
+          got[++k] = substr(lines[j], 3)
+        }
+        if (k != nq) same = 0
+        else for (j = 1; j <= nq; j++) if (got[j] != q[j]) same = 0
+        if (!hookish || same) { for (i = 1; i <= n; i++) print lines[i]; exit }
+        for (i = 1; i <= n; i++) {
+          print lines[i]
+          if (i == own) { entry(); print ""; i = ownend - 1 }
+        }
+        exit
+      }
+      for (i = 1; i <= n; i++) {
+        if (i == swend) {
+          print "### " date " \302\267 session " sid8 " (hook)"
+          entry(); print ""
+        }
+        print lines[i]
+      }
+      if (swend == n + 1) {
+        print "### " date " \302\267 session " sid8 " (hook)"
+        entry()
+      }
+    }
+  ' "$t" > "$tmp" 2>/dev/null && mv -f "$tmp" "$t" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+}
+cu_words=$(printf '%s' "$metrics" | jq -r '.session.last_words // empty')
+cu_model=$(printf '%s' "$metrics" | jq -r '.session.model // "?"')
+cu_first=1
+for cu_ref in $(printf '%s' "$metrics" | jq -r '.session.curia_refs[]? // empty'); do
+  cu_thread="$SD/curia/$cu_ref/roll.md"
+  # thread.md is the name before roll.md; read it until the state repo is moved.
+  [ -f "$cu_thread" ] || cu_thread="$SD/curia/$cu_ref/thread.md"
+  [ -f "$cu_thread" ] || continue
+  curia_floor "$cu_thread"
+  [ "$cu_first" = 1 ] && [ -n "$cu_words" ] && curia_said "$cu_thread"
+  cu_first=0
+done
 
 # ------------------------------------------------------------ state repo
 state_is_repo || exit 0
@@ -405,7 +740,7 @@ fi
 git add state/ >/dev/null 2>&1
 if [ "$board_ok" != 1 ]; then
   git reset -q -- "$board" >/dev/null 2>&1
-  [ -n "$board_pre_blob" ] && trap restore_board EXIT
+  restore_board_on_exit=1   # on_exit puts any pre-staged blob back
 fi
 git diff --cached --quiet 2>/dev/null && exit 0   # nothing changed
 
@@ -432,7 +767,10 @@ if [ "$verdict" != "archivable" ] && [ -f "$PUSH_SENTINEL" ]; then
 fi
 
 for attempt in 1 2; do
-  timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1
+  # A conflicted rebase left in place wedges this clone for every later Stop
+  # and every hand commit; back out, and let the push below fail and say so.
+  timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1 \
+    || git rebase --abort >/dev/null 2>&1
   if timeout 120 git push -q origin HEAD >/dev/null 2>&1; then
     date -u +%s > "$PUSH_SENTINEL" 2>/dev/null
     exit 0

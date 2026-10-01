@@ -9,10 +9,12 @@
 # because the hook rewrites the whole checkpoint and eating the hand-off the
 # model was told to write would be silent and total.
 #
-# The salvage commit's refusals (dotfiles#196: CI, stale base, revert of the
-# branch's own work) are covered near the bottom, in a throwaway repo of
-# their own. The rest of the hook -- metrics shape, the state-repo push -- is
-# not covered here.
+# The salvage commit's destination (dotfiles#285: a `wip/<session>` ref, never
+# the branch the session's PR is on) and its refusals (dotfiles#196: CI, stale
+# base, revert of the branch's own work; dotfiles#280: a stale untracked
+# leftover from before the checkout synced) are covered near the bottom, in a
+# throwaway repo of their own. The rest of the hook -- metrics shape, the
+# state-repo push -- is not covered here.
 set -uo pipefail
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 
@@ -40,6 +42,12 @@ BIN="$S/bin"; mkdir -p "$BIN"
 cat > "$BIN/gh" <<'EOF'
 #!/bin/sh
 [ "${GH_FAIL:-0}" = 1 ] && { echo "gh: not logged in" >&2; exit 1; }
+# GH_LOG, when set, records each call with its grandparent's argv -- the
+# script that wanted the answer (branch-home-gate.sh --check vs --card).
+if [ -n "${GH_LOG:-}" ]; then
+  gp=$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ')
+  echo "$* <- $(ps -o args= -p "$gp" 2>/dev/null)" >> "$GH_LOG"
+fi
 case "$1 ${2:-}" in
   "pr list")    printf '%s\n' "${GH_PRS:-[]}" ;;
   "issue list") printf '%s\n' "${GH_ISSUES:-[]}" ;;
@@ -81,6 +89,22 @@ eq 'clean, pushed, PR: archivable' 'archivable' "$(verdict)"
 eq 'the metrics record says the same' 'archivable' \
   "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/$SID.json")"
 has 'the worktree is recorded for resume-list' "^- worktree .$WORK.$" "$CKPT"
+
+# --- one gh round trip per Stop ---------------------------------------------------
+# The verdict's home check and the pickup item's `pr:` lookup ask the same
+# question. The answer travels through ARCHIVABLE_HOME_FILE (lib-state.sh);
+# a variable set inside `$(archivable_reasons ...)` dies with the subshell,
+# which is how the reuse silently never fired once (PR #388, design pass).
+GH_LOG="$S/gh.log"; : > "$GH_LOG"
+SID=ghlog000-1111-2222-3333 GH_LOG="$GH_LOG" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+# claim-stamp.sh's own `--card` lookup is a separate, deliberate call and is
+# not counted here; the verdict's `--check` is what must run once.
+eq 'the verdict asks gh for the head once per Stop' 1 \
+  "$(grep -c -- '^pr list --head.*branch-home-gate.sh --check' "$GH_LOG")"
+eq 'and the pickup item still learns the PR' 'pr: https://github.com/o/r/pull/7' \
+  "$(grep '^pr: ' "$HOME"/.claude/state/global/pickup/*-ghlog000.md 2>/dev/null | head -1)"
+assert 'the home file does not outlive the Stop' \
+  bash -c "! ls '$TMPDIR'/claude-stop-home.* >/dev/null 2>&1"
 
 # --- no PR and no pointer --------------------------------------------------------
 stop
@@ -127,6 +151,17 @@ eq 'detached off any remote branch: not archivable' \
   'not archivable: detached HEAD, no upstream to compare against' "$(verdict)"
 gitq "$WORK" checkout claude/work
 
+# --- @{u} is main, the commit lives on a stack/ branch (mergify stack push) --------
+gitq "$WORK" checkout -b claude/stacked main
+gitq "$WORK" branch -u origin/main
+echo seven >> "$WORK/f"; gitq "$WORK" add f; gitq "$WORK" commit -m stacked
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'on no remote branch: not archivable' 'not archivable: 1 commit(s) unpushed' "$(verdict)"
+gitq "$WORK" push origin claude/stacked:refs/heads/stack/claude-stacked
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'pushed to stack/, @{u}=main: archivable' 'archivable' "$(verdict)"
+gitq "$WORK" checkout claude/work
+
 # --- "cannot verify" is never a pass ------------------------------------------------
 GH_FAIL=1 stop
 has 'unverified is not archivable' '^\*\*Verdict:\*\* not archivable: branch home unverified' "$CKPT"
@@ -146,6 +181,152 @@ assert 'the block did not swallow the rest of the file' grep -q '^## Commits thi
 sed -i 's/^- effort: high$/&\n- consumed: session abcd1234 at 2026-09-09T13:00:00Z/' "$CKPT"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 has 'consumed marker survives' '^- consumed: session abcd1234' "$CKPT"
+
+# --- the pickup item: one per session, machine-written, body model-editable ---
+# Written on every Stop from the transcript and git, so a session that ends
+# any way at all leaves an item for /pickup. The body is the hand-off a model
+# may write, and it survives the rewrite only because the hook overwrites
+# nothing but the text it last wrote itself.
+PICKD="$HOME/.claude/state/global/pickup"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+ITEM=$(ls "$PICKD"/*-"${SID:0:8}".md 2>/dev/null | head -1)
+assert 'a pickup item was written' test -n "$ITEM"
+sfield() { sed -n "s/^$1: //p" "$ITEM" | head -1; }
+sbody() { awk 'f{print} /^---$/{f=1}' "$ITEM"; }
+assert 'the id is the session start minute plus the short session id' \
+  bash -c "basename '$ITEM' .md | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-${SID:0:8}\$'"
+eq 'status opens' open "$(sfield status)"
+eq 'the body defaults to the last prompt line' "$(sfield prompt)" "$(sbody)"
+assert 'the prompt line is the transcript'"'"'s last human line' test -n "$(sfield prompt)"
+eq 'the pushed branch with a PR records it' https://github.com/o/r/pull/7 "$(sfield pr)"
+has 'branch state names ahead and clean' '^branch: work claude/work \(0 ahead, clean\)$' "$ITEM"
+
+# A model edits the body: the next Stop keeps it.
+printf 'status: open\nupdated: x\nsession: %s\nmodel: m\nbranch: b\npr: %s\nwhere: w\nprompt: %s\n---\nfinish the fixtures, then open the PR\n' \
+  "$SID" "$(sfield pr)" "$(sfield prompt)" > "$ITEM"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'an edited body survives the rewrite' 'finish the fixtures, then open the PR' "$(sbody)"
+eq 'a found PR is kept without a second lookup' https://github.com/o/r/pull/7 "$(sfield pr)"
+
+# An until: header, written by a model, survives the rewrite like prompt: does;
+# an item that never had one gets no until: line.
+assert 'no until: line on an item that has none' bash -c "! grep -q '^until:' '$ITEM'"
+printf 'until: a line in the body\n' >> "$ITEM"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'an until: line in the body is not hoisted into the header' '' "$(awk '/^---$/{exit} /^until:/' "$ITEM")"
+sed -i '/^until: a line in the body$/d' "$ITEM"
+sed -i 's|^\(where: .*\)$|\1\nuntil: https://github.com/o/r/issues/9|' "$ITEM"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'until: survives the rewrite' https://github.com/o/r/issues/9 "$(sfield until)"
+eq 'the body is still intact beside until:' 'finish the fixtures, then open the PR' "$(sbody)"
+
+# A done status is kept while the prompt is unchanged.
+sed -i 's/^status: open$/status: done/' "$ITEM"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'status is kept while the prompt is unchanged' 'done' "$(sfield status)"
+
+# A body that still reads as the hook left it follows the prompt; a new
+# prompt reopens the item.
+TP2="$S/pickup-transcript.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"pick up the fixture work and finish it","timestamp":"2026-09-26T12:00:00.000Z"}\n'
+} > "$TP2"
+printf 'status: done\nupdated: x\nsession: %s\nmodel: m\nbranch: b\npr: none\nwhere: w\nprompt: old prompt\n---\nold prompt\n' "$SID" > "$ITEM"
+TP="$TP2" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+ITEM=$(ls "$PICKD"/*-"${SID:0:8}".md 2>/dev/null | head -1)
+eq 'an untouched body follows the new prompt' 'pick up the fixture work and finish it' "$(sbody)"
+eq 'a new prompt reopens the item' open "$(sfield status)"
+
+# --- curia threads: a touched thread gets the floor and the last words --------
+# The transcript names a curia (`confer <id>` here); the Stop hook stamps a
+# floor block at the end of "Where this stands" -- model text above survives
+# -- and appends the user's last words verbatim under "Human's words". Both
+# idempotent across Stops; a model edit to the words entry is never clobbered.
+CURD="$HOME/.claude/state/global/curia/test-question"
+mkdir -p "$CURD"
+cat > "$CURD/roll.md" <<'EOF'
+# Curia: test question
+
+- id: `test-question`
+- status: open
+
+## Where this stands
+
+Model text that must survive.
+
+## Human's words
+
+<!-- Append-only; a new dated sub-heading per sitting. -->
+EOF
+TP3="$S/curia-transcript.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"confer test-question please","timestamp":"2026-09-26T12:00:00.000Z"}\n'
+} > "$TP3"
+TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+TH="$CURD/roll.md"
+has 'the floor block is written' '^<!-- floor' "$TH"
+has 'the floor carries last-touched and the session' "^- last touched: .* session ${SID:0:8} " "$TH"
+has 'the floor carries the branch state' '^- branch: work claude/work \(0 ahead, clean\)' "$TH"
+has 'model text above the floor survives' '^Model text that must survive\.$' "$TH"
+has 'the last words land under Human'"'"'s words' "^### .* session ${SID:0:8} \(hook\)$" "$TH"
+has 'verbatim, as a blockquote' '^> confer test-question please$' "$TH"
+assert 'the floor sits inside Where this stands' \
+  bash -c "awk '/^## Where this stands/{f=1} /^## Human/{exit} f&&/^<!-- floor/{ok=1} END{exit !ok}' '$TH'"
+
+# A second Stop rewrites, never duplicates.
+TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'one floor block after two Stops' 1 "$(grep -c '^<!-- floor' "$TH")"
+eq 'one words entry after two Stops' 1 "$(grep -c "session ${SID:0:8} (hook)" "$TH")"
+
+# New last words replace the hook's own entry; a model-edited entry stays.
+TP4="$S/curia-transcript-2.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"confer test-question: make it so","timestamp":"2026-09-26T13:00:00.000Z"}\n'
+} > "$TP4"
+TP="$TP4" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+has 'new last words replace the hook entry' '^> confer test-question: make it so$' "$TH"
+assert 'the old hook entry is gone' bash -c "! grep -q '^> confer test-question please$' '$TH'"
+sed -i 's/^> confer test-question: make it so$/The model folded these words into the record./' "$TH"
+TP="$TP3" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+has 'a model-edited entry is never clobbered' '^The model folded these words into the record\.$' "$TH"
+eq 'and no second entry appears' 1 "$(grep -c "session ${SID:0:8} (hook)" "$TH")"
+
+# Reading a thread is not sitting on it: a session whose tool calls cat or ls
+# the thread file, with no prompt naming the curia, leaves it untouched. Once
+# bare `/curia` lists every thread (#403), every sitting would otherwise stamp
+# every thread with its own unrelated last words.
+TP5="$S/curia-transcript-cat.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"what is open on the board?","timestamp":"2026-09-26T14:00:00.000Z"}\n'
+  printf '{"type":"assistant","uuid":"a-cat","timestamp":"2026-09-26T14:00:01.000Z","message":{"role":"assistant","model":"m","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cat %s; ls %s"}},{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"%s"}}]}}\n' \
+    "$TH" "$CURD" "$TH"
+} > "$TP5"
+SID2=catsess0-1111-2222-3333
+before=$(cat "$TH")
+TP="$TP5" SID="$SID2" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'a cat/ls of the thread does not stamp it' "$before" "$(cat "$TH")"
+assert 'no words entry for the reading session' bash -c "! grep -q 'session ${SID2:0:8}' '$TH'"
+
+# A curia not yet moved to roll.md still gets its floor on thread.md.
+OLDD="$HOME/.claude/state/global/curia/old-question"
+mkdir -p "$OLDD"
+printf '# Curia: old question\n\n## Where this stands\n\nOld text.\n' > "$OLDD/thread.md"
+TP6="$S/curia-transcript-old.jsonl"
+{
+  jq -c '.' "$TP" | head -3
+  printf '{"type":"queue-operation","operation":"enqueue","content":"confer old-question","timestamp":"2026-09-26T15:00:00.000Z"}\n'
+} > "$TP6"
+TP="$TP6" GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+has 'a thread.md-only curia still gets the floor' '^<!-- floor' "$OLDD/thread.md"
+assert 'and no roll.md is invented beside it' bash -c "[ ! -e '$OLDD/roll.md' ]"
+
+# A named curia whose roll does not exist is skipped without a write.
+assert 'no roll is invented for an unknown id' \
+  bash -c "! ls '$HOME/.claude/state/global/curia' | grep -qv '^\(test\|old\)-question\$'"
 
 # =============================================================================
 # sc_salvage: the auto-commit at Stop (dotfiles#196)
@@ -182,25 +363,55 @@ stop_salvage() {  # stop_salvage [VAR=value ...] -- run the hook with the salvag
     | env -u GITHUB_ACTIONS -u CI CLAUDE_STOP_COMMIT=on "$@" bash "$HOOK" >/dev/null 2>&1
   CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
 }
-snapshot() { before_local=$(git -C "$SWORK" rev-parse HEAD); before_origin=$(git -C "$SORIGIN" rev-parse claude/salvage); }
+WIP="wip/$SID"
+snapshot() {
+  before_local=$(git -C "$SWORK" rev-parse HEAD)
+  before_origin=$(git -C "$SORIGIN" rev-parse claude/salvage)
+  before_wip=$(git -C "$SORIGIN" rev-parse "$WIP" 2>/dev/null || echo none)
+}
 untouched() {  # untouched <label> <expected porcelain> -- nothing committed or pushed
   eq "$1: local HEAD untouched" "$before_local" "$(git -C "$SWORK" rev-parse HEAD)"
   eq "$1: origin untouched" "$before_origin" "$(git -C "$SORIGIN" rev-parse claude/salvage)"
+  eq "$1: the wip ref untouched" "$before_wip" \
+    "$(git -C "$SORIGIN" rev-parse "$WIP" 2>/dev/null || echo none)"
   eq "$1: the edit is still sitting there, uncommitted" "$2" "$(git -C "$SWORK" status --porcelain)"
 }
+# salvaged <label> <expected porcelain> -- the commit went to the wip ref and
+# nowhere near the branch the session (and its PR) is on (dotfiles#285).
+salvaged() {
+  eq "$1: the branch head is unchanged locally" "$before_local" "$(git -C "$SWORK" rev-parse HEAD)"
+  eq "$1: the branch head is unchanged on origin" "$before_origin" \
+    "$(git -C "$SORIGIN" rev-parse claude/salvage)"
+  assert "$1: origin has the wip ref" \
+    git -C "$SORIGIN" rev-parse -q --verify "$WIP" >/dev/null
+  eq "$1: the wip commit sits on the branch head" "$before_local" \
+    "$(git -C "$SWORK" rev-parse "$WIP^")"
+  eq "$1: the files are still in the working tree" "$2" "$(git -C "$SWORK" status --porcelain)"
+  assert "$1: no wip: commit reached the branch" \
+    test -z "$(git -C "$SORIGIN" log --oneline --grep='^wip: session' claude/salvage)"
+}
 
-# --- happy path: dirty tree, HEAD even with @{u} -> commits and pushes -----------
-echo dirty >> "$SWORK/f"
+# --- happy path: dirty tree, HEAD even with @{u} -> salvaged to the wip ref ------
+# The failure this replaces: the same commit went onto the session's branch and
+# was pushed to the open PR (dotfiles#177, #196, #280).
+snapshot; echo dirty >> "$SWORK/f"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'salvage happy path: committed and pushed' \
-  'committed and pushed to .claude/salvage.' "$CKPT"
-eq 'the dirty change is no longer showing' '' "$(git -C "$SWORK" status --porcelain)"
-eq 'origin now has the pushed commit' \
-  "$(git -C "$SWORK" rev-parse HEAD)" "$(git -C "$SORIGIN" rev-parse claude/salvage)"
+has 'salvage happy path: salvaged to the wip ref and pushed' \
+  "salvaged to .$WIP. and pushed it" "$CKPT"
+salvaged 'salvage happy path' ' M f'
+eq 'the wip commit carries the uncommitted content' 'dirty' \
+  "$(git -C "$SORIGIN" show "$WIP:f" | tail -1)"
 # The signature itself, not %G?: verifying an ssh signature would need an
 # allowedSignersFile this fixture has no reason to carry.
 eq 'the salvage commit is signed' 'gpgsig' \
-  "$(git -C "$SWORK" cat-file -p HEAD | awk '/^gpgsig/{print "gpgsig"; exit}')"
+  "$(git -C "$SWORK" cat-file -p "$WIP" | awk '/^gpgsig/{print "gpgsig"; exit}')"
+# A second Stop in the same session: the ref moves on, still off the branch.
+snapshot; echo dirtier >> "$SWORK/f"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+salvaged 'a second Stop' ' M f'
+eq 'the second Stop superseded the first on the wip ref' 'dirtier' \
+  "$(git -C "$SORIGIN" show "$WIP:f" | tail -1)"
+gitq "$SWORK" checkout -- f
 
 # --- no signing key: refused rather than pushed unsigned (dotfiles#183) ----------
 # A cloud session has no key. Unsigned is how the salvage commit kept landing
@@ -244,10 +455,57 @@ gitq "$SWORK" checkout -- f hookpath
 # revert of anything -- it is simply unchanged, and the tree is not dirty.
 # A file the branch changed, edited to something that is neither version,
 # is new work and commits.
-echo 'guard: yes, differently' > "$SWORK/hookpath"
+snapshot; echo 'guard: yes, differently' > "$SWORK/hookpath"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
-has 'a real edit to a branch-changed file: committed' 'committed and pushed to .claude/salvage.' "$CKPT"
-eq 'and nothing is left dirty' '' "$(git -C "$SWORK" status --porcelain)"
+has 'a real edit to a branch-changed file: salvaged' "salvaged to .$WIP. and pushed it" "$CKPT"
+salvaged 'a real edit to a branch-changed file' ' M hookpath'
+gitq "$SWORK" checkout -- hookpath
+
+# --- an untracked path base once had: refused, not committed (dotfiles#280) ------
+# A worktree created before an upstream commit deleted a tracked file carries
+# it on disk as an untracked leftover for the rest of the worktree's life.
+# Give the branch's own history a commit that added stale.txt (so HEAD's
+# ancestry has it, same as inheriting it from old main) and a later one that
+# removed it (so HEAD's own tree is clean, same as after a rebase past the
+# upstream deletion) -- then put the bytes back by hand: exactly what a
+# stale leftover looks like on disk, whatever operation actually produced it.
+gitq "$SWORK" checkout claude/salvage
+echo history > "$SWORK/stale.txt"
+gitq "$SWORK" add stale.txt; gitq "$SWORK" commit -m "add stale.txt"
+gitq "$SWORK" rm -q stale.txt; gitq "$SWORK" commit -m "remove stale.txt"
+gitq "$SWORK" push origin claude/salvage
+echo history > "$SWORK/stale.txt"   # the stale leftover: untracked, on disk
+
+snapshot; echo dirty >> "$SWORK/f"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+has 'stale untracked leftover: refused, path named' \
+  'refused: untracked path\(s\) were tracked .* stale\.txt' "$CKPT"
+untouched 'stale untracked leftover' $' M f\n?? stale.txt'
+
+# ... a genuinely new untracked file, never tracked anywhere, still commits.
+rm -f "$SWORK/stale.txt"
+gitq "$SWORK" checkout -- f
+echo brand-new > "$SWORK/new-file.txt"
+snapshot
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+has 'a genuinely new untracked file: salvaged' "salvaged to .$WIP. and pushed it" "$CKPT"
+salvaged 'a genuinely new untracked file' '?? new-file.txt'
+eq 'the new file is on the wip ref' 'brand-new' "$(git -C "$SORIGIN" show "$WIP:new-file.txt")"
+rm -f "$SWORK/new-file.txt"
+
+# ... the branch's own add-delete-recreate of the same path: path history looks
+# identical to the stale-leftover case above, but the bytes are new -- this is
+# the session's own work, not dotfiles#280's upstream-deletion leftover, and
+# the content check is what tells them apart.
+echo 'new content, not history' > "$SWORK/stale.txt"
+snapshot
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
+has 'recreate with new content: salvaged, not refused' \
+  "salvaged to .$WIP. and pushed it" "$CKPT"
+salvaged 'recreate with new content' '?? stale.txt'
+eq 'the recreated file carries the new content, not the old' \
+  'new content, not history' "$(git -C "$SORIGIN" show "$WIP:stale.txt")"
+rm -f "$SWORK/stale.txt"
 
 # --- HEAD behind @{u}: refused, not committed, not pushed (dotfiles#196) ---------
 # Simulate the remote moving on without this checkout -- a hand re-push, a
@@ -264,6 +522,88 @@ GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop_salvage
 has 'behind @{u}: refused' \
   'refused: .claude/salvage. is 1 commit\(s\) behind .origin/claude/salvage.' "$CKPT"
 untouched 'behind @{u}' ' M f'
+
+# --- no flock: a Stop still commits and pushes the state repo ----------------
+# macOS ships no flock, and a bare `flock -w 90 9 || exit 0` silently skipped
+# everything below the checkpoint write on every Mac Stop. The push lock is
+# state_lock_wait's mkdir now. A flock that fails -- as a missing one does --
+# shadows the real one on Linux, so this proves the macOS path everywhere.
+assert 'the hook never calls flock' bash -c '! grep -qE "^[^#]*\bflock\b" "$1"' _ "$HOOK"
+
+cat > "$BIN/flock" <<'EOF'
+#!/bin/sh
+touch "${FLOCK_CALLED:-/dev/null}"; exit 127
+EOF
+chmod +x "$BIN/flock"
+export FLOCK_CALLED="$S/flock-called"
+
+SRORIGIN="$S/state-origin.git"; SREPO="$S/state-repo"
+git init -q --bare "$SRORIGIN"
+git init -q -b main "$SREPO"
+gitq "$SREPO" remote add origin "$SRORIGIN"
+mkdir -p "$SREPO/state/global"; echo seed > "$SREPO/state/global/.seed"
+gitq "$SREPO" add state; gitq "$SREPO" commit -m seed
+gitq "$SREPO" push -u origin main
+
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+eq 'no flock: the state repo got the session commit' \
+  "State: work session ${SID:0:8}" "$(git -C "$SRORIGIN" log -1 --format=%s main 2>/dev/null | sed 's/ (.*//')"
+assert 'no flock: the fake flock was never called' test ! -e "$FLOCK_CALLED"
+assert 'no flock: the push lock is released after the Stop' test ! -e "$TMPDIR/claude-state-push.lock.d"
+rm -f "$BIN/flock"; unset FLOCK_CALLED
+
+# --- a conflicting state-repo pull is backed out, never left mid-rebase ---------
+# Upstream and this clone both add one path with different bytes: the Stop's
+# own commit conflicts on `pull --rebase`, and a rebase left in place would
+# wedge the clone for every later Stop.
+SRCLONE="$S/state-clone"
+git clone -q -b main "$SRORIGIN" "$SRCLONE" >/dev/null 2>&1
+rel=state/global/both.txt
+echo upstream > "$SRCLONE/$rel"
+gitq "$SRCLONE" add "$rel"; gitq "$SRCLONE" commit -m upstream-conflict; gitq "$SRCLONE" push origin main
+echo local > "$SREPO/$rel"
+rm -f "$SREPO/state/global/.last-state-push"   # past the push debounce
+
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+assert 'conflicting pull: no rebase left in progress' \
+  test ! -d "$(git -C "$SREPO" rev-parse --absolute-git-dir)/rebase-merge"
+assert 'conflicting pull: no apply-backend rebase left either' \
+  test ! -d "$(git -C "$SREPO" rev-parse --absolute-git-dir)/rebase-apply"
+assert 'conflicting pull: still on main' git -C "$SREPO" symbolic-ref -q HEAD
+assert 'conflicting pull: the verdict says the push failed' \
+  grep -qE 'state-repo push failed' "$SREPO/state/global/log/auto/"*"-work-${SID:0:8}.md"
+
+# --- a board that fails kanban-lint stays out; a hand-staged blob comes back --
+# on_exit restores it: the one EXIT trap, which also releases the push lock.
+kb=state/global/kanban.md
+printf '# Open loops\n\n## Claude'"'"'s\n' > "$SREPO/$kb"
+gitq "$SREPO" add "$kb"; gitq "$SREPO" commit -m board
+printf -- '- staged by hand\n' >> "$SREPO/$kb"; gitq "$SREPO" add "$kb"
+staged=$(git -C "$SREPO" rev-parse ":$kb")
+printf '## Yours\n' >> "$SREPO/$kb"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+eq 'lint-failed board: the hand-staged blob is back in the index' \
+  "$staged" "$(git -C "$SREPO" rev-parse ":$kb")"
+assert 'lint-failed board: its edit is not committed' \
+  bash -c '! git -C "$1" show HEAD:"$2" | grep -q Yours' _ "$SREPO" "$kb"
+assert 'lint-failed board: the push lock is released' test ! -e "$TMPDIR/claude-state-push.lock.d"
+
+# --- a live metrics-live.sh holding the per-session lock never blocks Stop (#161) --
+# Pre-create $LIVE/<sid>.lock with meta naming this test process's own pid, so
+# state_lock sees a live holder on this host and refuses to reclaim it -- the
+# same shape a concurrent metrics-live.sh nag read-modify-write would leave.
+LIVE="$HOME/.claude/state/global/metrics/live"
+mkdir -p "$LIVE/$SID.lock"
+printf 'pid=%s\nhostname=%s\n' "$$" "$(uname -n)" > "$LIVE/$SID.lock/meta"
+
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]'
+printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$SID" "$WORK" \
+  | GH_PRS="$GH_PRS" timeout 10 bash "$HOOK" >/dev/null 2>&1
+rc=$?
+CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
+assert 'a held live lock never blocks Stop' test "$rc" -ne 124
+assert 'the checkpoint is still written when the lock is held' test -n "$CKPT"
+rm -rf "$LIVE/$SID.lock"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

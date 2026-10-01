@@ -1,4 +1,5 @@
-set -o vi
+#!/usr/bin/env zsh
+#-set -o vi
 
 # Homebrew: Apple Silicon and Intel install to different prefixes, and it
 # doesn't exist at all on Linux. Guard rather than hardcode one path.
@@ -16,3 +17,7 @@ export PATH=$PATH:$HOME/.local/bin
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# MacPorts Installer addition on 2026-09-18_at_17:00:42: adding an appropriate PATH variable for use with MacPorts.
+export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+# Finished adapting your PATH environment variable for use with MacPorts.

@@ -1,0 +1,61 @@
+name: claude-config action smoke test
+
+# Exercises .github/actions/claude-config the way a consumer repo would --
+# checked out at THIS PR's head SHA, not main, so the test proves the code
+# under review rather than whatever already merged. See issue #17 (P3) and
+# .claude/docs/config-sync-strategy.md §9, "Composite action smoke test".
+#
+# Non-gating (not in ci-gate's `needs`) and path-filtered: this only costs a
+# runner-minute on PRs that actually touch the action or what it installs,
+# not on every PR in the repo.
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/claude-config/**
+      - .local/bin/**
+      - .claude/settings.json
+      - .claude/CLAUDE.md
+      - .claude/rules/**
+      - .claude/hooks/**
+      - .claude/skills/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-config-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Seed $HOME via the composite action, at this PR's head SHA
+        id: seed
+        uses: ./.github/actions/claude-config
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Assert the install landed and completed
+        # Through env, never interpolated into the script: same rule as
+        # churn-guard.yml's BASE_REF, even though this particular output is
+        # ours (true/false only), not attacker-reachable.
+        env:
+          COMPLETE: ${{ steps.seed.outputs.complete }}
+        run: |
+          set -eu
+          test -f "$HOME/.claude/CLAUDE.md"
+          diff "$HOME/.claude/CLAUDE.md" .claude/CLAUDE.md
+          test -f "$HOME/.claude/hooks/public-issue-guard.sh"
+          test -f "$HOME/.claude/.sync-status.json"
+          test ! -e .dotfiles-claude-config-seed
+          if [ "$COMPLETE" != "true" ]; then
+            echo "::error::action reported complete=$COMPLETE, expected true"
+            exit 1
+          fi
+          echo "ok: \$HOME/.claude seeded from this PR's SHA, CLAUDE.md matches the checkout, status complete: true"

@@ -31,8 +31,9 @@ Between those, a cron line that `bootstrap` installs runs
 `.local/bin/dotfiles-sync.sh` every five minutes. It only ever fast-forwards;
 see "Why the cron sync is ff-only" below.
 
-**Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — Claude Code cloud
-environment setup, secrets, and troubleshooting.
+**Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — sync, secrets, and
+troubleshooting. Claude Code — hooks, cloud environments, PR workflows — has
+its own runbook at [.claude/RUNBOOK.md](.claude/RUNBOOK.md).
 
 ## Conventions that keep it quiet
 
@@ -160,7 +161,7 @@ plus `deniedMcpServers` at user scope. `.local/bin/cloud-session-setup.sh`
 installs a chosen subset of this repo into `$HOME`.
 
 **The procedure — the setup-script blob, the two sources, and how to verify —
-is [RUNBOOK.md § Create a cloud environment](RUNBOOK.md#create-a-cloud-environment).**
+is [.claude/RUNBOOK.md § Create a cloud environment](.claude/RUNBOOK.md#create-a-cloud-environment).**
 The rest of this section is why it is built that way.
 
 **Deliberately not yadm**, even though yadm manages everything else here:
