@@ -54,6 +54,13 @@ check 'max-copy-only raises the bar'             0 'READY' --since 2026-10-01T00
 session f 2026-10-02T06:00:00.000Z 1               # the hook's real wording: words between the command and "is blocked"
 deny f "[dotfiles copy] \`git add -u\` with no path is blocked: stage by path."
 check 'copy reason worded like the hook'         1 'copy denials, plugin silent 3' --since 2026-10-01T00:00:00Z
+session g 2026-10-02T07:00:00.000Z 1               # the plugin's own fail-closed wrapper: installed, hook did not run
+deny g 'no-rm-tree.sh is missing from the plugin directory or crashed, so recursive rm could not be checked'
+deny g "[dotfiles copy] \`rm -r lib\` is blocked"                       # copy; the wrapper is not the plugin denying
+check 'plugin wrapper is not a plugin denial'    1 'plugin denials              2' --since 2026-10-01T00:00:00Z
+check 'plugin wrapper counts as broken'          1 'plugin fail-closed denials  1' --since 2026-10-01T00:00:00Z
+check 'copy-only when only the wrapper fired'    1 'copy denials, plugin silent 4' --since 2026-10-01T00:00:00Z
+check 'broken blocks ready at any threshold'     1 'NOT READY' --since 2026-10-01T00:00:00Z --min-sessions 1 --min-plugin 1 --max-copy-only 9
 check 'missing --since is a usage error'         2 'required'
 check 'bad count is a usage error'               2 'not a count' --since 2026-10-01T00:00:00Z --min-plugin x
 check 'missing metrics dir'                      2 'no metrics' --since 2026-10-01T00:00:00Z --metrics "$M/nope"

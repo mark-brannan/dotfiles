@@ -11,10 +11,14 @@
 #   plugin     rule denials by one of the three guards with no copy tag
 #   copy-only  denials tagged "[dotfiles copy]" (or the copy's fail-closed
 #              wrapper) for a guard the plugin never denied in that session
+#   broken     denials by the plugin's own fail-closed wrapper ("missing from
+#              the plugin directory or crashed"): the plugin was installed and
+#              its hook did not run, so these never count as the plugin denying
 #
-# Then READY and exit 0 when sessions >= --min-sessions, plugin >= --min-plugin
-# and copy-only <= --max-copy-only; otherwise NOT READY and exit 1. The
-# defaults are placeholders; the thresholds are the user's to set.
+# Then READY and exit 0 when sessions >= --min-sessions, plugin >= --min-plugin,
+# copy-only <= --max-copy-only and broken is 0; otherwise NOT READY and exit 1.
+# The defaults are placeholders; the thresholds are the user's to set, except
+# broken, which no threshold excuses.
 #
 # What it can and cannot see: when the plugin and a copy both deny one call,
 # the harness shows one reason and the metrics keep only that one. So a
@@ -74,19 +78,23 @@ done | jq -rs --argjson sessions "$nsessions" '
     elif test("no-git-footguns|`(git|yadm) [^`]*`[^`]* is blocked|bare `git |force-pushing or deleting main") then "no-git-footguns"
     else null end;
   def side:
-    if test("\\[dotfiles copy\\] |missing from \\$HOME/\\.claude/hooks") then "copy" else "plugin" end;
+    if test("\\[dotfiles copy\\] |missing from \\$HOME/\\.claude/hooks") then "copy"
+    elif test("missing from the plugin directory") then "broken"
+    else "plugin" end;
   [ .[] | (.reason | guard) as $g | select($g != null) | {sid, g: $g, side: (.reason | side)} ] as $d
   | ([ $d[] | select(.side == "plugin") | "\(.sid) \(.g)" ] | unique) as $seen
   | [ $sessions,
       ([ $d[] | select(.side == "plugin") ] | length),
-      ([ $d[] | select(.side == "copy" and ("\(.sid) \(.g)" as $k | $seen | index($k) | not)) ] | length)
+      ([ $d[] | select(.side == "copy" and ("\(.sid) \(.g)" as $k | $seen | index($k) | not)) ] | length),
+      ([ $d[] | select(.side == "broken") ] | length)
     ] | @tsv' | {
-  IFS='	' read -r s p c || { echo "could not read the metrics" >&2; exit 2; }
+  IFS='	' read -r s p c b || { echo "could not read the metrics" >&2; exit 2; }
   printf 'since %s\n' "$since"
   printf '  sessions with a Bash call   %s  (want >= %s)\n' "$s" "$min_sessions"
   printf '  plugin denials              %s  (want >= %s)\n' "$p" "$min_plugin"
   printf '  copy denials, plugin silent %s  (want <= %s)\n' "$c" "$max_copy_only"
-  if [ "$s" -ge "$min_sessions" ] && [ "$p" -ge "$min_plugin" ] && [ "$c" -le "$max_copy_only" ]; then
+  printf '  plugin fail-closed denials  %s  (want 0)\n' "$b"
+  if [ "$s" -ge "$min_sessions" ] && [ "$p" -ge "$min_plugin" ] && [ "$c" -le "$max_copy_only" ] && [ "$b" -eq 0 ]; then
     echo READY; exit 0
   fi
   echo "NOT READY"; exit 1
