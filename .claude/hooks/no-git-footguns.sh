@@ -2,7 +2,8 @@
 # Blocks the git moves that have bitten the user, or sit in the same class as
 # ones that have, and that a session never has a good reason to make:
 #
-#   blanket staging   git add -A / --all / . / ./ / -u with no path,
+#   blanket staging   git add -A / --all / . / ./ / -u with no plain path
+#                     vouching for it (-A src is fine: git limits -A to src),
 #                     git commit -a  -> on dotfiles the worktree is $HOME;
 #                     elsewhere it sweeps in a parallel session's files.
 #   stash pop/drop    the stash stack is shared across worktrees, so a pop,
@@ -58,6 +59,8 @@ function pfx(t, full) { return length(t) >= 3 && index(full, t) == 1 }
 function dst(t,  i) { sub(/^\+/, "", t); i = index(t, ":"); if (i) t = substr(t, i + 1); return t }
 function ismain(t) { return t ~ /^(refs\/heads\/)?(main|master)$/ }
 function whole(t) { return t ~ /^(\.|\.\/|\.\/\*|:\/|:\/\.|\*)$/ }
+# A pathspec vouches for -A/-u only if it is one resolvable path: no $/backtick, quoted space, glob, magic, tree or parent.
+function vouches(t, j) { return !(k[j] == "q" || SW_live[j] || t ~ /[*?[]|^:|^[.\/]*$|^~\/?$/) }
 function fail(r) { print r; exit }
 { buf = buf $0 "\n" }
 END {
@@ -73,7 +76,7 @@ END {
     }
   }
 }
-function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, force, lease, tomain, del, staged, wt, wh, dry) {
+function segment(lo, hi, nested,   g, i, na, sub_, a, ai, paths, upd, all, bad, op, refs, force, lease, tomain, del, staged, wt, wh, dry) {
     g = cmd_index(w, k, lo, hi, "(^|/)(git|yadm)$", nested, "")
     if (!g) return
     # Skip global options; -C/-c/--git-dir/--work-tree take a value.
@@ -85,18 +88,20 @@ function segment(lo, hi, nested,   g, i, na, sub_, a, paths, upd, op, refs, forc
     if (i > hi) return
     sub_ = w[i]
     na = 0
-    for (i++; i <= hi; i++) a[++na] = w[i]
+    for (i++; i <= hi; i++) { a[++na] = w[i]; ai[na] = i }
 
     if (sub_ == "add") {
-      paths = 0; upd = 0
+      paths = 0; upd = 0; all = 0; bad = ""
       for (i = 1; i <= na; i++) {
-        if (a[i] == "-A" || pfx(a[i],"--all") || pfx(a[i],"--no-ignore-removal") || has(a[i], "A"))
-          fail("`git add -A` is blocked: stage by path. On dotfiles the worktree is $HOME; " \
-               "elsewhere it sweeps in files a parallel session is working on.")
         if (whole(a[i])) fail("`git add " a[i] "` is blocked: stage by path, not the whole tree.")
+        if (a[i] == "-A" || pfx(a[i],"--all") || pfx(a[i],"--no-ignore-removal") || has(a[i], "A")) all = 1
         if (a[i] == "-u" || pfx(a[i],"--update") || has(a[i], "u")) upd = 1
-        else if (a[i] !~ /^-/) paths++
+        if (a[i] !~ /^-/) { if (vouches(a[i], ai[i])) paths++; else bad = a[i] }
       }
+      if ((all || upd) && bad != "") fail("`git add -A/-u " bad "` is blocked: with -A or -u every path must be a plain, resolvable one.")
+      if (all && !paths)
+        fail("`git add -A` without a plain path is blocked: stage by path (`git add -A <path>` passes, git limits it to that " \
+             "path; `.`, `..`, globs and $VARs do not count). On dotfiles the worktree is $HOME; elsewhere it sweeps in a parallel session'\''s files.")
       if (upd && !paths) fail("`git add -u` with no path is blocked: stage by path.")
     }
     else if (sub_ == "commit") {

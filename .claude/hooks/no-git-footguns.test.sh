@@ -38,6 +38,52 @@ check allow 'commit --amend'            'git commit --amend --no-edit'
 check allow 'commit message mentions -a' "git commit -m 'block git commit -a'"
 check allow 'commit -S signed'          'git commit -S -m x'
 
+# --- -A / -u with a pathspec that vouches ---
+# git limits -A and -u to the pathspecs given, so `git add -A src` stages only
+# src. A pathspec vouches when the hook can see it is one real path: a plain
+# word that is not the whole tree or a parent (`.`, `./`, `..`, `../`, `:/`,
+# `*`, `~`, `/`), holds no `$`, backtick, glob or `:` pathspec magic, and is
+# not a quoted string with whitespace. What the hook cannot resolve does not
+# vouch, so the gate stays fail-closed.
+check allow 'add -A path'               'git add -A .github'
+check allow 'add --all path'            'git add --all src/'
+check allow 'add -A -- path'            'git add -A -- src'
+check allow 'add -A ./path'             'git add -A ./src'
+check allow 'add -A two paths'          'git add -A src docs/README.md'
+check allow 'add -Av path'              'git add -Av src'
+check allow 'add --no-ignore-removal path' 'git add --no-ignore-removal src'
+check deny  'add -A :/path magic'       'git add -A :/src'
+check allow 'add -A path then -- '      'git add -A src --'
+check allow 'add -u -- path'            'git add -u -- src'
+check deny  'add -A .'                  'git add -A .'
+check deny  'add -A ./'                 'git add -A ./'
+check deny  'add -A ..'                 'git add -A ..'
+check deny  'add -A ../'                'git add -A ../'
+check deny  'add -A . path'             'git add -A . src'
+check deny  'add -A path .'             'git add -A src .'
+check deny  'add -A --'                 'git add -A --'
+check deny  'add -A star'               "git add -A '*'"
+check deny  'add -A glob'               "git add -A 'src/*.sh'"
+check deny  'add -A :/'                 'git add -A :/'
+check deny  'add -A :(top)'             "git add -A ':(top)'"
+check deny  'add -A ~'                  "git add -A '~'"
+check deny  'add -A slash'              'git add -A /'
+check deny  'add -A $VAR'               'git add -A "$DIR"'
+check deny  'add -A $(cmd)'             'git add -A $(pwd)'
+check deny  'add -A quoted whitespace'  "git add -A 'a b'"
+check deny  'add -A -n'                 'git add -An'
+check deny  'add -u ..'                 'git add -u ..'
+check deny  'add -u $VAR'               'git add -u $DIR'
+check deny  'yadm add -A .'             'yadm add -A .'
+check deny  'add -A . in compound'      'cd foo && git add -A . && git commit -m x'
+check deny  'add -A .. beside a path'    'git add -A .. src/safe.txt'
+check deny  'add -A $VAR beside a path'  'git add -A "$DIR" src/safe.txt'
+check deny  'add -A glob beside a path'  "git add -A 'src/*' docs"
+check deny  'add -u .. beside a path'    'git add -u .. src/safe.txt'
+check deny  'add -A path beside quoted ws' "git add -A src 'a b'"
+check allow 'add $VAR without -A/-u'     'git add "$DIR"'
+check allow 'add .. without -A/-u'       'git add ../shared/file.txt'
+
 # --- stash ---
 check deny  'stash pop'                 'git stash pop'
 check deny  'stash pop ref'             'git stash pop stash@{2}'
