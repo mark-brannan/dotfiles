@@ -12,7 +12,10 @@
 # What matters: reads, comments and edits are never touched; a create,
 # transfer or delete passes once per human turn and is denied after; two in
 # one call or one in a loop are denied even with the door open.
+# AWK_PATH, as in the other lib-shell-words suites, is a directory whose
+# `awk` is the implementation under test.
 set -uo pipefail
+[ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/issue-door.sh"
 pass=0; fail=0
@@ -60,6 +63,8 @@ check deny 'after cd &&'               "$(bash_in 'cd /w && gh issue create -t t
 check deny 'path to gh'                "$(bash_in '/usr/bin/gh issue create -t t -b b')"
 check deny 'brace group'               "$(bash_in '{ gh issue create -t t -b b; }')"
 check allow 'not gh, ends in gh'       "$(bash_in 'ugh issue create')"
+check deny 'inside sh -c'              "$(bash_in 'sh -c "gh issue create -t t -b b"')"
+check deny 'inside eval'               "$(bash_in 'eval "gh issue transfer 4 o/x"')"
 check deny 'in $(...)'                 "$(bash_in 'url=$(gh issue create -t t -b b)')"
 check deny 'api POST -f'               "$(bash_in 'gh api repos/o/r/issues -f title=t')"
 check deny 'api -X POST --input'       "$(bash_in 'gh api -X POST repos/o/r/issues --input body.json')"
@@ -88,6 +93,7 @@ open_door
 check allow 'loop word in the title'   "$(bash_in 'gh issue create --title "Retry for uploads while offline" -b b')"
 open_door
 check deny  'until loop'               "$(bash_in 'until false; do gh issue create -t t -b x; done')"
+check deny  'find -exec'               "$(bash_in 'find . -name "*.md" -exec gh issue create -F {} \;')"
 check deny  'parallel'                 "$(bash_in 'parallel gh issue create -t {} -b x ::: a b')"
 
 # Another session's turn does not open this one's door.
