@@ -48,9 +48,13 @@ case $(printf '%s' "$p" | jq -r '.tool_name // ""') in
         }
       }
       function emit() { print "W"; if (depth > 0 || rep) print "LOOP" }
-      function segment(lo, hi, nested,   c, g, i, t, path, method, fields, m) {
-        c = seg_cmd(w, k, lo, hi)
-        if (c && w[c] ~ /^(for|while|until|select)$/) depth++
+      function segment(lo, hi, nested,   g, i, t, path, method, fields, m) {
+        # A loop word after do/then/else counts too: `do for s in x y` opens one.
+        for (i = lo; i <= hi && k[i] == "w"; i++) {
+          if (w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+          if (w[i] ~ /^(for|while|until|select)$/) { depth++; break }
+          if (w[i] !~ /^(do|then|else|elif|!|time|\{|\()$/) break
+        }
         if (k[lo] == "w" && w[lo] == "done" && depth > 0) depth--
         rep = 0
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
