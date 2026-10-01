@@ -99,7 +99,7 @@ assert 'open releases it' bash -c "sh '$PL' --all | grep -qxF '    $CARD'"
 # --- a card's id is its handle ------------------------------------------------
 ID=1790836842077c62eb
 printf -- '- [ ] **Card two** -- a card with an id ([x](https://example.invalid/card-2)) id: %s\n' "$ID" >> "$SR/state/global/kanban.md"
-assert 'a card with an id is listed by its id' bash -c "sh '$PL' --all | grep -qxF '    $ID'"
+assert 'a card with an id is listed by its id' bash -c "sh '$PL' --all 2>/dev/null | grep -qxF '    $ID'"
 eq 'take by id claims it' "taken $ID" "$(sh "$PL" take "$ID" 1111111122223333)"
 assert 'the claim is keyed by link, so a take by link is refused' bash -c "! sh '$PL' take https://example.invalid/card-2 4444444455556666 2>/dev/null"
 sh "$PL" open "$ID" >/dev/null

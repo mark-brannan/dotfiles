@@ -575,11 +575,12 @@ is_card_id() {
 
 # board_card <kanban.md> <id> -- the card whose `id:` is <id>, from any
 # section, as `<section>\t<group>\t<folded card>`; fails when none is. The
-# one lookup from an id back to the card's title, date and link.
+# one lookup from an id back to the card's title, date and link. Matches the
+# field the way kanban-lint's L11 does, so a card the lint passes is found.
 board_card() {
   [ -f "$1" ] || return 1
   awk -v want="$2" '
-    function flush() { if (txt != "" && (" " txt " ") ~ (" id: " want " ")) { print sec "\t" grp "\t" txt; hit = 1 } txt = "" }
+    function flush() { if (txt != "" && txt ~ ("(^|[ (])id:[ \t]*" want "([^0-9a-z]|$)")) { print sec "\t" grp "\t" txt; hit = 1 } txt = "" }
     /^## /  { flush(); sec = substr($0, 4); grp = ""; next }
     /^### / { flush(); grp = substr($0, 5); next }
     /^#/ || /^[ \t]*$/ { flush(); next }

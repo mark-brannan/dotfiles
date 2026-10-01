@@ -419,7 +419,6 @@ run card 179083684; eq 'a malformed id exits 2' 2 "$RC"
 run --all-rulings
 has 'a ruling card leads with its id' '^- 1790836842077c62eb global: \*\*Engine pin'
 has 'a Claude card leads with its id' '^- 1790836843077c62eb \*\*Card 0'
-lacks() { if grep -Eq -- "$2" <<<"$OUT"; then bad "$1 (has /$2/)" "$OUT"; else ok; fi; }
 lacks 'the trailing id field is not repeated' 'alpha id:'
 
 printf '%d passed, %d failed\n' "$pass" "$fail"

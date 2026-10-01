@@ -47,7 +47,7 @@ case "${1:-}" in
     hex=$(printf '%s' "$sid" | tr -d '-' | cut -c1-8 | tr 'A-F' 'a-f')
     case $hex in ????????) ;; *) die "no session id (pass one, or run inside a session)" ;; esac
     case $hex in *[!0-9a-f]*) die "session id $sid does not start with eight hex" ;; esac
-    [ -f "$BOARD" ] || die "no board at $BOARD"
+    [ -r "$BOARD" ] || die "no readable board at $BOARD"
     mkdir -p "${LEDGER%/*}" 2>/dev/null && touch "$LEDGER" 2>/dev/null || die "cannot write the ledger $LEDGER"
     state_lock_wait "$LOCK" 30 || die "the board lock $LOCK has been held for 30 s"
     trap 'state_unlock' EXIT
