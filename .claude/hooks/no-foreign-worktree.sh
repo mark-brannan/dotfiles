@@ -52,6 +52,18 @@
 # toplevel" shortcut would wrongly allow exactly the case this exists for.
 # There is no shortcut here for that reason: every candidate path gets asked.
 #
+# One exception, measured not assumed (2026-09-30, 187 denials over 584
+# sessions, 25 of them this case): a worktree the session created itself
+# under its own scratchpad directory. It is linked, and its toplevel is not
+# the session's cwd toplevel, so the two tests above call it foreign -- but
+# nobody else can own a directory that lives under
+# `.../claude-tmpdir/claude-<uid>/<project>/<session-id>/...`. So a linked
+# worktree whose canonical toplevel has a whole path component equal to the
+# payload's `session_id` is this session's own, wherever the scratchpad
+# lives (`$TMPDIR` when Claude Code has pointed it there, the state dir
+# otherwise). No session id in the payload means nothing newly allowed; a
+# bare `/tmp` never qualifies because no component of it is a session id.
+#
 # Known gap, deliberate: the shared scanner drops redirections, so
 # `cmd > /other/worktree/file` is not seen. Words are seen, redirection
 # targets are not. Closing it means reimplementing redirection tracking for
@@ -177,6 +189,20 @@ home=$(cd "$HOME" 2>/dev/null && pwd -P) || exit 0
 # this hook would give anyway.
 own_top=$(git -C "$payload_cwd" rev-parse --show-toplevel 2>/dev/null)
 
+# This session's id, or empty. Empty keeps every rule below exactly as
+# strict as before; only a non-empty id allows anything new.
+session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null)
+
+# under_own_scratch <canonical-dir> -- succeeds when some whole path
+# component of the directory equals this session's id. Whole component
+# only: an id that is merely a substring of a directory name is not that
+# session's directory.
+under_own_scratch() {
+  [ -n "$session_id" ] || return 1
+  case "/$1/" in */"$session_id"/*) return 0 ;; esac
+  return 1
+}
+
 # EnterWorktree with a `path` is refused whatever the path: the tool does no
 # ownership check, and `name` plus a fast-forward merge covers every honest
 # use.
@@ -227,6 +253,9 @@ foreign_top() {
   # worktree (a clone, $HOME under yadm) keeps a directory. Only the former
   # is a session's private space.
   [ -f "$t/.git" ] || return 0
+  # A linked worktree under this session's own scratchpad is this session's
+  # (see the header). git's toplevel is already canonical.
+  under_own_scratch "$t" && return 0
   printf '%s' "$t"
 }
 
