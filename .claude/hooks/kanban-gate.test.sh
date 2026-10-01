@@ -62,7 +62,7 @@ reason 'says fix or delete'                  'Fix or delete each line'
 reason 'says it fires once'                  'once per turn'
 
 gitq "$SR" checkout -- state/global/kanban.md
-printf -- '- [ ] **Fine card** — a plain agent loop ([log](log/fine.md))\n' >> "$BOARD"
+printf -- '- [ ] **Fine card** — a plain agent loop ([log](log/fine.md)) id: 1790000000aaaaaaaa\n' >> "$BOARD"
 check silent 'clean added lines pass'        "$(stop_input)"
 
 # A board never committed (fresh state repo) is linted whole.

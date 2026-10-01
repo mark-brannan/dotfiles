@@ -23,6 +23,9 @@
     ],
     "deny": [
       "Bash(git reset --hard:*)"
+    ],
+    "additionalDirectories": [
+      "~/claude_prompts_scratch"
     ]
   },
   "disableClaudeAiConnectors": true,
@@ -119,13 +122,28 @@
         "hooks": [
           {
             "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/no-git-footguns.sh\"; { [ -f \"$h\" ] && sh \"$h\"; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"no-git-footguns.sh is missing from $HOME/.claude/hooks or crashed, so the git footguns could not be checked. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}'",
+            "statusMessage": "Checking for git footguns"
+          },
+          {
+            "type": "command",
             "command": "h=\"$HOME/.claude/hooks/no-checkout-home.sh\"; { [ -f \"$h\" ] && sh \"$h\"; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"no-checkout-home.sh is missing from $HOME/.claude/hooks or crashed, so a branch checkout in $HOME could not be checked. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}'",
             "statusMessage": "Checking for a branch checkout in $HOME"
           },
           {
             "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/no-rm-tree.sh\"; { [ -f \"$h\" ] && sh \"$h\"; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"no-rm-tree.sh is missing from $HOME/.claude/hooks or crashed, so recursive rm could not be checked. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}'",
+            "statusMessage": "Checking for rm -r on a working directory"
+          },
+          {
+            "type": "command",
             "command": "h=\"$HOME/.claude/hooks/no-foreign-worktree.sh\"; { [ -f \"$h\" ] && sh \"$h\"; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"no-foreign-worktree.sh is missing from $HOME/.claude/hooks or crashed, so a reach into a worktree owned by another session could not be checked. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}'",
             "statusMessage": "Checking for a reach into another worktree"
+          },
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/no-delete-stacked-base.sh\"; { [ -f \"$h\" ] && sh \"$h\"; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"no-delete-stacked-base.sh is missing from $HOME/.claude/hooks or crashed, so a remote-branch deletion could not be checked for open PRs stacked on it. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}'",
+            "statusMessage": "Checking for open PRs stacked on the branch being deleted"
           }
         ]
       },
@@ -212,6 +230,16 @@
             "type": "command",
             "command": "h=\"$HOME/.claude/hooks/public-issue-guard.sh\"; { [ -f \"$h\" ] && sh \"$h\"; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"public-issue-guard.sh is missing from $HOME/.claude/hooks or crashed, so the issue or PR text could not be checked against the private-terms list. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}'",
             "statusMessage": "Checking issue/PR text against the private-terms list"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|mcp__.*__(create_issue|issue_write|transfer_issue|delete_issue)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "p=$(cat); h=\"$HOME/.claude/hooks/issue-door.sh\"; [ -f \"$h\" ] && printf '%s' \"$p\" | sh \"$h\" && exit 0; case \"$p\" in *'gh issue'*|*'/issues'*|*'Issue('*|*create_issue*|*issue_write*|*transfer_issue*|*delete_issue*) printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"issue-door.sh is missing from $HOME/.claude/hooks or crashed, so this issue create, transfer or delete could not be checked. This is a gate and fails closed: run dotsync (or cloud-session-setup.sh) and retry.\"}}' ;; esac",
+            "statusMessage": "Checking for an issue create, transfer or delete"
           }
         ]
       }
@@ -358,6 +386,10 @@
           {
             "type": "command",
             "command": "h=\"$HOME/.claude/hooks/metrics-live.sh\"; [ -f \"$h\" ] && bash \"$h\" prompt 0 show 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/issue-door.sh\"; [ -f \"$h\" ] && sh \"$h\" prompt; true"
           }
         ]
       }

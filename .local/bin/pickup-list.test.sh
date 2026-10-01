@@ -66,5 +66,47 @@ assert 'the docket counts open Needs-ruling boxes' bash -c "sh '$PL' | grep -q '
 rm "$SR/state/global/kanban.md"
 assert 'no board, no docket line' bash -c "! sh '$PL' | grep -q '^Docket:'"
 
+# --- cards on the board's `## Claude's` are pickup items too -----------------
+# An example.invalid link is no GitHub card, so a take is the ledger alone -- the part a
+# second run reads.
+export TMPDIR="$S/tmp"; mkdir -p "$TMPDIR"
+unset CI GITHUB_ACTIONS
+CARD=https://example.invalid/card-1
+cat > "$SR/state/global/kanban.md" <<EOF
+# Board
+
+## Needs ruling
+
+### global
+- [ ] a ruling ([x](https://example.invalid/ruling)) default: a undo: b until: c risk: d judgment: values
+
+## Claude's
+
+- [ ] **Card one** -- a card a session can take ([x]($CARD)) model: opus effort: high
+EOF
+assert 'a card is listed with pickup items' bash -c "sh '$PL' --all | grep -qxF '    $CARD'"
+assert 'a ruling is not a pickup candidate' bash -c "! sh '$PL' --all | grep -q 'example.invalid/ruling'"
+assert 'nor can it be taken' bash -c "! sh '$PL' take https://example.invalid/ruling 1111111122223333 2>/dev/null"
+assert 'take of a card needs a session id' bash -c "! CLAUDE_CODE_SESSION_ID= sh '$PL' take '$CARD' 2>/dev/null"
+eq 'take on a card claims it' "taken $CARD" "$(sh "$PL" take "$CARD" 1111111122223333)"
+eq 'a second run sees it taken' '' "$(sh "$PL" --all | grep -F "$CARD" || true)"
+assert 'and shows the holder with --closed' bash -c "sh '$PL' --closed | grep -q 'taken by 11111111'"
+assert 'a second session cannot take it' bash -c "! sh '$PL' take '$CARD' 4444444455556666 2>/dev/null"
+assert 'done refuses a card' bash -c "! sh '$PL' done '$CARD' 2>/dev/null"
+sh "$PL" open "$CARD" >/dev/null
+assert 'open releases it' bash -c "sh '$PL' --all | grep -qxF '    $CARD'"
+
+# --- a card's id is its handle ------------------------------------------------
+ID=1790836842077c62eb
+printf -- '- [ ] **Card two** -- a card with an id ([x](https://example.invalid/card-2)) id: %s\n' "$ID" >> "$SR/state/global/kanban.md"
+assert 'a card with an id is listed by its id' bash -c "sh '$PL' --all 2>/dev/null | grep -qxF '    $ID'"
+eq 'take by id claims it' "taken $ID" "$(sh "$PL" take "$ID" 1111111122223333)"
+assert 'the claim is keyed by link, so a take by link is refused' bash -c "! sh '$PL' take https://example.invalid/card-2 4444444455556666 2>/dev/null"
+sh "$PL" open "$ID" >/dev/null
+assert 'show by id prints the card' bash -c "sh '$PL' show '$ID' | grep -q 'Card two'"
+printf '\n## Human'"'"'s\n- [ ] **Click it** -- in the UI ([x](https://example.invalid/h)) why you: learn id: 1790836842d654192b\n' >> "$SR/state/global/kanban.md"
+assert 'show by id reaches any section' bash -c "sh '$PL' show 1790836842d654192b | grep -q 'Click it'"
+assert 'but a click-work card cannot be taken' bash -c "! sh '$PL' take 1790836842d654192b 1111111122223333 2>/dev/null"
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

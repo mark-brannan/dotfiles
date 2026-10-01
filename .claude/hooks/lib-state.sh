@@ -452,3 +452,270 @@ branch_brief() {
     printf 'recommend: git fetch origin %s && git rebase origin/%s\n' "$base" "$base"
   fi
 }
+
+# ------------------------------------------------------------- units of work
+# A pickup item and a card on the board's `## Claude's` are facets of one
+# thing, the unit of work and of continuity between sessions (one-entry-point
+# curia, Solace, 2026-10-01). Until they are one record on disk they are one
+# record on read: every view that lists work reads it through work_record, so
+# pickup-list, worklist's resume section and /pickup cannot disagree about
+# what an item is.
+
+# work_record <pickup-file | card-text> [<updated>] -- one unit of work as one
+# line, fields separated by \037 (a tab would be collapsed by `read`):
+#
+#   kind title status until claim model effort link id updated
+#
+# kind is `pickup` or `card`. An absent field is empty; the renderer draws
+# the dash. A pickup item's model, effort, until and link come from its
+# hand-off body, so the model is the previous session's recommendation; the
+# header's model (the session that wrote it) stands in only when the body
+# names none. A card's come from its own `model:`, `effort:`, `until:` fields
+# and its first link; its id is its `id:` field (the link on a card minted
+# before ids), and a claim on it is keyed by that link. A card's <updated> is the caller's to
+# pass (claude_cards takes it from git blame); its status is `taken` while a
+# live claim stands, and claim is the holder's short session id.
+work_record() {
+  if [ -f "$1" ]; then work_records "$1"
+  else printf '%s\t%s\n' "${2:-}" "$1" | work_records --cards; fi
+}
+
+# work_records [--cards] [<pickup-file>...] -- work_record for many, in one
+# awk pass: a listing of two hundred items cannot afford a dozen forks each.
+# --cards reads `<updated>\t<card text>` lines (claude_cards' output) from
+# stdin first. Claims come from $WORK_CLAIMS when the caller primed it with
+# work_claims_load (one read for a whole listing), else are read here.
+work_records() {
+  if [ "${1:-}" = --cards ]; then shift; set -- cards=1 - cards=0 "$@"; fi
+  [ $# -gt 0 ] || return 0
+  [ -n "${WORK_CLAIMS+x}" ] || work_claims_load
+  WORK_CLAIMS=$WORK_CLAIMS awk '
+    BEGIN {
+      US = "\037"
+      n = split(ENVIRON["WORK_CLAIMS"], L, "\n")
+      for (i = 1; i <= n; i++) {
+        split(L[i], c, "\t")
+        if (c[1] == "live" && c[5] != "" && !(c[5] in held)) held[c[5]] = c[2]
+      }
+    }
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+    function mshort(m) {
+      m = tolower(m)
+      if (m ~ /fable/) return "fable"; if (m ~ /opus/) return "opus"
+      if (m ~ /sonnet/) return "sonnet"; if (m ~ /haiku/) return "haiku"
+      if (m == "none" || m == "?" || m == "-") return ""
+      return m
+    }
+    function emit(kind, title, st, until, claim, model, effort, link, id, up) {
+      print kind US title US st US until US claim US mshort(model) US trim(effort) US link US id US up
+    }
+    # A card field: the value after " <name>:" up to ";", ")", the next field or the end.
+    function cfield(b, k,   p, v) {
+      b = " " b; p = index(b, " " k ":"); if (!p) p = index(b, "(" k ":"); if (!p) return ""
+      v = substr(b, p + length(k) + 2); sub(/^[ \t]+/, "", v)
+      if (match(v, /[;)]/)) v = substr(v, 1, RSTART - 1)
+      if (match(v, / [a-z][a-z ]*:/)) v = substr(v, 1, RSTART - 1)
+      return trim(v)
+    }
+    function card(up, b,   title, link, t, p, claim) {
+      sub(/^[ \t]*(- \[[ xX]\] |- |[0-9]+\. )/, "", b)
+      if (substr(b, 1, 2) == "**") {
+        t = substr(b, 3); p = index(t, "**"); title = p ? substr(t, 1, p - 1) : t
+      } else { title = b; gsub(/\]\([^)]*\)/, "", title); gsub(/\[/, "", title) }
+      link = ""
+      if (match(b, /\]\((https?:\/\/[^) ]+|(\.\.\/)*log\/[^) ]+)\)/)) link = substr(b, RSTART + 2, RLENGTH - 3)
+      else if (match(b, /https?:\/\/[^ )>]+/)) link = substr(b, RSTART, RLENGTH)
+      claim = (link in held) ? held[link] : ""
+      emit("card", trim(title), claim != "" ? "taken" : "open", cfield(b, "until"), claim,
+           cfield(b, "model"), cfield(b, "effort"), link, (cfield(b, "id") != "" ? cfield(b, "id") : link), up)
+    }
+    function bget(k) { return (k in bf) ? bf[k] : "" }
+    function flushp(   id, model, link) {
+      if (cur == "") return
+      id = cur; sub(/^.*\//, "", id); sub(/\.md$/, "", id)
+      model = bget("model"); if (model == "") model = hf["model"]
+      link = bget("link"); if (link == "" && hf["pr"] != "none") link = hf["pr"]
+      emit("pickup", title, hf["status"] == "" ? "open" : hf["status"], bget("until"), "",
+           model, bget("effort"), link, id, hf["updated"])
+      cur = ""
+    }
+    cards { p = index($0, "\t"); card(substr($0, 1, p - 1), substr($0, p + 1)); next }
+    FNR == 1 { flushp(); cur = FILENAME; body = 0; title = ""; split("", hf); split("", bf) }
+    !body && /^---$/ { body = 1; next }
+    !body {
+      p = index($0, ": ")
+      if (p) { k = substr($0, 1, p - 1); if (!(k in hf)) hf[k] = trim(substr($0, p + 2)) }
+      next
+    }
+    title == "" && /[^ \t\r]/ { title = trim($0); next }
+    match($0, /^(until|effort|link|model):/) {
+      k = substr($0, 1, RLENGTH - 1); if (!(k in bf)) bf[k] = trim(substr($0, RLENGTH + 1))
+    }
+    END { flushp() }
+  ' "$@"
+}
+
+# work_claims_load -- set $WORK_CLAIMS to every card claim on record, one
+# `live|stale <sid8> <machine> <age>m <url>` line each (claim-stamp.sh owns
+# the ledger and its format). Empty when the claim script is not here.
+work_claims_load() {
+  local cs="${HOOK_DIR:-$HOME/.claude/hooks}/claim-stamp.sh"
+  WORK_CLAIMS=""
+  [ -f "$cs" ] && WORK_CLAIMS=$(sh "$cs" card-claims 2>/dev/null)
+  return 0
+}
+
+# is_card_id <word> -- true for a work item's identifier: epoch seconds, then
+# the minting session's eight hex, no separator (Solace, 2026-10-01).
+is_card_id() {
+  case "${1:-}" in *[!0-9a-f]*|'') return 1 ;; esac
+  [ ${#1} -eq 18 ] && case "$1" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) return 0 ;; esac
+  return 1
+}
+
+# board_card <kanban.md> <id> -- the card whose `id:` is <id>, from any
+# section, as `<section>\t<group>\t<folded card>`; fails when none is. The
+# one lookup from an id back to the card's title, date and link. Matches the
+# field the way kanban-lint's L11 does, so a card the lint passes is found.
+board_card() {
+  [ -f "$1" ] || return 1
+  awk -v want="$2" '
+    function flush() { if (txt != "" && txt ~ ("(^|[ (])id:[ \t]*" want "([^0-9a-z]|$)")) { print sec "\t" grp "\t" txt; hit = 1 } txt = "" }
+    /^## /  { flush(); sec = substr($0, 4); grp = ""; next }
+    /^### / { flush(); grp = substr($0, 5); next }
+    /^#/ || /^[ \t]*$/ { flush(); next }
+    /^(- |[0-9]+\. )/ { flush(); txt = $0; sub(/[ \t]+$/, "", txt); next }
+    txt != "" { t = $0; sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t); txt = txt " " t }
+    END { flush(); exit !hit }
+  ' "$1"
+}
+
+# claude_cards <kanban.md> -- the pickup candidates on a board: every card
+# under `## Claude's`, folded onto one line with its indented continuations,
+# ticked lines skipped. One `<updated>\t<card text>` per card, <updated> the
+# ISO time git blame gives the card's newest line, or empty off git.
+# Only the agent's section: a ruling waits for the user and click work is
+# theirs, so neither is work a session can pick up.
+claude_cards() {
+  local f="$1" times
+  [ -f "$f" ] || return 0
+  times=$(git -C "$(dirname "$f")" blame --line-porcelain -- "$(basename "$f")" 2>/dev/null \
+    | awk '/^[0-9a-f]+ [0-9]+ [0-9]+/ { n = $3 } /^author-time / { print "@T " n " " $2 }')
+  printf '%s\n' "$times" | awk '
+    # days_to_civil (Howard Hinnant), so no date(1) call per card
+    function iso(e,   z, era, doe, yoe, y, doy, mp, d, m, s) {
+      if (e == "") return ""
+      s = e % 86400; z = int(e / 86400) + 719468
+      era = int(z / 146097); doe = z - era * 146097
+      yoe = int((doe - int(doe / 1460) + int(doe / 36524) - int(doe / 146096)) / 365)
+      y = yoe + era * 400; doy = doe - (365 * yoe + int(yoe / 4) - int(yoe / 100))
+      mp = int((5 * doy + 2) / 153); d = doy - int((153 * mp + 2) / 5) + 1
+      m = mp < 10 ? mp + 3 : mp - 9; if (m <= 2) y++
+      return sprintf("%04d-%02d-%02dT%02d:%02d:%02dZ", y, m, d, int(s / 3600), int(s % 3600 / 60), s % 60)
+    }
+    function flush() { if (txt != "") print iso(newest) "\t" txt; txt = ""; newest = "" }
+    function seen(n) { if ((n in at) && (newest == "" || at[n] > newest)) newest = at[n] }
+    /^@T / { split($0, a, " "); at[a[2]] = a[3]; next }
+    /^## /       { flush(); sec = ($0 ~ /^## Claude/); next }
+    /^#/         { flush(); next }
+    !sec         { next }
+    /^[ \t]*$/   { flush(); next }
+    /^- \[[xX]\]/ { flush(); skip = 1; next }
+    /^(- |[0-9]+\. )/ { flush(); skip = 0; txt = $0; seen(FNR); next }
+    txt != "" && !skip { t = $0; sub(/^[ \t]+/, "", t); txt = txt " " t; seen(FNR) }
+    END { flush() }
+  ' - "$f"
+}
+
+# --- Ruling-card readiness -------------------------------------------------------
+# ruling_readiness <card text> -- prints `ready` or `waiting` for one
+# ## Needs ruling card, its continuation lines already folded onto one line.
+#
+# Ruled by Solace, 2026-10-01 (one-entry-point curia, decided so far): a
+# ruling card is ready when its `until:` date has arrived or the PR or issue
+# it links is in flight, otherwise waiting -- kept, counted, hidden by
+# default. `until:` holds a date, a PR/issue link, or an event in words; an
+# event in words is waiting until a human says otherwise. Every date and
+# every link in the value is read, and any one of them makes the card ready:
+# a value like "2026-09-12, before 1.8" is a date that has a note on it.
+#
+# The rest is the agent's, pencil:
+#   - in flight: a PR in any state (it exists, so the work started; merged or
+#     closed is past due, and past due is shown), an issue that is closed, or
+#     an open issue that an open PR closes. An open issue with no such PR is
+#     waiting.
+#   - no `until:` at all (a kind: tentative ADR card, a legacy card) is ready:
+#     nothing names a condition to wait on. A link gh cannot answer for is
+#     ready too. Showing a waiting card costs a line; hiding a ready one costs
+#     the ruling.
+#   - link state is cached under $XDG_CACHE_HOME/ruling-refs for
+#     RULING_REF_TTL seconds (900). RULING_REF_CACHE_ONLY=1 never calls gh and
+#     takes a stale entry over none -- worklist --brief sets it, because
+#     SessionStart gives it seconds. RULING_TODAY overrides today's date.
+ruling_until() {
+  printf '%s\n' "$1" | awk '
+    { l = tolower($0); p = index(l, "until:"); if (!p) exit 1
+      v = substr($0, p + 6)
+      if (match(tolower(v), /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this|id):/)) v = substr(v, 1, RSTART - 1)
+      sub(/^[ \t*]+/, "", v); sub(/[ \t*.;,]+$/, "", v); print v; found = 1; exit }
+    END { if (!found) exit 1 }'
+}
+
+# ruling_ref_state <owner> <repo> <number> -- pr-open | pr-merged | pr-closed |
+# issue-open | issue-inflight | issue-closed, or unknown when neither the
+# cache nor gh can say.
+ruling_ref_state() {
+  local dir f now line at st q
+  dir="${XDG_CACHE_HOME:-$HOME/.cache}/ruling-refs"
+  f="$dir/$1_$2_$3"
+  now=$(date +%s)
+  line=$(cat "$f" 2>/dev/null)
+  at=${line%% *}; st=${line#* }
+  if [ -n "$line" ] && { [ "${RULING_REF_CACHE_ONLY:-0}" = 1 ] \
+       || [ $((now - at)) -lt "${RULING_REF_TTL:-900}" ]; }; then
+    printf '%s' "$st"; return 0
+  fi
+  if [ "${RULING_REF_CACHE_ONLY:-0}" = 1 ] || ! command -v gh >/dev/null 2>&1; then
+    printf 'unknown'; return 0
+  fi
+  # shellcheck disable=SC2016  # GraphQL variables, not shell
+  q='query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){issueOrPullRequest(number:$n){
+       __typename ... on PullRequest{state}
+       ... on Issue{state closedByPullRequestsReferences(first:10,includeClosedPrs:false){nodes{state}}}}}}'
+  set -- "$1" "$2" "$3" gh api graphql -F owner="$1" -F name="$2" -F n="$3" -f query="$q" --jq '
+    .data.repository.issueOrPullRequest
+    | if . == null then "unknown"
+      elif .__typename == "PullRequest" then "pr-" + (.state | ascii_downcase)
+      elif .state == "CLOSED" then "issue-closed"
+      elif ([.closedByPullRequestsReferences.nodes[] | select(.state == "OPEN")] | length) > 0 then "issue-inflight"
+      else "issue-open" end'
+  shift 3
+  command -v timeout >/dev/null 2>&1 && set -- timeout 10 "$@"
+  st=$("$@" 2>/dev/null) || st=unknown
+  case $st in
+    pr-open|pr-merged|pr-closed|issue-open|issue-inflight|issue-closed)
+      mkdir -p "$dir" 2>/dev/null && printf '%s %s\n' "$now" "$st" > "$f" 2>/dev/null ;;
+    *) st=unknown ;;
+  esac
+  printf '%s' "$st"
+}
+
+ruling_readiness() {
+  local v today d st
+  v=$(ruling_until "$1") || { printf 'ready\n'; return 0; }
+  today=${RULING_TODAY:-$(date +%Y-%m-%d)}
+  for d in $(printf '%s\n' "$v" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}'); do
+    # ISO dates sort as strings.
+    if [ ! "$d" \> "$today" ]; then printf 'ready\n'; return 0; fi
+  done
+  # Links: a github.com PR/issue URL, or owner/repo#n. A bare #n names no repo
+  # and reads as words.
+  printf '%s\n' "$v" \
+    | grep -oE 'github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(pull|issues)/[0-9]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+' \
+    | sed -E 's|^github\.com/||; s#/(pull|issues)/# #; s|#| |; s|/| |' \
+    | { while read -r o r n; do
+          st=$(ruling_ref_state "$o" "$r" "$n")
+          [ "$st" = issue-open ] || { printf 'ready\n'; exit 0; }
+        done; exit 1; } && return 0
+  printf 'waiting\n'
+}

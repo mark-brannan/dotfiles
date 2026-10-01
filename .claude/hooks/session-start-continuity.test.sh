@@ -152,6 +152,38 @@ run
 lacks 'no session files, no ratio, no crash'    'per session-hour'
 has   'block still prints'                      'Decision load, last 7 days'
 
+# --- sitting rungs: what followed them, last 28 days -------------------------
+reset_state
+mkdir -p "$SD/metrics/crossings"
+now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+for m in 2 5 30; do
+  printf '{"ts":"%s","kind":"time_after","at":60,"min":%s,"stay":%s}\n' "$now_iso" "$m" \
+    "$([ "$m" = 2 ] && echo true || echo false)"
+done > "$SD/metrics/crossings/a.jsonl"
+printf '{"ts":"%s","kind":"time_after","at":120,"min":10,"stay":true}\n{"ts":"%s","kind":"time_after","at":120,"min":20,"stay":true}\n{"ts":"2020-01-01T00:00:00Z","kind":"time_after","at":120,"min":999,"stay":false}\n{"ts":"%s","kind":"time","at":60}\n' \
+  "$now_iso" "$now_iso" "$now_iso" > "$SD/metrics/crossings/b.jsonl"
+worklist_shim 'echo BOARD'
+run
+has 'one line per rung: median and stays, old stamps dropped' \
+  'Sitting rungs, last 28 days: 60m: median 5m to next prompt, 1/3 stay · 120m: median 15m to next prompt, 2/2 stay'
+
+# the latest time_last per crossing counts; a stay's minutes come from time_after
+L='{"session_id":"s","ts":"%s","kind":"time_last","at":60,"crossing_ts":"%s","min_to_last":%s,"overrun":%s}\n'
+# (c4's kept stay is overrun:false, which a jq `//` would drop from the count)
+A='{"session_id":"s","ts":"%s","kind":"time_after","at":60,"crossing_ts":"%s","stay_min":%s}\n'
+{ printf "$A" "$now_iso" c1 30; printf "$A" "$now_iso" c4 20
+  printf "$L" "$now_iso" c1 3 false; printf "$L" "$now_iso" c1 45 true
+  printf "$L" "$now_iso" c2 8 null; printf "$L" "$now_iso" c3 60 null
+  printf "$L" "$now_iso" c4 25 false
+} > "$SD/metrics/crossings/c.jsonl"
+run
+has 'how each rung ended: latest reading, stay minutes, overruns' \
+  'Sitting ends, last 28 days: 60m: median 35m to sitting end, 1/4 ended it, stay median 25m, 1/2 overrun'
+reset_state
+run
+lacks 'no stamps, no line' 'Sitting rungs'
+lacks 'no stamps, no ends line' 'Sitting ends'
+
 # --- no jq at all: silent, exit 0 -------------------------------------------
 reset_state
 mkdir -p "$SCRATCH/nojq"; for b in bash sh dirname cat mktemp head sed awk date; do ln -s "$(command -v $b)" "$SCRATCH/nojq/$b" 2>/dev/null; done

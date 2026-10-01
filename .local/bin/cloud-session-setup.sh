@@ -62,6 +62,7 @@ INSTALL="
 .claude/skills/agora/SKILL.md
 .claude/skills/curia/SKILL.md
 .claude/skills/curia/template.md
+.claude/skills/scoping/SKILL.md
 .claude/hooks/lib-state.sh
 .claude/hooks/session-metrics.jq
 .claude/hooks/lib-metrics-fmt.jq
@@ -75,8 +76,11 @@ INSTALL="
 .claude/hooks/pr-threads-gate.sh
 .claude/hooks/no-unsigned-push.sh
 .claude/hooks/no-update-branch.sh
+.claude/hooks/no-git-footguns.sh
 .claude/hooks/no-checkout-home.sh
+.claude/hooks/no-rm-tree.sh
 .claude/hooks/no-foreign-worktree.sh
+.claude/hooks/no-delete-stacked-base.sh
 .claude/hooks/lib-shell-words.awk
 .claude/hooks/session-start-seed-refresh.sh
 .claude/hooks/local-config-push.sh
@@ -94,12 +98,15 @@ INSTALL="
 .claude/hooks/branch-home-gate.sh
 .claude/hooks/claim-stamp.sh
 .claude/hooks/public-issue-guard.sh
+.claude/hooks/issue-door.sh
 .claude/hooks/fixtures
 .local/bin/metrics-preview.sh
 .local/bin/metrics-breakdown.sh
 .local/bin/prose-budget
 .local/bin/worklist
 .local/bin/pickup-list
+.local/bin/card-id
+.local/bin/scoping-lock
 .local/bin/gh-resolve-thread
 .local/bin/pr-label-audit
 "
@@ -472,10 +479,12 @@ done
 
 # =========================================================================
 # Plugins — settings.json enables them, but nothing installs them: user
-# settings do not auto-install in `claude -p` or a cloud session. The rm,
-# git-footgun and stacked-base guards live in the languette plugin now, and
-# a plugin that never installed is a guard that silently isn't there, so a
-# failure here marks the install incomplete for the SessionStart brief.
+# settings do not auto-install in `claude -p` or a cloud session. The
+# languette plugin carries the rm, git-footgun and stacked-base guards; for
+# now it runs alongside the copies in .claude/hooks, which stay until it has
+# run on real machines. A plugin that never installed is a guard that
+# silently isn't there, so a failure here marks the install incomplete for
+# the SessionStart brief.
 # =========================================================================
 PLUGINS="languette@languette=mark-brannan/languette"
 for spec in $PLUGINS; do

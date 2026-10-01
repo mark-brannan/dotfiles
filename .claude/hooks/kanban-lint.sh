@@ -40,6 +40,10 @@
 #       the card so the ruling is one word; a bare question is hedging
 #       written down. judgment: names the kind -- values, risk, direction,
 #       legal or people -- and a card that cannot is toil, not a ruling.
+#       until: holds one of three forms -- a date (YYYY-MM-DD), a PR/issue
+#       link, or an event in words -- so an empty value, or a date that is
+#       no calendar day, fails: worklist reads it to call the card ready or
+#       waiting (ruling_readiness in lib-state.sh).
 #       Skipped for a "kind: tentative ADR" card -- L10 checks that one
 #   L9  a card under ## Human's missing "why you:" (the mechanism an agent
 #       lacks, or "learn"), or missing "why this:" (the evidence this is the
@@ -51,6 +55,10 @@
 #       settle it and the repo(s) it touches, in place of a ruling card's
 #       default/undo/until/risk; the decision itself is the card's own
 #       sentence, and judgment: gates it exactly as L8 does
+#   L11 a card with no "id: <epoch seconds><8 hex>" field -- the work
+#       item's identifier (Solace, 2026-10-01, one-entry-point curia, pen),
+#       minted by `card-id mint`, fire and forget; a hand-off that says
+#       "card <id>" must resolve to exactly one line
 #
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
@@ -95,6 +103,9 @@ run_lint() {
       humans = "## Human\047s"
       ruling = "## Needs ruling"
       cursec = ""; curgroup = ""
+      idre = "(^|[ (])id:[ \t]*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
+      for (i = 0; i < 8; i++) idre = idre "[0-9a-f]"
+      idre = idre "([^0-9a-z]|$)"
       nv = split("review merge land bump close approve ship ratify rule_on decide confirm answer watch", verbs, " ")
       for (i = 1; i <= nv; i++) gsub(/_/, " ", verbs[i])
       ns = split("not merged|ci green|open as|merged|awaiting", states, "|")
@@ -133,6 +144,8 @@ run_lint() {
       sub(/^[ \t]*(- \[[ xX]\] |- |[0-9]+\. )/, "", text)
       if (text !~ /https?:\/\// && text !~ /\]\((\.\.\/)*log\//)
         report(cstart, "L6", "card has no link -- a card carries an http link or a relative log/ link; a loop with no home gets a log entry first")
+      if (text !~ idre)
+        report(cstart, "L11", "card has no id: field -- every card ends with id: <epoch seconds><8 hex of the minting session>, minted by `card-id mint` (never typed, edited or reused); /card-write has the line")
       verb = verb_at(text)
       if (verb == "" && substr(text, 1, 2) == "**") {
         t2 = substr(text, 3); p = index(t2, "**")
@@ -150,6 +163,22 @@ run_lint() {
     # L8/L9: the fields a ruling or click-work card must carry, matched as
     # "<name>:" anywhere on the folded card, case-insensitive.
     function has_field(t, name) { return index(t, " " name ":") || index(t, "(" name ":") || substr(t, 1, length(name) + 1) == name ":" }
+    # The until: value, cut at the next field: "" when it holds one of the
+    # three forms, else what is wrong with it. Any text is an event in words.
+    function until_problem(t,   p, v, d, y, m, dd, ml) {
+      p = index(t, "until:"); if (!p) return ""
+      v = substr(t, p + 6)
+      if (match(v, /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this|id):/)) v = substr(v, 1, RSTART - 1)
+      sub(/^[ \t*]+/, "", v); sub(/[ \t*.;,]+$/, "", v)
+      if (v == "") return "until: is empty"
+      while (match(v, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) {
+        d = substr(v, RSTART, 10); y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+        ml = substr("312831303130313130313031", 2 * m - 1, 2) + (m == 2 && y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))
+        if (m < 1 || m > 12 || dd < 1 || dd > ml) return "until: date " d " is no calendar day"
+        v = substr(v, RSTART + 10)
+      }
+      return ""
+    }
     function judged(t) { return t ~ /judgment:[ \t]*(values|risk|direction|legal|people)([^a-z]|$)/ }
     function fields(text,   t, miss) {
       t = " " tolower(text)
@@ -171,9 +200,11 @@ run_lint() {
         if (!has_field(t, "risk")) miss = miss ", risk:"
         if (!has_field(t, "judgment")) miss = miss ", judgment:"
         if (miss != "")
-          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong, judgment: values, risk, direction, legal or people) so the ruling is one word; without a default it is hedging, not a one-way door")
+          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: a date, a PR/issue link, or an event in words, risk: the consequence if the default is wrong, judgment: values, risk, direction, legal or people) so the ruling is one word; without a default it is hedging, not a one-way door")
         else if (!judged(t))
           report(cstart, "L8", "judgment: must be values, risk, direction, legal or people -- a call that is none of those is toil: take the default, record it where the work lands, and delete the card")
+        else if ((miss = until_problem(t)) != "")
+          report(cstart, "L8", miss " -- until: holds a date (YYYY-MM-DD), a PR/issue link (a github.com URL or owner/repo#n), or an event in words; worklist reads it to call the card ready or waiting")
       } else if (cursec == humans) {
         if (!has_field(t, "why you"))
           report(cstart, "L9", "click-work card missing why you: -- name the mechanism an agent lacks (no API, a consent screen, a USB bus), or \"learn\" when the user has chosen to do it by hand; \"needs a credential\" is not a reason unless the credential cannot be given to an agent")
