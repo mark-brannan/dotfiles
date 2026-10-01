@@ -255,6 +255,44 @@ check allow '.. in the path a heredoc writes and posts' \
 all public
 EOF
 gh pr create -t x --body-file ./new.md")"
+# Slice 2: a cd or pushd before the gh moves where a relative path is read
+# from. popd, cd -, a bare pushd and a cd to somewhere the hook cannot
+# resolve make that place unknown, and a relative path after it is denied.
+check allow 'cd then a relative --body-file' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj && gh pr comment 3 --body-file ./clean.md")"
+check deny  'cd then a relative --body-file, file still scanned' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj/sub && gh pr comment 3 --body-file ../body.md")"
+reason 'names the term'              'Wanderlust'
+check allow 'bare cd is $HOME' \
+  "$(cp "$SCRATCH/clean.md" "$HOME/b.md"; bash_in "$PUB" 'cd; gh pr comment 3 -F b.md')"
+check allow 'cd ~ is $HOME' \
+  "$(bash_in "$PUB" 'cd ~ && gh pr comment 3 -F ./b.md')"
+check allow 'cd ~ then .. collapses' \
+  "$(mkdir -p "$HOME/d"; cp "$SCRATCH/clean.md" "$HOME/b.md"; bash_in "$PUB" 'cd ~/d; gh pr comment 3 -F ../b.md')"
+check allow 'two cds, the second relative' \
+  "$(bash_in "$PUB" "cd $SCRATCH; cd proj; gh pr comment 3 -F clean.md")"
+check allow 'pushd then a relative --body-file' \
+  "$(bash_in "$PUB" "pushd $SCRATCH/proj >/dev/null; gh pr comment 3 -F clean.md")"
+check deny  'pushd, popd, then a relative --body-file is unknowable' \
+  "$(bash_in "$SCRATCH" "pushd $SCRATCH/proj >/dev/null; popd >/dev/null; gh pr comment 3 -F clean.md")"
+reason 'names the path as spelled'   'clean.md cannot be read'
+# A directory literally named $X with a clean decoy in it must not let the
+# literal text stand in for the value the shell will use.
+mkdir -p "$SCRATCH/\$X"; cp "$SCRATCH/clean.md" "$SCRATCH/\$X/"
+check deny  'cd to an unassigned $VAR makes a relative path unknowable, even past a literal $X decoy' \
+  "$(bash_in "$SCRATCH" 'cd "$X" && gh pr comment 3 --body-file clean.md')"
+mkdir -p "$SCRATCH/\`id\`"; cp "$SCRATCH/clean.md" "$SCRATCH/\`id\`/"
+check deny  'cd to a backtick substitution is unknowable, even past a literal `id` decoy' \
+  "$(bash_in "$SCRATCH" 'cd "`id`" && gh pr comment 3 --body-file clean.md')"
+reason 'names the path as spelled'   'clean.md cannot be read'
+check deny  'pushd +1 rotates to somewhere unseen' \
+  "$(bash_in "$SCRATCH" 'pushd +1 >/dev/null; gh pr comment 3 --body-file clean.md')"
+check deny  'cd - makes a relative path unknowable' \
+  "$(bash_in "$SCRATCH" 'cd - && gh pr comment 3 --body-file clean.md')"
+check allow 'cd - then an absolute path is still fine' \
+  "$(bash_in "$PUB" "cd - && gh pr comment 3 --body-file $SCRATCH/clean.md")"
+check allow 'cd inside sh -c does not move the outer command' \
+  "$(bash_in "$SCRATCH" "sh -c 'cd /nowhere'; gh pr comment 3 --body-file clean.md")"
 
 # The exemption is the gate's weakest point: it says "that file will hold the
 # heredoc body I read". Two ways that stops being true, both denied.
