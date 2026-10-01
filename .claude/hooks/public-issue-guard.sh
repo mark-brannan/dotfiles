@@ -168,8 +168,11 @@ case "$tool" in
         }
       }
       # CDTO <dir>: where a top-level cd/pushd goes. `cd -`, popd and a bare pushd land somewhere unseen: `-` = unknown.
-      function cdto(c, hi,   i, t) {
+      # A cd in a pipeline, `( )`, backticks or `&` runs in a subshell, and one under CDPATH lands wherever the variable says: `-` too.
+      function subshelled(lo, hi,   s) { s = SW_sepc[lo - 1] SW_sepc[hi + 1]; gsub(/&&|\|\|/, "", s); return s ~ /[|&()`]/ }
+      function cdto(c, lo, hi,   i, t) {
         t = (w[c] == "cd") ? "~" : "-"
+        if (subshelled(lo, hi) || orig ~ /CDPATH=/) { print "CDTO\t-"; return }
         for (i = c + 1; i <= hi && w[c] != "popd"; i++) {
           if (w[i] == "--") { if (i < hi) t = wv(i + 1); break }
           if (w[i] !~ /^[-+]./) { t = wv(i); break }
@@ -184,7 +187,7 @@ case "$tool" in
           c = seg_cmd(w, k, lo, hi); ok = !c   # seg_cmd is also 0 when a quoted word leads: only a segment of nothing but assignments counts
           for (i = lo; ok && i <= hi; i++) if (k[i] != "w" || w[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) ok = 0
           if (ok || (c && w[c] ~ /^(export|local|readonly|declare|typeset)$/)) { for (i = lo; i <= hi; i++) if (k[i] == "w" && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w[i], SW_live[i]) }
-          else if (w[c] ~ /^(cd|pushd|popd)$/) cdto(c, hi)
+          else if (w[c] ~ /^(cd|pushd|popd)$/) cdto(c, lo, hi)
         }
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
         if (!g || g + 1 > hi) return
