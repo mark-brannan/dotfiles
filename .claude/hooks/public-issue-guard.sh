@@ -87,7 +87,7 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/public-issue-guard.XXXXXX") || deny 'cannot create a scratch directory'
 trap 'rm -rf "$WORK"' EXIT
 TEXT="$WORK/text"      # everything that will be posted, one candidate per line
-META="$WORK/meta"      # R repo | F file | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
+META="$WORK/meta"      # R repo | F file | CDTO dir | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
 : > "$TEXT"; : > "$META"; : > "$WORK/text-cmd"; : > "$WORK/text-file"
 
 # owner/name in lower case from any of the spellings gh and git accept.
@@ -157,7 +157,7 @@ case "$tool" in
         for (x = 1; x <= ntexts; x++) {
           n = scan(texts[x], w, k, q)
           for (i = 1; i <= n; i++) {
-            if (k[i] == "w" && w[i] ~ /^(cd|pushd)$/) print "CD"
+            if (k[i] == "w" && w[i] ~ /^(cd|pushd|popd)$/) print "CD"
           }
           a0 = 1
           for (i = 1; i <= n + 1; i++) {
@@ -167,7 +167,17 @@ case "$tool" in
           }
         }
       }
-      function segment(lo, hi, nested,   g, i, t, v, repo, sub_, act) {
+      # CDTO <dir>: where a top-level cd/pushd goes. `cd -`, popd and a bare pushd land somewhere unseen: `-` = unknown.
+      function cdto(c, hi,   i, t) {
+        t = (w[c] == "cd") ? "~" : "-"
+        for (i = c + 1; i <= hi && w[c] != "popd"; i++) {
+          if (w[i] == "--") { if (i < hi) t = wv(i + 1); break }
+          if (w[i] !~ /^[-+]./) { t = wv(i); break }
+        }
+        print "CDTO\t" flat(t)
+      }
+      function segment(lo, hi, nested,   g, i, t, v, repo, sub_, act, c) {
+        if (!nested) { c = seg_cmd(w, k, lo, hi); if (c && w[c] ~ /^(cd|pushd|popd)$/) cdto(c, hi) }
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
         if (!g || g + 1 > hi) return
         repo = ""
@@ -309,15 +319,20 @@ normpath() {
   done
   IFS=$np_ifs; printf '%s' "${np_out:-/}"
 }
-# resolve <path>: absolute and normalised, as the shell will read it.
-resolve() { case "$1" in '~'/*) normpath "$HOME${1#\~}" ;; /*) normpath "$1" ;; *) normpath "$cwd/$1" ;; esac; }
+# resolve <path>: absolute and normalised, as the shell will read it, against
+# vcwd, where the command stands at that point (empty = unknown: relative fails).
+vcwd=$cwd
+resolve() { case "$1" in *'$'*|*'`'*) return 1 ;; '~'|'~'/*) normpath "$HOME${1#\~}" ;; /*) normpath "$1" ;; *) [ -n "$vcwd" ] || return 1; normpath "$vcwd/$1" ;; esac; }
 sed -n 's/^HFED	//p' "$META" | grep -v '^$' > "$WORK/hfed"
 hfed_has() { while IFS= read -r h; do [ "$(resolve "$h")" = "$1" ] && return 0; done < "$WORK/hfed"; return 1; }
 # META is replayed in command order, so what stands before a path is read
 # (a cd, an assignment) can be applied to it.
 while IFS="$(printf '\t')" read -r kind a <&3; do
-  [ "$kind" = F ] || continue
-  f=$(resolve "$a")
+  case "$kind" in
+    CDTO) if [ "$a" = - ]; then vcwd=""; else vcwd=$(resolve "$a") || vcwd=""; fi; continue ;;
+    F) ;; *) continue ;;
+  esac
+  f=$(resolve "$a") || { printf '%s\n' "$a" > "$WORK/badfile"; continue; }
   # A file this command writes from a heredoc need not exist yet: its text is
   # already in the scanned command, so the gate has read what it will hold.
   [ -r "$f" ] || { hfed_has "$f" || printf '%s\n' "$f" > "$WORK/badfile"; continue; }
