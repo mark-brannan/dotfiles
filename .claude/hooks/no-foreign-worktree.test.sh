@@ -58,6 +58,11 @@ SCRATCH="$TMP/scratch/claude-tmpdir/claude-1000/proj"
 OWN_WT="$SCRATCH/$SID/scratchpad/wt"
 OTHER_WT="$SCRATCH/$OTHER_SID/scratchpad/wt"
 SUBSTR_WT="$SCRATCH/x$SID/scratchpad/wt"
+WTS="$REPO/.claude/worktrees"
+# The hook keeps its per-session record under TMPDIR: keep every record this
+# suite writes inside the fixture, never in the machine's /tmp.
+export TMPDIR="$TMP/records"
+mkdir -p "$TMPDIR" "$TMP/plain-tmp"
 
 pass=0
 fail=0
@@ -145,9 +150,9 @@ if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); els
   fail=$((fail + 1)); printf 'FAIL: TMPDIR alone, no session id, must not allow\n  hook output: %s\n' "$out"; fi
 out=$(printf '%s' "$(jq -n --arg c "git -C $OWN_WT status" --arg d "$MINE" --arg s "$SID" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
-  | TMPDIR=/tmp bash "$HOOK" 2>&1)
+  | TMPDIR="$TMP/plain-tmp" bash "$HOOK" 2>&1)
 if grep -q '"permissionDecision":"deny"' <<<"$out"; then
-  fail=$((fail + 1)); printf 'FAIL: own-scratchpad worktree with TMPDIR=/tmp must still allow on the id\n  hook output: %s\n' "$out"; else pass=$((pass + 1)); fi
+  fail=$((fail + 1)); printf 'FAIL: own-scratchpad worktree with a TMPDIR outside it must still allow on the id\n  hook output: %s\n' "$out"; else pass=$((pass + 1)); fi
 for tool in Edit Write; do
   check_json allow "$tool inside own-scratchpad worktree" \
     "$(jq -n --arg p "$OWN_WT/file.txt" --arg d "$MINE" --arg t "$tool" --arg s "$SID" \
@@ -156,6 +161,102 @@ for tool in Edit Write; do
     "$(jq -n --arg p "$OTHER_WT/file.txt" --arg d "$MINE" --arg t "$tool" --arg s "$SID" \
       '{tool_name:$t,tool_input:{file_path:$p},cwd:$d,session_id:$s}')"
 done
+
+# --- sticky own: a cd elsewhere must not lock a session out (dotfiles#455)
+# sc <deny|allow> <description> <command> <session_id> <cwd> [agent_id]
+sc() {
+  local json
+  if [ -n "${6:-}" ]; then
+    json=$(jq -n --arg c "$3" --arg d "$5" --arg s "$4" --arg a "$6" \
+      '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s,agent_id:$a}')
+  else
+    json=$(jq -n --arg c "$3" --arg d "$5" --arg s "$4" \
+      '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')
+  fi
+  check_json "$1" "$2" "$json"
+}
+S1=11111111-0000-4000-8000-000000000001
+sc allow 'S1 starts in its own worktree'                 'git status' "$S1" "$MINE"
+sc allow 'S1 cds into another repo'                      "cd $CLONE" "$S1" "$MINE"
+sc allow 'from there, cd back to its own worktree'       "cd $MINE" "$S1" "$CLONE"
+sc allow 'from there, git -C its own worktree'           "git -C $MINE status" "$S1" "$CLONE"
+sc allow 'from there, Edit-shaped write into its own'    "sed -i s/a/b/ $MINE/x.txt" "$S1" "$CLONE"
+sc deny  'from there, a sibling is still foreign'        "git -C $THEIRS status" "$S1" "$CLONE"
+sc_edit=$(jq -n --arg p "$MINE/file.txt" --arg d "$CLONE" --arg s "$S1" \
+  '{tool_name:"Edit",tool_input:{file_path:$p},cwd:$d,session_id:$s}')
+check_json allow 'Edit into its own worktree from another repo' "$sc_edit"
+# No session id: nothing recorded, so the old answer stands.
+bash_check deny  'no session id: own worktree from elsewhere is foreign' "git -C $MINE status" "$CLONE"
+
+# A cwd reached by an unchecked route is own while the shell stands in it
+# (as before) but never recorded: leaving it makes it foreign again.
+S2=11111111-0000-4000-8000-000000000002
+sc allow 'S2 starts in its own worktree'                 'git status' "$S2" "$MINE"
+sc allow 'S2 standing in a sibling, as before'           "git -C $THEIRS status" "$S2" "$THEIRS"
+sc deny  'S2 after leaving it: not laundered into own'   "git -C $THEIRS status" "$S2" "$CLONE"
+
+# A worktree the session made and cd'd into in one command is recorded.
+S3=11111111-0000-4000-8000-000000000003
+NEW3="$WTS/new3"
+sc allow 'S3 starts in its own worktree'                 'git status' "$S3" "$MINE"
+sc allow 'S3 add-and-cd a worktree that does not exist'  "git worktree add -b new3 $NEW3 && cd $NEW3" "$S3" "$MINE"
+git -C "$REPO" worktree add -q -b new3 "$NEW3"
+sc allow 'S3 working in it'                              'git status' "$S3" "$NEW3"
+sc allow 'S3 leaves and comes back to it'                "cd $NEW3" "$S3" "$CLONE"
+sc allow 'S3 still owns where it started'                "git -C $MINE status" "$S3" "$CLONE"
+# The record carries the .git inode: a worktree re-created at a recorded
+# path is not inherited. Simulated by corrupting the recorded inode.
+S3REC="$TMPDIR/claude-no-foreign-worktree.$S3"
+awk -F'\t' -v p="$NEW3" 'BEGIN { OFS = FS } $1 == p { $2 = 1 } { print }' "$S3REC" > "$S3REC.new" && mv "$S3REC.new" "$S3REC"
+sc deny  'S3 record with a stale inode is not own'       "git -C $NEW3 status" "$S3" "$CLONE"
+# A sibling that already existed is not recorded by a cd that names it.
+S3b=11111111-0000-4000-8000-00000000003b
+sc allow 'S3b starts in its own worktree'                'git status' "$S3b" "$MINE"
+sc deny  'S3b cd into an existing sibling'               "cd $THEIRS" "$S3b" "$MINE"
+
+# EnterWorktree(name=...) vouches for the next call's cwd.
+S4=11111111-0000-4000-8000-000000000004
+ENT4="$WTS/ent4"
+sc allow 'S4 starts in its own worktree'                 'git status' "$S4" "$MINE"
+check_json allow 'S4 EnterWorktree(name=ent4)' \
+  "$(jq -n --arg d "$MINE" --arg s "$S4" '{tool_name:"EnterWorktree",tool_input:{name:"ent4"},cwd:$d,session_id:$s}')"
+git -C "$REPO" worktree add -q -b ent4 "$ENT4"
+sc allow 'S4 first call in the entered worktree'         'git status' "$S4" "$ENT4"
+sc allow 'S4 leaves and reaches back into it'            "git -C $ENT4 status" "$S4" "$CLONE"
+# Without the EnterWorktree, the same arrival is not vouched for.
+S5=11111111-0000-4000-8000-000000000005
+sc allow 'S5 starts in its own worktree'                 'git status' "$S5" "$MINE"
+sc allow 'S5 lands in ent4 by no vouched route'          'git status' "$S5" "$ENT4"
+sc deny  'S5 leaves: ent4 is not its own'                "git -C $ENT4 status" "$S5" "$CLONE"
+
+# A subagent keeps its own record: parent and child do not share worktrees.
+S6=11111111-0000-4000-8000-000000000006
+sc allow 'S6 parent starts in its worktree'              'git status' "$S6" "$MINE"
+sc allow 'S6 subagent starts in another'                 'git status' "$S6" "$THEIRS" agent-1
+sc allow 'S6 subagent reaches its own from elsewhere'    "git -C $THEIRS status" "$S6" "$CLONE" agent-1
+sc deny  'S6 parent does not inherit the subagent one'   "git -C $THEIRS status" "$S6" "$CLONE"
+sc deny  'S6 subagent does not inherit the parent one'   "git -C $MINE status" "$S6" "$CLONE" agent-1
+
+# A record that is a symlink is ignored (a shared /tmp could plant one).
+S7=11111111-0000-4000-8000-000000000007
+printf '%s\t%s\n' "$THEIRS" "$(ls -di "$THEIRS/.git" | awk '{print $1}')" > "$TMP/planted"
+ln -s "$TMP/planted" "$TMPDIR/claude-no-foreign-worktree.$S7"
+sc deny  'a symlinked record grants nothing'             "git -C $THEIRS status" "$S7" "$MINE"
+
+# --- a cd target is checked whatever its spelling (dotfiles#455) ----------
+bash_check deny  'one-component cd into a sibling'       'cd theirs' "$WTS"
+bash_check deny  'cd -P with one component'              'cd -P theirs && ls' "$WTS"
+bash_check deny  'pushd with one component'              'pushd theirs' "$WTS"
+bash_check deny  'a chain of one-component cds'          'cd .claude && cd worktrees && cd theirs' "$REPO"
+bash_check deny  'cd .. then a relative path'            'cd .. && cat theirs/sub/file.txt' "$MINE"
+bash_check deny  'git -C with one component'             'git -C theirs status' "$WTS"
+bash_check deny  'one-component cd inside sh -c'         'sh -c "cd theirs && ls"' "$WTS"
+bash_check allow 'one-component cd into a plain dir'     'cd .claude' "$REPO"
+bash_check allow 'one-component cd into own'             'cd mine' "$MINE"
+sc allow 'S1 one-component cd home from the worktrees dir' 'cd mine' "$S1" "$WTS"
+bash_check allow 'a bare cd'                             'cd' "$MINE"
+bash_check allow 'cd -'                                  'cd -' "$MINE"
+bash_check allow 'a word cd mentioned in prose'          'git commit -m "cd theirs"' "$WTS"
 
 # --- must allow: prose that mentions a foreign path -----------------------
 # A quoted string holding whitespace is one unresolvable word, and the
