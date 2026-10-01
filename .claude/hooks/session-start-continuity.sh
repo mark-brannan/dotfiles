@@ -208,7 +208,7 @@ timeout 25 git -C "$SR" pull --rebase --autostash -q >/dev/null 2>&1 || true
        (map(select(.kind == "time_after" and .stay_min != null)) | INDEX(key)) as $st
        | map(select(.kind == "time_last" and .ts >= $since)) | INDEX(key) | [.[]]
        | group_by(.at) | map(
-           [.[] | $st[key].stay_min // empty] as $s | [.[] | .overrun // empty] as $o
+           [.[] | $st[key].stay_min // empty] as $s | [.[] | .overrun | values] as $o
            | "\(.[0].at)m: median \(map(.min_to_last) | med)m to sitting end, \(map(select(.min_to_last <= 10)) | length)/\(length) ended it"
              + (if $s == [] then "" else ", stay median \($s | med)m, \($o | map(select(.)) | length)/\($o | length) overrun" end))
        | join(" · ")' 2>/dev/null)
