@@ -104,6 +104,16 @@ sed -i "s/\"sitting_start\": *[0-9]*/\"sitting_start\": $((now - 10900))/" \
 out=$(payload "$TP5" f "$SCRATCH" | METRICS_MEAL_WINDOWS=0-24 bash "$HOOK" prompt 0 2>&1)
 printf '  screen:           %s\n' "$(msg "$out")"
 
+show "sitting past 1h, list tail, dirty tree"
+REPOX="$SCRATCH/repo"; git init -q -b feat/x "$REPOX"
+git -C "$REPOX" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+: > "$REPOX/scratch-file"
+TPX="$SCRATCH/x.jsonl"; turn "$TPX" 41000
+jq -n --argjson ss "$((now - 3660))" --argjson lp "$((now - 60))" \
+  '{sitting_start: $ss, last_prompt: $lp}' > "$SITFILE"
+out=$(payload "$TPX" x "$REPOX" | env "${NOSUN[@]}" bash "$HOOK" prompt 0 2>&1)
+printf '  screen:           %s\n' "$(msg "$out")"
+
 show "stay 40, at 1h29"
 TP6="$SCRATCH/g.jsonl"; turn "$TP6" 40000
 jq -n --argjson ss "$((now - 5340))" --argjson lp "$((now - 60))" \

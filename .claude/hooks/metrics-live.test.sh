@@ -8,7 +8,7 @@
 #
 #   crossing    a transcript that grows past 100k then past 150k produces
 #               exactly two context lines, in that order, and the second one
-#               says to propose stopping
+#               trips the 💸 reason
 #   the gap     a gap over 30 minutes between prompts starts a new sitting, so
 #               the 60-minute line does not fire on a clock that began before
 #               the gap -- and a short gap leaves that clock running
@@ -65,7 +65,8 @@ t     'a crossing on a prompt says nothing at all' '' "$(msg "$out1")"
 has   'the block counts both rungs'          '^⛁⛁ ' "$(msg "$out2")"
 hasnt 'and never names the rung it crossed'  '/(100|150)k' "$(msg "$out2")"
 hasnt 'no threshold line rides in front of it' 'still room' "$(msg "$out2")"
-has   'the stop rung still reaches the verdict' '💸 propose stopping' "$(msg "$out2")"
+has   'the stop rung still reaches the verdict' '— 💸$' "$(msg "$out2")"
+hasnt 'and the tail carries no words'          'propose|stopping' "$(msg "$out2")"
 
 CROSS="$STATE/metrics/crossings/$SID.jsonl"
 t 'both crossings are recorded, in order' \
@@ -383,7 +384,7 @@ if [ -f "$FIX" ]; then
 
   scr=$(msg "$(payload "$FIX" fric2 "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)")
   has 'friction past its nag threshold trips the reason cluster' \
-    '⚡.*propose stopping' "$scr"
+    '— [^ ]*⚡' "$scr"
 
 else
   printf 'SKIP: %s is missing\n' "$FIX"
@@ -579,29 +580,29 @@ solar_lon() {
 }
 NOMEAL=(METRICS_MEAL_WINDOWS= METRICS_SUN_AFTER_HOUR=0)
 
-has 'a meal window asks what was eaten' '^⏱ 1h01 · what did you eat today\?$' \
+has 'a meal window asks what was eaten' '^⏱ 1h01 · context [0-9]+k · what did you eat today\?$' \
     "$(tail_line tail1 METRICS_MEAL_WINDOWS=0-24)"
 
 printf '{"lat": 0, "lon": %s}\n' "$(solar_lon 10)" > "$LOC"
-has 'daylight left names the sunset in hours' '^⏱ 1h01 · sun sets in [0-9]+h [0-9]{2}$' \
+has 'daylight left names the sunset in hours' '^⏱ 1h01 · context [0-9]+k · sun sets in [0-9]+h [0-9]{2}$' \
     "$(tail_line tail2 "${NOMEAL[@]}")"
 printf '{"lat": 0, "lon": %s}\n' "$(solar_lon 17.4)" > "$LOC"
-has 'under an hour of daylight names it in minutes' '^⏱ 1h01 · sun sets in [0-9]+ min$' \
+has 'under an hour of daylight names it in minutes' '^⏱ 1h01 · context [0-9]+k · sun sets in [0-9]+ min$' \
     "$(tail_line tail3 "${NOMEAL[@]}")"
 has 'the meal window outranks the sunset' 'what did you eat today' \
     "$(tail_line tail4 METRICS_MEAL_WINDOWS=0-24 METRICS_SUN_AFTER_HOUR=0)"
-has 'before the sunset hour the sun is not mentioned' '^⏱ 1h01$' \
+has 'before the sunset hour the sun is not mentioned' '^⏱ 1h01 · context [0-9]+k$' \
     "$(tail_line tail5 METRICS_MEAL_WINDOWS= METRICS_SUN_AFTER_HOUR=24)"
 
 printf 'look at the plum tree\n\n' > "$OUTS"
 printf '{"lat": 0, "lon": %s}\n' "$(solar_lon 22)" > "$LOC"
-has 'after sunset the line comes from outside.txt' '^⏱ 1h01 · look at the plum tree$' \
+has 'after sunset the line comes from outside.txt' '^⏱ 1h01 · context [0-9]+k · look at the plum tree$' \
     "$(tail_line tail6 "${NOMEAL[@]}")"
 printf '{"lat": null, "lon": null}\n' > "$LOC"
-has 'a placeholder location skips the sunset' '^⏱ 1h01 · look at the plum tree$' \
+has 'a placeholder location skips the sunset' '^⏱ 1h01 · context [0-9]+k · look at the plum tree$' \
     "$(tail_line tail7 "${NOMEAL[@]}")"
 rm -f "$OUTS" "$LOC"
-has 'with no list and no clock tail the line is the time alone' '^⏱ 1h01$' \
+has 'with no list and no clock tail the line is the time and context alone' '^⏱ 1h01 · context [0-9]+k$' \
     "$(tail_line tail8 "${NOMEAL[@]}")"
 clock_clear
 
@@ -666,6 +667,21 @@ ctx6k=$(payload "$TP6c" "$SID6c" "$SCRATCH" \
         | METRICS_SIT_EVERY_MIN=0 bash "$HOOK" prompt 0 2>&1 | jq -r '.hookSpecificOutput.additionalContext // ""')
 hasnt 'past every old decision rung, nothing about decisions reaches the model' \
       'decisions pushed to Solace' "$ctx6k"
+
+# --- 7. the sitting line carries context and git state ----------------------
+# Ruled by Solace, 2026-10-01: the rung line keeps the context and the ⎇ git
+# state it carried before the tail rework. A fresh repo, not $REPO -- that one
+# already carries a leftover "dirty" file from the archivable tests above, and
+# this is checking the exact count.
+REPO7="$SCRATCH/repo7"; mkdir -p "$REPO7"
+git -C "$REPO7" init -q -b feat/nags
+git -C "$REPO7" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+TP7="$SCRATCH/sit7.jsonl"; turn "$TP7" 41000
+: > "$REPO7/scratch-file"
+o7=$(clock 61 10; payload "$TP7" sit7 "$REPO7" | METRICS_MEAL_WINDOWS='' METRICS_SUN_AFTER_HOUR=24 bash "$HOOK" prompt 0 2>&1)
+has 'the sitting line carries the context' '^⏱ 1h0[0-9] · context 41k' "$(msg "$o7")"
+has 'and shows the dirty tree at its end'  '^⏱ 1h0[0-9] · context 41k ⎇ 1~$' "$(msg "$o7")"
+clock_clear
 
 # --- 8. no upstream is only a hazard with something on the branch to lose ----
 # The carve-out this PR's review asked for, mirroring stop-continuity.sh's
@@ -815,10 +831,10 @@ has 'and the rung is a knob like every other' '⏱2h30(⏱️|🌙){5}' "$o11c"
 
 # dotfiles#137: the reason cluster trips on the same hot rung as the glyph
 # itself, no second threshold to keep in sync.
-has 'the sitting reason glyph trips at the hot rung' '⏱️.*propose stopping' "$o11b"
+has 'the sitting reason glyph trips at the hot rung' '— [^ ]*⏱️' "$o11b"
 o11d=$(msg "$(payload "$TP11" calm4 "$SCRATCH" | env "${DAY[@]}" METRICS_SIT_HOT_RUNG=9 \
   bash "$HOOK" posttooluse 0 show 2>&1)")
-hasnt 'and stays quiet while the rung is raised past it' 'propose stopping' "$o11d"
+hasnt 'and stays quiet while the rung is raised past it' ' — ' "$o11d"
 
 # The night arm of the same window, forced open rather than waited for: a
 # sitting clock past one rung proposes stopping at night however calm the
@@ -827,7 +843,7 @@ hasnt 'and stays quiet while the rung is raised past it' 'propose stopping' "$o1
 o11n=$(msg "$(payload "$TP11" calm5 "$SCRATCH" | env METRICS_STOP_HOUR=0 \
   METRICS_NIGHT_END_HOUR=24 METRICS_SIT_HOT_RUNG=9 \
   bash "$HOOK" posttooluse 0 show 2>&1)")
-has 'at night a sitting clock alone proposes stopping' '🌙 propose stopping' "$o11n"
+has 'at night a sitting clock alone trips the night reason' '— 🌙$' "$o11n"
 rm -f "$SITF11"
 
 # --- 12. PostToolUse drives the engine and may carry an injection ------------
@@ -842,12 +858,12 @@ turn "$TP12" 152000
 o12=$(payload "$TP12" ptu "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
 has 'a rung crossed by a tool call injects on that call'     'Context at 152k' "$(ctx "$o12")"
 t   'and the injection names PostToolUse, not the prompt event' PostToolUse     "$(printf '%s' "$o12" | jq -r '.hookSpecificOutput.hookEventName // ""')"
-has 'while the block still renders in the same object' 'propose stopping'     "$(msg "$o12")"
+has 'while the block still renders in the same object' '— 💸'     "$(msg "$o12")"
 
 turn "$TP12" 153000
 o12b=$(payload "$TP12" ptu "$SCRATCH" | bash "$HOOK" posttooluse 0 show 2>&1)
 t   'the next tool call injects nothing -- no new rung' '' "$(ctx "$o12b")"
-has 'though the block is unaffected' 'propose stopping' "$(msg "$o12b")"
+has 'though the block is unaffected' '— 💸' "$(msg "$o12b")"
 
 # The repeat arm, at 3 rather than the shipped 20 so the case is three calls.
 for n in 2 3; do

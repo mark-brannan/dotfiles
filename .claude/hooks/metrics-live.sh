@@ -67,7 +67,7 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 # fires once, when the counter first crosses it this session, and then says
 # nothing until the next line up -- edge-triggered, not level-triggered.
 #
-#   context   size and a verdict; "propose stopping" from CONTEXT_STOP_AT up.
+#   context   size and a verdict; the 💸 reason glyph from CONTEXT_STOP_AT up.
 #             The line repeats its glyph once per threshold rung crossed this
 #             session (capped at 5, then "(xN)"), and the ladder extends past
 #             the last configured line by CONTEXT_STEP forever, so it keeps
@@ -75,7 +75,7 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 #             CONTEXT_STOP_AT it also reaches the model: once as an offer to
 #             stop, and plainly on each further rung, never twice for the
 #             same one
-#   sitting   elapsed, context, verdict -- driven entirely by prompts: it
+#   sitting   elapsed, context, tail, git state -- driven entirely by prompts: it
 #             starts at the first one, restarts when the gap between two of
 #             them runs past SIT_GAP_MIN (a session picked up after dinner is
 #             a new sitting, not a nine-hour one), and is never read or moved
@@ -687,8 +687,9 @@ if [ "$run_engine" -eq 1 ]; then
       # Two hours arms the Stop block's hand-off, unless work is in flight:
       # landing it comes first, and the injection below already says so.
       if [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ] && ! in_flight; then since_nag=1; fi
-      t="⏱ $(hm "$sit_min")"
+      t="⏱ $(hm "$sit_min") · context $(kfmt "$ctx")"
       sit_t=$(sit_tail); [ -n "$sit_t" ] && t="$t · $sit_t"
+      w=$(work_str); [ -n "$w" ] && t="$t $w"
       add_line "$t"; record_crossing time "$n" "$t"
       time_line=$n
     fi
@@ -960,10 +961,10 @@ if [ "$SHOW" = show ] && [ -n "$metrics" ]; then
   [ -n "$bl_fric_cluster" ] && bl_main="$bl_main $bl_fric_cluster"
   bl_main="$bl_main $bl_blocked_cluster"
   [ -n "$bl_sit_cluster" ] && bl_main="$bl_main $bl_sit_cluster"
-  # The tail is a verdict, not decoration -- Solace ruled it disappears
-  # entirely when nothing proposes stopping, no "still room" filler (#137).
+  # The tail is the reason glyphs alone, no words (Solace, 2026-10-01), and
+  # it disappears entirely when no reason trips -- no "still room" filler (#137).
   if [ "$bl_propose" -eq 1 ]; then
-    bl_main="$bl_main — ${bl_reason:+$bl_reason }propose stopping."
+    bl_main="$bl_main — $bl_reason"
   fi
 
   IFS=$'\t' read -r bl_turns bl_toolcalls <<<"$(printf '%s\n' "$metrics" | jq -r \
