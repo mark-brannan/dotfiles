@@ -312,17 +312,15 @@ save_sitting() {
 # sitting_start that time_line was recorded against -- when the shared clock
 # restarts, every session's line is stale, including the ones that were not
 # the prompt that restarted it, and they must be free to speak again.
-ctx_line=0; ctx_rungs=0; ctx_stop_line=0; time_line=0; tl_sitting=0; gate_line=0; fric_tripped=0
+ctx_line=0; ctx_rungs=0; ctx_stop_line=0; time_line=0; tl_sitting=0; fric_tripped=0
 since_nag=0; resume_ts=0; nag_pending=0; late_nagged=0
-m_ctx_at=0; m_sit_at=0; m_sit_said=0; m_dec_at=0; m_ctx_tools=0
-day_dec_line=0; m_day_dec_at=0
+m_ctx_at=0; m_sit_at=0; m_sit_said=0; m_ctx_tools=0
 if [ -f "$NAGF" ]; then
-  IFS=$'\t' read -r ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tripped \
-                    since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said m_dec_at \
-                    m_ctx_tools day_dec_line m_day_dec_at \
+  IFS=$'\t' read -r ctx_line ctx_rungs ctx_stop_line time_line tl_sitting fric_tripped \
+                    since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said \
+                    m_ctx_tools \
     <<<"$(jq -r '[(.context_line // 0), (.context_rungs // 0), (.context_stop_line // 0),
                   (.time_line // 0), (.time_line_sitting // -1),
-                  (.gate_line // 0),
                   (if .friction_tripped then 1 else 0 end),
                   (if .since_nag then 1 else 0 end),
                   (.resume_ts // 0),
@@ -330,14 +328,11 @@ if [ -f "$NAGF" ]; then
                   (if .late_nagged then 1 else 0 end),
                   (.model_context_at // 0), (.model_sitting_at // 0),
                   (.model_sitting_said // .model_sitting_at // 0),
-                  (.model_decision_at // 0),
-                  (.model_context_tools // 0),
-                  (.day_decision_line // 0),
-                  (.model_day_decision_at // 0)] | @tsv' "$NAGF" 2>/dev/null)"
+                  (.model_context_tools // 0)] | @tsv' "$NAGF" 2>/dev/null)"
 fi
-for v in ctx_line ctx_rungs ctx_stop_line time_line tl_sitting gate_line fric_tripped \
-         since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said m_dec_at \
-         m_ctx_tools day_dec_line m_day_dec_at; do
+for v in ctx_line ctx_rungs ctx_stop_line time_line tl_sitting fric_tripped \
+         since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said \
+         m_ctx_tools; do
   [ -n "${!v}" ] || eval "$v=0"
 done
 # -1 is a nag file written before the clock moved out of it: its time_line
@@ -376,22 +371,20 @@ save_nag() {
   state_lock "$LIVE/$sid.lock" || return 0
   jq -n --argjson cl "$ctx_line" --argjson cr "$ctx_rungs" --argjson cs "$ctx_stop_line" \
         --argjson tl "$time_line" --argjson ts "$tl_sitting" \
-        --argjson gl "$gate_line" --argjson ft "$fric_tripped" \
+        --argjson ft "$fric_tripped" \
         --argjson sn "$since_nag" --argjson rt "$resume_ts" --argjson np "$nag_pending" \
         --argjson ln "$late_nagged" \
         --argjson mc "$m_ctx_at" --argjson ms "$m_sit_at" \
-        --argjson mss "$m_sit_said" --argjson md "$m_dec_at" \
+        --argjson mss "$m_sit_said" \
         --argjson mct "$m_ctx_tools" \
-        --argjson ddl "$day_dec_line" --argjson mdd "$m_day_dec_at" \
     '{context_line: $cl, context_rungs: $cr, context_stop_line: $cs,
-      time_line: $tl, time_line_sitting: $ts, gate_line: $gl,
+      time_line: $tl, time_line_sitting: $ts,
       friction_tripped: ($ft == 1),
       since_nag: ($sn == 1), resume_ts: $rt, nag_pending: ($np == 1),
       late_nagged: ($ln == 1),
       model_context_at: $mc, model_sitting_at: $ms,
-      model_sitting_said: $mss, model_decision_at: $md,
-      model_context_tools: $mct,
-      day_decision_line: $ddl, model_day_decision_at: $mdd}' \
+      model_sitting_said: $mss,
+      model_context_tools: $mct}' \
     > "$NAGF.$$" 2>/dev/null \
     && mv -f "$NAGF.$$" "$NAGF" 2>/dev/null || rm -f "$NAGF.$$" 2>/dev/null
   state_unlock
@@ -523,18 +516,16 @@ if [ "$run_engine" -eq 1 ]; then
     save_sitting
   fi
 
-  IFS=$'\t' read -r ctx gates decisions fric_total fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
+  IFS=$'\t' read -r ctx decisions fric_total fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
     --argjson w "$NAG_FRICTION_TURNS" \
     '(.session.user_turns // 0) as $t
      | [ (.session.context_peak // 0),
-         (.session.decisions.gate // 0),
          (.session.decisions.total // 0),
          (.session.friction.total // 0),
          ([ .friction[]?
             | select(.type == "correction" or .type == "rebuke")
             | select((.turn_ordinal // 0) > ($t - $w)) ] | length) ] | @tsv')"
   [ -n "${ctx:-}" ] || ctx=0
-  [ -n "${gates:-}" ] || gates=0
   [ -n "${decisions:-}" ] || decisions=0
   [ -n "${fric_total:-}" ] || fric_total=0
   [ -n "${fric_win:-}" ] || fric_win=0
@@ -674,7 +665,9 @@ if [ "$run_engine" -eq 1 ]; then
   fi
 
   # Keep the machine-wide day counter counting (#301). Measurement only: no
-  # line, no injection reads it (one-entry-point §5, 2026-09-30).
+  # line, no injection reads it (one-entry-point §5, 2026-09-30). Gated on
+  # is_prompt: the gap that starts a fresh day is measured between prompts
+  # anywhere on the machine.
   if [ "$is_prompt" -eq 1 ]; then
     day_decisions "$sid" "$decisions" 0 "$now_ts" $((NAG_DECISION_GAP_MIN * 60)) >/dev/null
   fi

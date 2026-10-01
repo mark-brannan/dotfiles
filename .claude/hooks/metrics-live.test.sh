@@ -90,7 +90,7 @@ clock_clear() { rm -f "$SITF"; }
 sitting() {  # sitting <session id> <minutes since sitting start> <minutes since last prompt>
   local n=$STATE/metrics/live/$1.nag.json
   mkdir -p "$(dirname "$n")"
-  jq -n '{context_line:200000, time_line:0, time_line_sitting:0, gate_line:0,
+  jq -n '{context_line:200000, time_line:0, time_line_sitting:0,
           friction_tripped:false, since_nag:false,
           resume_ts:0, nag_pending:false}' > "$n"
   clock "$2" "$3"
@@ -200,7 +200,7 @@ has 'with the stand-up verdict, not a wrap-up' 'stand up' "$(msg "$outF2")"
 clock 61 10
 old=$STATE/metrics/live/mOld.nag.json
 jq -n --argjson ss "$(( $(date +%s) - 900 ))" \
-  '{context_line:200000, time_line:60, gate_line:0, friction_tripped:false,
+  '{context_line:200000, time_line:60, friction_tripped:false,
     sitting_start:$ss, last_prompt:$ss, since_nag:false,
     resume_ts:0, nag_pending:false}' > "$old"
 has 'a pre-move nag file does not suppress the new hour' '⏱ sitting 1h00' \
