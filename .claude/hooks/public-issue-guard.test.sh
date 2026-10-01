@@ -237,6 +237,25 @@ EOF
 gh issue create -t x --body-file $SCRATCH/absent.md")"
 reason 'names the file'              'absent.md'
 
+# The path is resolved as the shell will resolve it (measured 2026-09-30:
+# 218 denials for a --body-file "that cannot be read", 176 of them retried
+# and passed with the same file; 88 still had a literal $SP in the path the
+# hook tried, 30 missed a cd or a ..). Slice 1: . and .. are collapsed, and
+# the file IS then scanned: a term in it still denies.
+mkdir -p "$SCRATCH/proj/sub"; cp "$SCRATCH/clean.md" "$SCRATCH/body.md" "$SCRATCH/proj/"
+check allow './ and .. in a relative --body-file, clean file' \
+  "$(bash_in "$SCRATCH/proj/sub" 'gh pr comment 3 --body-file ./../clean.md')"
+check deny  '.. in a relative --body-file, file still scanned' \
+  "$(bash_in "$SCRATCH/proj/sub" 'gh pr comment 3 --body-file ../body.md')"
+reason 'names the term'              'Wanderlust'
+check allow '.. in an absolute --body-file' \
+  "$(bash_in "$PUB" "gh pr comment 3 --body-file $SCRATCH/proj/sub/../clean.md")"
+check allow '.. in the path a heredoc writes and posts' \
+  "$(bash_in "$SCRATCH/proj" "cat > sub/../new.md <<'EOF'
+all public
+EOF
+gh pr create -t x --body-file ./new.md")"
+
 # The exemption is the gate's weakest point: it says "that file will hold the
 # heredoc body I read". Two ways that stops being true, both denied.
 # 1. `<<` inside a heredoc BODY is body text, not a redirect: content the
