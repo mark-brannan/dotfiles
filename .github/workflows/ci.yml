@@ -123,7 +123,7 @@ jobs:
           fi
           echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
 
-  # Only these 7 guards share the awk tokenizer (lib-shell-words.awk) where
+  # Only these 8 guards share the awk tokenizer (lib-shell-words.awk) where
   # the three-implementation contract is real (#94 names them): a gawk-ism
   # that passes locally is a hook that fails closed on every Bash call on the
   # Mac (mawk), or -- worse -- parses differently under original-awk. All
@@ -164,7 +164,8 @@ jobs:
                      .claude/hooks/no-checkout-home.test.sh \
                      .claude/hooks/prose-budget-commit.test.sh \
                      .claude/hooks/no-rm-tree.test.sh \
-                     .claude/hooks/public-issue-guard.test.sh; do
+                     .claude/hooks/public-issue-guard.test.sh \
+                     .claude/hooks/issue-door.test.sh; do
               echo "::group::$t under $impl"
               if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
               echo "::endgroup::"
@@ -197,7 +198,8 @@ jobs:
                 .claude/hooks/no-checkout-home.test.sh \
                 .claude/hooks/prose-budget-commit.test.sh \
                 .claude/hooks/no-rm-tree.test.sh \
-                .claude/hooks/public-issue-guard.test.sh) \
+                .claude/hooks/public-issue-guard.test.sh \
+                .claude/hooks/issue-door.test.sh) \
             | xargs -P 4 -I{} bash -c '
                 t="$1"
                 echo "::group::$t"
