@@ -88,6 +88,8 @@ check deny  'create and transfer'      "$(bash_in 'gh issue create -t a -b b && 
 check deny  'for loop'                 "$(bash_in 'for t in a b c; do gh issue create -t "$t" -b x; done')"
 check deny  'while loop'               "$(bash_in 'while read t; do gh issue create -t "$t" -b x; done < list')"
 check deny  'xargs'                    "$(bash_in 'cat list | xargs -I{} gh issue create -t {} -b x')"
+check allow 'loop closed before the create' "$(bash_in 'for f in a b; do echo "$f"; done; gh issue create -t one -b b')"
+open_door
 check allow 'door survived the denials' "$(bash_in 'gh issue create -t one -b b')"
 open_door
 check allow 'loop word in the title'   "$(bash_in 'gh issue create --title "Retry for uploads while offline" -b b')"

@@ -28,7 +28,7 @@ door="${TMPDIR:-/tmp}/claude-issue-door.$(printf '%s' "$p" | jq -r '.session_id 
 loop=0
 case $(printf '%s' "$p" | jq -r '.tool_name // ""') in
   Bash)
-    # W per identifier write, LOOP when the command repeats anything.
+    # W per identifier write; LOOP when one sits in a loop body or after xargs.
     out=$(printf '%s' "$p" | jq -r '.tool_input.command // ""' | awk "$(cat "$LIB")"'
       function wv(i) { return (k[i] == "q") ? q[i] : w[i] }
       function mutations(t,   c) { c = 0; while (match(t, /(create|transfer|delete)Issue[[:space:]]*\(/)) { c++; t = substr(t, RSTART + RLENGTH) } return c }
@@ -39,7 +39,7 @@ case $(printf '%s' "$p" | jq -r '.tool_name // ""') in
         nt = texts_of(strip_heredocs(buf), texts, nested)
         for (x = 1; x <= nt; x++) {
           n = scan(texts[x], w, k, q)
-          a0 = 1
+          a0 = 1; depth = 0
           for (i = 1; i <= n + 1; i++) {
             if (i <= n && k[i] != ";") continue
             if (a0 < i) segment(a0, i - 1, nested[x])
@@ -47,13 +47,16 @@ case $(printf '%s' "$p" | jq -r '.tool_name // ""') in
           }
         }
       }
+      function emit() { print "W"; if (depth > 0 || rep) print "LOOP" }
       function segment(lo, hi, nested,   c, g, i, t, path, method, fields, m) {
         c = seg_cmd(w, k, lo, hi)
-        if (c && w[c] ~ /^(for|while|until|select)$/) print "LOOP"
+        if (c && w[c] ~ /^(for|while|until|select)$/) depth++
+        if (k[lo] == "w" && w[lo] == "done" && depth > 0) depth--
+        rep = 0
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
         if (!g || g + 1 > hi) return
-        for (i = lo; i < g; i++) if (k[i] == "w" && w[i] ~ /(^|\/)(xargs|parallel|find)$/) print "LOOP"
-        if (w[g + 1] == "issue") { if (g + 2 <= hi && w[g + 2] ~ /^(create|new|transfer|delete)$/) print "W"; return }
+        for (i = lo; i < g; i++) if (k[i] == "w" && w[i] ~ /(^|\/)(xargs|parallel|find)$/) rep = 1
+        if (w[g + 1] == "issue") { if (g + 2 <= hi && w[g + 2] ~ /^(create|new|transfer|delete)$/) emit(); return }
         if (w[g + 1] != "api") return
         path = ""; method = ""; fields = 0; m = 0
         for (i = g + 2; i <= hi; i++) {
@@ -68,8 +71,8 @@ case $(printf '%s' "$p" | jq -r '.tool_name // ""') in
           else if (t !~ /^-/ && path == "") path = t
         }
         sub(/^https?:\/\/[^\/]+\//, "", path); sub(/^\/+/, "", path)
-        if (path ~ /^repos\/[^\/]+\/[^\/]+\/issues\/?$/ && (method == "POST" || (method == "" && fields))) print "W"
-        if (path == "graphql") { m += mutations(hd); hd = ""; while (m-- > 0) print "W" }
+        if (path ~ /^repos\/[^\/]+\/[^\/]+\/issues\/?$/ && (method == "POST" || (method == "" && fields))) emit()
+        if (path == "graphql") { m += mutations(hd); hd = ""; while (m-- > 0) emit() }
       }') || deny "awk failed, so this call could not be checked"
     n=$(printf '%s\n' "$out" | grep -c '^W$')
     printf '%s\n' "$out" | grep -q '^LOOP$' && loop=1 ;;
