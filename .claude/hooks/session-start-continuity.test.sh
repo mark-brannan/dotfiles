@@ -166,9 +166,20 @@ worklist_shim 'echo BOARD'
 run
 has 'one line per rung: median and stays, old stamps dropped' \
   'Sitting rungs, last 28 days: 60m: median 5m to next prompt, 1/3 stay · 120m: median 15m to next prompt, 2/2 stay'
+
+# the latest time_last per crossing counts; a stay's minutes come from time_after
+L='{"session_id":"s","ts":"%s","kind":"time_last","at":60,"crossing_ts":"%s","min_to_last":%s,"overrun":%s}\n'
+{ printf '{"session_id":"s","ts":"%s","kind":"time_after","at":60,"crossing_ts":"c1","stay_min":30}\n' "$now_iso"
+  printf "$L" "$now_iso" c1 3 false; printf "$L" "$now_iso" c1 45 true
+  printf "$L" "$now_iso" c2 8 null; printf "$L" "$now_iso" c3 60 null
+} > "$SD/metrics/crossings/c.jsonl"
+run
+has 'how each rung ended: latest reading, stay minutes, overruns' \
+  'Sitting ends, last 28 days: 60m: median 45m to sitting end, 1/3 ended it, stay median 30m, 1/1 overrun'
 reset_state
 run
 lacks 'no stamps, no line' 'Sitting rungs'
+lacks 'no stamps, no ends line' 'Sitting ends'
 
 # --- no jq at all: silent, exit 0 -------------------------------------------
 reset_state
