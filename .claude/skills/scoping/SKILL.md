@@ -58,9 +58,11 @@ Write it to the target's `inputs/` (a curia) or its lock folder (otherwise)
 as `$(date -u +%F)-scoping-proposal.md`, adding `-<session-id8>` when the name is
 taken; never overwrite an earlier one. Commit it. Shape:
 
-1. **Header.** Target and why; what was read, at `read_at`; "Nothing
-   edited, nothing filed. Nothing here is claimable until Solace says yes";
-   the homes the items touch.
+1. **Header,** in the shape of the agora brief (`/agora`, "The brief";
+   pencil with it): target and why; what was read, a `read_at` stamp and
+   its links; what Solace decides, the yes below; "Nothing edited,
+   nothing filed. Nothing here is claimable until Solace says yes"; the
+   homes the items touch.
 2. **Ambiguity named, not guessed.** A ruling that reads two ways: both
    readings, the default if it is a standing ruling, held out of the items.
 3. **Rulings.** One row per ruling:
@@ -94,8 +96,8 @@ The yes scales with size. Pencil thresholds, the agent's default until
 ruled: up to 3 work items and 400 words in the work-items section, one
 word for the whole; above that, a tick per item, and an item over 150
 words is split before it is shown. Measure with `wc -w` from the
-work-items heading to the next heading, tables included, and say the
-count.
+work-items heading to the next heading, table rows (`^|`) left out as the
+agora brief leaves them out, and say the count.
 
 ## 6. On the yes
 
