@@ -38,15 +38,15 @@ cat > "$SCRATCH/clean.md" <<'EOF'
 Prose in the preamble is not a card.
 
 ## Claude's
-- [ ] **Teach colregs-mcp the `overridden` field** — once the engine returns it
+- [ ] **Teach colregs-mcp the `overridden` field** — once the engine returns it id: 1790000000aaaaaaaa
       ([o/r#40](https://github.com/o/r/pull/40))
-- [ ] **D: bump engine to 0.2.2** — lockfile bump ([pr](https://github.com/o/r/pull/50))
-- [ ] Ruled 2026-09-08, kept ([o/r#1](https://github.com/o/r/pull/1)) — the red sidelight text
-- [ ] **Add the check** — done, landed as [o/r#59](https://github.com/o/r/pull/59), merged 2026-09-08
-- [ ] **Reviewer notes** — write them up ([log](log/2026-09-08-notes.md))
-- [ ] Closed 2026-09-08: the check exists ([log](../log/x.md)) — carry the finding
-- [ ] **Watch list** — the reading list ([list](https://example.invalid/list))
-- [ ] Merge conflicts in the harness: rework the encoder ([log](log/x.md))
+- [ ] **D: bump engine to 0.2.2** — lockfile bump ([pr](https://github.com/o/r/pull/50)) id: 1790000000aaaaaaaa
+- [ ] Ruled 2026-09-08, kept ([o/r#1](https://github.com/o/r/pull/1)) — the red sidelight text id: 1790000000aaaaaaaa
+- [ ] **Add the check** — done, landed as [o/r#59](https://github.com/o/r/pull/59), merged 2026-09-08 id: 1790000000aaaaaaaa
+- [ ] **Reviewer notes** — write them up ([log](log/2026-09-08-notes.md)) id: 1790000000aaaaaaaa
+- [ ] Closed 2026-09-08: the check exists ([log](../log/x.md)) — carry the finding id: 1790000000aaaaaaaa
+- [ ] **Watch list** — the reading list ([list](https://example.invalid/list)) id: 1790000000aaaaaaaa
+- [ ] Merge conflicts in the harness: rework the encoder ([log](log/x.md)) id: 1790000000aaaaaaaa
 EOF
 run 0 'clean board, --file' --file "$SCRATCH/clean.md"
 eq 'clean board prints nothing' '' "$LAST"
@@ -55,22 +55,22 @@ eq 'clean board prints nothing' '' "$LAST"
 cat > "$SCRATCH/bad.md" <<'EOF'
 # Open loops
 
-- [ ] **Stray** — above the heading ([log](log/x.md))
+- [ ] **Stray** — above the heading ([log](log/x.md)) id: 1790000000aaaaaaaa
 
 ## Claude's
-- [ ] **Review and merge [o/r#44](https://github.com/o/r/pull/44)** — the publish workflow
-- [x] **Add the check** — done ([o/r#59](https://github.com/o/r/pull/59))
-- [ ] **Rule on [o/r#32](https://github.com/o/r/issues/32)** — does 26(a) reach a vessel aground
-- [ ] **Foo** — merge the fix once it passes
+- [ ] **Review and merge [o/r#44](https://github.com/o/r/pull/44)** — the publish workflow id: 1790000000aaaaaaaa
+- [x] **Add the check** — done ([o/r#59](https://github.com/o/r/pull/59)) id: 1790000000aaaaaaaa
+- [ ] **Rule on [o/r#32](https://github.com/o/r/issues/32)** — does 26(a) reach a vessel aground id: 1790000000aaaaaaaa
+- [ ] **Foo** — merge the fix once it passes id: 1790000000aaaaaaaa
       ([pr](https://github.com/o/r/pull/7))
-- [ ] Card with no link at all
-- [ ] **Bar** — needs a link
+- [ ] Card with no link at all id: 1790000000aaaaaaaa
+- [ ] **Bar** — needs a link id: 1790000000aaaaaaaa
       but only says so over two lines
-- [ ] REVIEW the ADR ([o/r#9](https://github.com/o/r/issues/9))
-- [ ] **Baz**: answer the question on [o/r#3](https://github.com/o/r/issues/3)
-- [ ] **Qux** -- decide the shape ([o/r#5](https://github.com/o/r/pull/5))
-- [ ] **Watch the release** ([run](https://github.com/o/r/actions/runs/1))
-- [ ] **Answer** — the ADR text, no PR ([log](log/adr.md))
+- [ ] REVIEW the ADR ([o/r#9](https://github.com/o/r/issues/9)) id: 1790000000aaaaaaaa
+- [ ] **Baz**: answer the question on [o/r#3](https://github.com/o/r/issues/3) id: 1790000000aaaaaaaa
+- [ ] **Qux** -- decide the shape ([o/r#5](https://github.com/o/r/pull/5)) id: 1790000000aaaaaaaa
+- [ ] **Watch the release** ([run](https://github.com/o/r/actions/runs/1)) id: 1790000000aaaaaaaa
+- [ ] **Answer** — the ADR text, no PR ([log](log/adr.md)) id: 1790000000aaaaaaaa
 EOF
 run 1 'bad board, --file' --file "$SCRATCH/bad.md"
 has 'L2 on the stray bullet'            '^3: L2 '
@@ -95,20 +95,20 @@ cat > "$R/kanban.md" <<'EOF'
 # Open loops
 
 ## Human's
-- [ ] **Run the review session** — the memos ([log](log/memos.md)) why you: learn
+- [ ] **Run the review session** — the memos ([log](log/memos.md)) why you: learn id: 1790000000aaaaaaaa
 
 ## Deferred — pre-1.0
-- [ ] Later thing ([log](log/later.md))
+- [ ] Later thing ([log](log/later.md)) id: 1790000000aaaaaaaa
 
 ## Claude's
-- [ ] **Fix the awk** — drops the first bullet ([log](log/awk.md))
+- [ ] **Fix the awk** — drops the first bullet ([log](log/awk.md)) id: 1790000000aaaaaaaa
 EOF
 commit_board "$R" kanban.md
 run 0 'legacy headings in HEAD pass --file' --file "$R/kanban.md"
 cat >> "$R/kanban.md" <<'EOF'
 
 ## Yours
-- [ ] Another section ([log](log/x.md))
+- [ ] Another section ([log](log/x.md)) id: 1790000000aaaaaaaa
 EOF
 run 1 'a heading not in HEAD fails --file' --file "$R/kanban.md"
 has 'L3 names the heading' '^12: L3 new heading "## Yours"'
@@ -125,14 +125,14 @@ cat > "$NR/kanban.md" <<'EOF'
 # Open loops
 
 ## Claude's
-- [ ] **Fix the awk** — drops the first bullet ([log](log/awk.md))
+- [ ] **Fix the awk** — drops the first bullet ([log](log/awk.md)) id: 1790000000aaaaaaaa
 EOF
 commit_board "$NR" kanban.md
 cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert, one session until: the next migration risk: another 60 issues judgment: direction
+- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert, one session until: the next migration risk: another 60 issues judgment: direction id: 1790000000aaaaaaaa
 EOF
 run 0 'an added ## Needs ruling heading passes L3' --diff "$NR" kanban.md
 run 0 'a grouped decide + PR link card under ## Needs ruling passes L4, L7 and L8' --file "$NR/kanban.md"
@@ -143,8 +143,8 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Bare question** — decide the pin ([o/r#91](https://github.com/o/r/pull/91))
-- [ ] **Half evaluated** — decide the pin ([o/r#92](https://github.com/o/r/pull/92)) default: pin it
+- [ ] **Bare question** — decide the pin ([o/r#91](https://github.com/o/r/pull/91)) id: 1790000000aaaaaaaa
+- [ ] **Half evaluated** — decide the pin ([o/r#92](https://github.com/o/r/pull/92)) default: pin it id: 1790000000aaaaaaaa
       undo: unpin, one line RISK: none
 EOF
 run 1 'a ruling card without its fields fails L8' --diff "$NR" kanban.md
@@ -159,7 +159,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite settle: a load test under real traffic repos: colregs-engine judgment: direction
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite settle: a load test under real traffic repos: colregs-engine judgment: direction id: 1790000000aaaaaaaa
 EOF
 run 0 'a complete tentative-ADR card passes L7, skips L8, passes L10' --diff "$NR" kanban.md
 gitq "$NR" checkout -- kanban.md
@@ -168,7 +168,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) kind: tentative ADR gates: the queue rewrite id: 1790000000aaaaaaaa
 EOF
 run 1 'a tentative-ADR card missing fields fails L10, not L8' --diff "$NR" kanban.md
 has 'L10 names the missing fields' '^8: L10 tentative-ADR card missing settle:, repos:, judgment:'
@@ -179,7 +179,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) Kind:Tentative  ADR gates: the queue rewrite settle: a load test repos: colregs-engine judgment: tidiness
+- [ ] **Retry policy** — colregs-engine retries transient faults up to 3 times ([o/r#93](https://github.com/o/r/pull/93)) Kind:Tentative  ADR gates: the queue rewrite settle: a load test repos: colregs-engine judgment: tidiness id: 1790000000aaaaaaaa
 EOF
 run 1 'kind: tolerates spacing and case; a toil judgment: fails L10' --diff "$NR" kanban.md
 has 'L10 names the toil exit' '^8: L10 judgment: must be values, risk, direction, legal or people'
@@ -191,7 +191,7 @@ cat >> "$NR/kanban.md" <<'EOF2'
 
 ## Needs ruling
 ### colregs
-- [ ] **Toil in disguise** — decide the label ([o/r#93](https://github.com/o/r/pull/93)) default: apply it undo: remove it until: the next run risk: none judgment: tidiness
+- [ ] **Toil in disguise** — decide the label ([o/r#93](https://github.com/o/r/pull/93)) default: apply it undo: remove it until: the next run risk: none judgment: tidiness id: 1790000000aaaaaaaa
 EOF2
 run 1 'a judgment: outside the five kinds fails L8' --diff "$NR" kanban.md
 has 'L8 names the toil exit' '^8: L8 judgment: must be values, risk, direction, legal or people'
@@ -201,7 +201,7 @@ gitq "$NR" checkout -- kanban.md
 cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
-- [ ] **Ungrouped** — decide the pin ([o/r#91](https://github.com/o/r/pull/91))
+- [ ] **Ungrouped** — decide the pin ([o/r#91](https://github.com/o/r/pull/91)) id: 1790000000aaaaaaaa
 EOF
 run 1 'an ungrouped ruling card fails L7' --diff "$NR" kanban.md
 has 'L7 names the line'        '^7: L7 ruling card with no'
@@ -212,7 +212,7 @@ gitq "$NR" checkout -- kanban.md
 # "### " groups belong only under ## Needs ruling.
 cat >> "$NR/kanban.md" <<'EOF'
 ### dotfiles
-- [ ] **Grouped under the wrong section** — chase the awk ([log](log/awk.md))
+- [ ] **Grouped under the wrong section** — chase the awk ([log](log/awk.md)) id: 1790000000aaaaaaaa
 EOF
 run 1 'a ### group under ## Claude'"'"'s fails L3' --diff "$NR" kanban.md
 has 'L3 names the group heading' '^5: L3 group heading "### dotfiles"'
@@ -221,7 +221,7 @@ gitq "$NR" checkout -- kanban.md
 
 # The same card under ## Claude's is still the user's turn written down.
 cat >> "$NR/kanban.md" <<'EOF'
-- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90))
+- [ ] **Board sections** — decide whether cards or issues own a question ([o/r#90](https://github.com/o/r/pull/90)) id: 1790000000aaaaaaaa
 EOF
 run 1 'the same card under ## Claude'"'"'s still fails L4' --diff "$NR" kanban.md
 has 'L4 names the verb'            '^5: L4 "decide"'
@@ -232,11 +232,11 @@ gitq "$NR" checkout -- kanban.md
 cat >> "$NR/kanban.md" <<'EOF'
 
 ## Human's
-- [ ] **Install the App** — consent screen ([org](https://github.com/o)) why you: no API installs an App on an org why this: the workflow's 403 names the missing installation ([run](https://github.com/o/r/actions/runs/1))
-- [ ] **Rocq in the IDE** — set up the extension ([doc](https://example.invalid/rocq)) why you: learn
-- [ ] **Rotate the key** — on the boat ([log](log/key.md))
-- [ ] **Update the secret** — in GitHub ([log](log/secret.md)) why you: the value exists only in the user's password manager
-- [ ] **Half learn** — the setup ([log](log/l.md)) Why You: learner
+- [ ] **Install the App** — consent screen ([org](https://github.com/o)) why you: no API installs an App on an org why this: the workflow's 403 names the missing installation ([run](https://github.com/o/r/actions/runs/1)) id: 1790000000aaaaaaaa
+- [ ] **Rocq in the IDE** — set up the extension ([doc](https://example.invalid/rocq)) why you: learn id: 1790000000aaaaaaaa
+- [ ] **Rotate the key** — on the boat ([log](log/key.md)) id: 1790000000aaaaaaaa
+- [ ] **Update the secret** — in GitHub ([log](log/secret.md)) why you: the value exists only in the user's password manager id: 1790000000aaaaaaaa
+- [ ] **Half learn** — the setup ([log](log/l.md)) Why You: learner id: 1790000000aaaaaaaa
 EOF
 run 1 'a ## Human'"'"'s section: proofs pass, missing proofs fail L9' --diff "$NR" kanban.md
 lacks 'no L3 on the third section'          'L3'
@@ -252,7 +252,7 @@ gitq "$NR" checkout -- kanban.md
 cat >> "$NR/kanban.md" <<'EOF'
 
 ## Yours
-- [ ] Another section ([log](log/x.md))
+- [ ] Another section ([log](log/x.md)) id: 1790000000aaaaaaaa
 EOF
 run 1 'a ## Yours heading added fails L3' --diff "$NR" kanban.md
 has 'L3 names the heading'      '^6: L3 new heading "## Yours"'
@@ -281,7 +281,7 @@ cat > "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Board sections** — decide the pin ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert until: the next migration
+- [ ] **Board sections** — decide the pin ([o/r#90](https://github.com/o/r/pull/90)) default: cards undo: a revert until: the next migration id: 1790000000aaaaaaaa
 EOF
 commit_board "$NR" kanban.md
 sed -i 's/### colregs/### colregs-v2/' "$NR/kanban.md"
@@ -296,21 +296,21 @@ cat > "$D/state/global/kanban.md" <<'EOF'
 # Open loops
 
 ## Human's
-- [x] **Merge [o/r#29](https://github.com/o/r/pull/29)** — CI green, awaiting you
-- [ ] **Rule on [o/r#32](https://github.com/o/r/issues/32)** — the aground question
+- [x] **Merge [o/r#29](https://github.com/o/r/pull/29)** — CI green, awaiting you id: 1790000000aaaaaaaa
+- [ ] **Rule on [o/r#32](https://github.com/o/r/issues/32)** — the aground question id: 1790000000aaaaaaaa
 
 ## Claude's
-- [ ] **Old card** — merged history stays ([log](log/old.md))
+- [ ] **Old card** — merged history stays ([log](log/old.md)) id: 1790000000aaaaaaaa
 EOF
 commit_board "$D" state/global/kanban.md
 run 0 'no diff -> clean' --diff "$D" state/global/kanban.md
 eq 'no diff prints nothing' '' "$LAST"
 
 cat >> "$D/state/global/kanban.md" <<'EOF'
-- [ ] **New card** — awaiting Solace's review ([o/r#50](https://github.com/o/r/pull/50))
-- [ ] **Bump engine** — CI green now ([o/r#51](https://github.com/o/r/pull/51))
-- [ ] **Unmerged credit** — a fine card ([log](log/fine.md))
-- [ ] **Two-line state** — the fix
+- [ ] **New card** — awaiting Solace's review ([o/r#50](https://github.com/o/r/pull/50)) id: 1790000000aaaaaaaa
+- [ ] **Bump engine** — CI green now ([o/r#51](https://github.com/o/r/pull/51)) id: 1790000000aaaaaaaa
+- [ ] **Unmerged credit** — a fine card ([log](log/fine.md)) id: 1790000000aaaaaaaa
+- [ ] **Two-line state** — the fix id: 1790000000aaaaaaaa
       landed and is not merged yet ([log](log/two.md))
 EOF
 run 1 'added lines with state words' --diff "$D" state/global/kanban.md
@@ -326,14 +326,14 @@ gitq "$D" checkout -- state/global/kanban.md
 cat >> "$D/state/global/kanban.md" <<'EOF'
 
 ## Deferred
-- [ ] Later ([log](log/later.md))
+- [ ] Later ([log](log/later.md)) id: 1790000000aaaaaaaa
 EOF
 run 1 'a new heading in the diff' --diff "$D" state/global/kanban.md
 has 'L3 on the added heading' '^10: L3 new heading "## Deferred"'
 gitq "$D" checkout -- state/global/kanban.md
 
 # Moving an existing heading is not a new heading.
-printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Human'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn\n' > "$D/state/global/kanban.md"
+printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md)) id: 1790000000aaaaaaaa\n\n## Human'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn id: 1790000000aaaaaaab\n' > "$D/state/global/kanban.md"
 run 0 'reordering headings already in HEAD passes' --diff "$D" state/global/kanban.md
 gitq "$D" checkout -- state/global/kanban.md
 
@@ -360,15 +360,15 @@ The 2026-09-05 incident is closed and merged. Not a Status line.
 
 ## Status
 
-- 2026-09-04 — epic opened ([#1](https://github.com/o/r/issues/1))
-- 2026-09-06 — **P2.1 built** and open as [#21](https://github.com/o/r/pull/21), awaiting review
-- 2026-09-06 — **#21 fixed and green again**, verified by re-running
+- 2026-09-04 — epic opened ([#1](https://github.com/o/r/issues/1)) id: 1790000000aaaaaaaa
+- 2026-09-06 — **P2.1 built** and open as [#21](https://github.com/o/r/pull/21), awaiting review id: 1790000000aaaaaaaa
+- 2026-09-06 — **#21 fixed and green again**, verified by re-running id: 1790000000aaaaaaaa
   the harness; CI green
-- 2026-09-07 — ruled, see [#26](https://github.com/o/r/pull/26)
+- 2026-09-07 — ruled, see [#26](https://github.com/o/r/pull/26) id: 1790000000aaaaaaaa
 
 ## Sessions
 
-- [ ] **P1.5 Triage** — merged evidence packs; awaiting Solace
+- [ ] **P1.5 Triage** — merged evidence packs; awaiting Solace id: 1790000000aaaaaaaa
 EOF
 run 1 'epic Status lines' --epic "$SCRATCH/epic.md"
 has 'L5 open as (first phrase wins)'     '^8: L5 state word "open as"'
@@ -396,15 +396,15 @@ cat > "$SF/kanban.md" <<'EOF'
 # Open loops
 
 ## Claude's
-- [ ] **Plain** — write the check ([log](log/x.md))
-- [ ] **Sized** — write the check ([log](log/x.md)) model: sonnet effort: medium
-- [ ] **Dated** — write the check ([log](log/x.md)) model: opus effort: high until: 2026-10-15
-- [ ] **Evented** — write the check ([log](log/x.md)) until: the next release is cut
-- [ ] **Linked** — write the check ([log](log/x.md)) until: https://github.com/o/r/pull/5
+- [ ] **Plain** — write the check ([log](log/x.md)) id: 1790000000aaaaaaaa
+- [ ] **Sized** — write the check ([log](log/x.md)) model: sonnet effort: medium id: 1790000000aaaaaaaa
+- [ ] **Dated** — write the check ([log](log/x.md)) model: opus effort: high until: 2026-10-15 id: 1790000000aaaaaaaa
+- [ ] **Evented** — write the check ([log](log/x.md)) until: the next release is cut id: 1790000000aaaaaaaa
+- [ ] **Linked** — write the check ([log](log/x.md)) until: https://github.com/o/r/pull/5 id: 1790000000aaaaaaaa
 
 ## Needs ruling
 ### colregs
-- [ ] **Ruled** — decide the name ([o/r#1](https://github.com/o/r/issues/1)) default: a undo: revert until: https://github.com/o/r/issues/2 risk: churn judgment: direction model: fable effort: high
+- [ ] **Ruled** — decide the name ([o/r#1](https://github.com/o/r/issues/1)) default: a undo: revert until: https://github.com/o/r/issues/2 risk: churn judgment: direction model: fable effort: high id: 1790000000aaaaaaaa
 EOF
 run 0 'model:, effort: and a date, event or link until: pass --file' --file "$SF/kanban.md"
 eq 'and print nothing' '' "$LAST"
@@ -445,6 +445,23 @@ mkdir -p "$SCRATCH/nojq"; for b in sh awk sed grep sort head tr cat dirname base
 LAST=$(printf '%s' "$(edit_json "$SCRATCH/proj/kanban.md")" | PATH="$SCRATCH/nojq" /bin/sh "$LINT" 2>&1)
 eq 'no jq: still blocks' block "$(printf '%s' "$LAST" | jq -r .decision 2>/dev/null)"
 eq 'no jq: reason survives the hand-rolled escaper' 1 "$(printf '%s' "$LAST" | jq -r .reason | grep -c '^7: L1 ')"
+
+# --- L11: every card carries a well-formed id ---------------------------------
+cat > "$SCRATCH/ids.md" <<'EOF2'
+## Claude's
+- [ ] **No id** — do it ([log](log/a.md))
+- [ ] **Short id** — do it ([log](log/a.md)) id: 179083684207
+- [ ] **Upper hex** — do it ([log](log/a.md)) id: 1790836842077C62EB
+- [ ] **Good** — do it ([log](log/a.md)) id: 1790836842077c62eb
+- [ ] **Good, folded** — do it
+      ([log](log/a.md)) id: 1790836842077c62ec
+EOF2
+run 1 'L11 fires on missing and malformed ids' --file "$SCRATCH/ids.md"
+has 'L11 on the card with no id' '^2: L11'
+has 'L11 on a truncated id' '^3: L11'
+has 'L11 on upper-case hex' '^4: L11'
+lacks 'a good id passes' '^5: '
+lacks 'an id on a continuation line passes' '^6: '
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

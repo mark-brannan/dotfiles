@@ -51,6 +51,10 @@
 #       settle it and the repo(s) it touches, in place of a ruling card's
 #       default/undo/until/risk; the decision itself is the card's own
 #       sentence, and judgment: gates it exactly as L8 does
+#   L11 a card with no "id: <epoch seconds><8 hex>" field -- the work
+#       item's identifier (Solace, 2026-10-01, one-entry-point curia, pen),
+#       minted by `card-id mint` under the board lock; a hand-off that says
+#       "card <id>" must resolve to exactly one line
 #
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
@@ -95,6 +99,9 @@ run_lint() {
       humans = "## Human\047s"
       ruling = "## Needs ruling"
       cursec = ""; curgroup = ""
+      idre = "(^|[ (])id:[ \t]*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
+      for (i = 0; i < 8; i++) idre = idre "[0-9a-f]"
+      idre = idre "([^0-9a-z]|$)"
       nv = split("review merge land bump close approve ship ratify rule_on decide confirm answer watch", verbs, " ")
       for (i = 1; i <= nv; i++) gsub(/_/, " ", verbs[i])
       ns = split("not merged|ci green|open as|merged|awaiting", states, "|")
@@ -133,6 +140,8 @@ run_lint() {
       sub(/^[ \t]*(- \[[ xX]\] |- |[0-9]+\. )/, "", text)
       if (text !~ /https?:\/\// && text !~ /\]\((\.\.\/)*log\//)
         report(cstart, "L6", "card has no link -- a card carries an http link or a relative log/ link; a loop with no home gets a log entry first")
+      if (text !~ idre)
+        report(cstart, "L11", "card has no id: field -- every card ends with id: <epoch seconds><8 hex of the minting session>, minted by `card-id mint` (never typed, edited or reused); /card-write has the line")
       verb = verb_at(text)
       if (verb == "" && substr(text, 1, 2) == "**") {
         t2 = substr(text, 3); p = index(t2, "**")
