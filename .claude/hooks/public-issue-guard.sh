@@ -40,6 +40,9 @@
 # command also runs `cd`, in which case it is unknown. Unknown is scanned.
 # Only mark-brannan/claude_prompts_scratch is allowed unscanned.
 #
+# A --body-file path is read as the shell would read it: ~, . and .. apply,
+# and what the command does before the gh (a cd, an assignment) is replayed.
+#
 # GATE, fails closed: no jq, no awk, no library, unreadable payload, a body
 # the hook cannot see (--body-file it cannot read, `-F -` with no heredoc,
 # a body built from `$(...)` or `$VAR` that no heredoc feeds -- a heredoc
@@ -297,15 +300,29 @@ opaque=$(sed -n 's/^OPAQUE	//p' "$META" | head -1)
 if ! grep -q '^HEREDOC$' "$META"; then
   grep -q '^STDIN$' "$META" && deny "the body comes from stdin (-F - / --input -) and there is no heredoc in the command, so it cannot be checked. Put the text in a heredoc in the same command, or in a file and pass --body-file <path>."
 fi
-abspath() { case "$1" in '~'/*) printf '%s' "$HOME${1#\~}" ;; /*) printf '%s' "$1" ;; *) printf '%s' "$cwd/$1" ;; esac; }
-sed -n 's/^HFED	//p' "$META" | grep -v '^$' | while IFS= read -r h; do abspath "$h"; printf '\n'; done > "$WORK/hfed"
-sed -n 's/^F	//p' "$META" | while IFS= read -r f; do
-  f=$(abspath "$f")
+# normpath <absolute path>: collapse . and .. and repeated slashes (set -f
+# is on, so the unquoted split never globs).
+normpath() {
+  np_out=""; np_ifs=$IFS; IFS=/
+  for np_seg in $1; do
+    case "$np_seg" in ''|.) ;; ..) np_out=${np_out%/*} ;; *) np_out="$np_out/$np_seg" ;; esac
+  done
+  IFS=$np_ifs; printf '%s' "${np_out:-/}"
+}
+# resolve <path>: absolute and normalised, as the shell will read it.
+resolve() { case "$1" in '~'/*) normpath "$HOME${1#\~}" ;; /*) normpath "$1" ;; *) normpath "$cwd/$1" ;; esac; }
+sed -n 's/^HFED	//p' "$META" | grep -v '^$' > "$WORK/hfed"
+hfed_has() { while IFS= read -r h; do [ "$(resolve "$h")" = "$1" ] && return 0; done < "$WORK/hfed"; return 1; }
+# META is replayed in command order, so what stands before a path is read
+# (a cd, an assignment) can be applied to it.
+while IFS="$(printf '\t')" read -r kind a <&3; do
+  [ "$kind" = F ] || continue
+  f=$(resolve "$a")
   # A file this command writes from a heredoc need not exist yet: its text is
   # already in the scanned command, so the gate has read what it will hold.
-  [ -r "$f" ] || { grep -qxF -- "$f" "$WORK/hfed" || printf '%s\n' "$f" > "$WORK/badfile"; continue; }
+  [ -r "$f" ] || { hfed_has "$f" || printf '%s\n' "$f" > "$WORK/badfile"; continue; }
   cat "$f" >> "$WORK/text-file"; printf '\n' >> "$WORK/text-file"
-done
+done 3< "$META"
 [ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Write it to that same path from a heredoc in this same command (cat > PATH <<EOF ... EOF, or tee PATH <<EOF) -- the gate reads the heredoc body directly, so the file need not exist yet. Otherwise create the file in an earlier command and retry."
 cat "$WORK/text-cmd" "$WORK/text-file" > "$TEXT"
 
