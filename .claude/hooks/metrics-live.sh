@@ -824,8 +824,14 @@ if [ "$run_engine" -eq 1 ]; then
     fi
   fi
 
-  # The one shaping instruction, shared by the sitting rung and the bedtime.
-  shape_stop="shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth, name the single next step, write it as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, show it, and leave the door open. No question, no break offer, and never end the session on the user's behalf."
+  # The bedtime's shaping instruction. The pickup is the Stop hook's to ask
+  # for, and recall stays off-screen, so neither is asked for here.
+  shape_stop="shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth and leave the door open. No question, no break offer, and never end the session on the user's behalf."
+
+  # The sitting rung carries a fact and a pointer, nothing else: the orders
+  # say what to do with it, and a procedure here would displace them. The
+  # test checks the pointer still names a bold lead in .claude/CLAUDE.md.
+  sit_orders='Standing orders: "At a sitting rung".'
 
   # Model side of the sitting clock. Reads the same thresholds the screen
   # line does and defines none of its own; a rung of 0 means the shared clock
@@ -842,10 +848,10 @@ if [ "$run_engine" -eq 1 ]; then
     if [ "$r" -eq 0 ]; then
       m_sit_at=0; m_sit_said=0
     elif [ "$sit_quiet" -eq 0 ] && in_flight && [ "$r" -gt "$m_sit_said" ]; then
-      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"), with work in flight ($in_flight_memo). Don't raise the time yet: land this first, without asking -- commit, push, open the PR."
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"), with work in flight ($in_flight_memo). This rung comes back once it lands. $sit_orders"
       m_sit_said=$r
     elif [ "$sit_quiet" -eq 0 ] && ! in_flight && [ "$r" -gt "$m_sit_at" ]; then
-      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). Name the time once, then $shape_stop"
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). $sit_orders"
       m_sit_at=$r; m_sit_said=$r
     fi
   fi
