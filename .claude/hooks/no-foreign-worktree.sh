@@ -132,26 +132,19 @@ deny() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permission
 # message free of double quotes, backslashes and newlines.
 deny_literal() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-foreign-worktree: %s This is a gate and fails closed."}}\n' "$1"; exit 0; }
 
-# recipe <dir> -- the one command that gives this session its own worktree
-# of <dir>'s repo, under its scratchpad: own by the session-id rule (see the
-# header), whichever repo the session started in and however often a
-# subagent's cwd resets. `--git-dir=` rather than `-C <repo>`: the common
-# dir is what `worktree add` needs, it works from any cwd, and for yadm's
-# `$HOME` worktrees (`~/.local/share/yadm/repo.git`) there is no `-C`
-# directory to name at all. The scratchpad is looked for where Claude Code
-# puts it: `$CLAUDE_CODE_TMPDIR`, then `$TMPDIR`, then the state dir
-# (no-rm-tree.sh's allowlist names the same one). Placeholders where git or
-# the glob cannot say.
+# recipe <dir> -- one command giving this session its own worktree of <dir>'s
+# repo under its scratchpad (own by the session-id rule, any repo, survives a
+# subagent's cwd reset). `--git-dir=`, not `-C`: yadm's $HOME has no `-C`
+# directory, only `~/.local/share/yadm/repo.git`. Placeholders when unknown.
 recipe() {
   gitdir='<git-dir>'; scratch='<scratchpad>'
   gcd=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
   [ -n "$gcd" ] && gitdir=$gcd
   if [ -n "${session_id:-}" ]; then
-    for base in "${CLAUDE_CODE_TMPDIR:-}" "${TMPDIR:-}" "$HOME/.local/state/claude-tmpdir"; do
-      [ -n "$base" ] || continue
-      for d in "$base"/claude-*/*/"$session_id"/scratchpad; do
-        [ -d "$d" ] && { scratch=$d; break 2; }
-      done
+    for d in "${CLAUDE_CODE_TMPDIR:-/nonexistent}"/claude-*/*/"$session_id"/scratchpad \
+             "${TMPDIR:-/nonexistent}"/claude-*/*/"$session_id"/scratchpad \
+             "$HOME"/.local/state/claude-tmpdir/claude-*/*/"$session_id"/scratchpad; do
+      [ -d "$d" ] && { scratch=$d; break; }
     done
   fi
   printf 'git --git-dir=%s worktree add %s/<name> && cd %s/<name>' "$gitdir" "$scratch" "$scratch"
