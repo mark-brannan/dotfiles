@@ -13,6 +13,9 @@ HOOK="$(cd "$(dirname "$0")" && pwd)/metrics-live.sh"
 SCRATCH=$(mktemp -d); trap 'rm -rf "$SCRATCH"' EXIT
 export HOME="$SCRATCH/home"; mkdir -p "$HOME"
 export CLAUDE_STATE_REPO=""
+# Daylight whatever the wall clock says, so the sitting cases render the same
+# at midnight as at noon; the bedtime cases force the night per invocation.
+export METRICS_STOP_HOUR=24 METRICS_NIGHT_END_HOUR=0
 
 # shellcheck source=lib-metrics-test-harness.sh
 . "$(dirname "$HOOK")/lib-metrics-test-harness.sh"
@@ -122,6 +125,37 @@ out=$(payload "$TP6" g "$SCRATCH" UserPromptSubmit "stay 40" | bash "$HOOK" prom
 printf '  screen:           %s\n' "$(msg "$out")"
 printf '  additionalContext: %s\n' "$(ctx "$out")"
 unset METRICS_MODEL_CONTEXT_LINES
+
+# Bedtime: the night hour forced open, the clock read in UTC through
+# location.json's tz so the rendered times are the same on any host.
+NIGHT=(METRICS_STOP_HOUR=0 METRICS_NIGHT_END_HOUR=0)
+printf '{"tz": "UTC"}\n' > "$STATE/location.json"
+TPB="$SCRATCH/bed.jsonl"; turn "$TPB" 40000
+bedp() { payload "$TPB" bed "$SCRATCH" UserPromptSubmit "$1" | env "${NIGHT[@]}" bash "$HOOK" prompt 0 2>&1; }
+bedshow() { printf '  screen:           %s\n  additionalContext: [%s]\n' "$(msg "$1")" "$(ctx "$1")"; }
+set_bed() { jq --argjson b "$1" '.bed_at = $b' "$SITFILE" > "$SITFILE.t" && mv "$SITFILE.t" "$SITFILE"; }
+rm -f "$SITFILE"
+
+show "bedtime: the first prompt after the night hour (screen only)"
+bedshow "$(bedp "go on")"
+
+show "bedtime: the next prompt, no reply yet (silent, never re-asked)"
+bedshow "$(bedp "go on")"
+
+show "bedtime: the reply, a bare time 30 minutes out"
+bedshow "$(bedp "$(TZ=UTC date -d "@$(( $(date +%s) + 1800 ))" +%H:%M)")"
+
+show "bedtime: five minutes before"
+set_bed $(( $(date +%s) + 280 ))
+bedshow "$(bedp "go on")"
+
+show "bedtime: past the hour"
+set_bed $(( $(date +%s) - 120 ))
+bedshow "$(bedp "go on")"
+
+show "bedtime: the prompt after that (silent)"
+bedshow "$(bedp "go on")"
+printf '{"lat": 0, "lon": %s}\n' "$sun_lon" > "$STATE/location.json"
 
 show "sitting cluster: the ⏰ tier past the 90-minute rung"
 jq -n --argjson ss "$((now - 9000))" '{sitting_start: $ss, last_prompt: $ss}' > "$SITFILE"
