@@ -388,6 +388,28 @@ run 2 'missing epic' --epic "$SCRATCH/nope.md"
 run 2 'bad flag' --wat x
 run 2 'missing operand' --diff "$D"
 
+# --- model:, effort: and until: are optional shared fields ---------------------
+# A card may carry model:/effort: and an until: that is a date, an event or a
+# link; none is required and none is checked, so no existing card fails.
+SF="$SCRATCH/shared"; mkrepo "$SF"
+cat > "$SF/kanban.md" <<'EOF'
+# Open loops
+
+## Claude's
+- [ ] **Plain** — write the check ([log](log/x.md))
+- [ ] **Sized** — write the check ([log](log/x.md)) model: sonnet effort: medium
+- [ ] **Dated** — write the check ([log](log/x.md)) model: opus effort: high until: 2026-10-15
+- [ ] **Evented** — write the check ([log](log/x.md)) until: the next release is cut
+- [ ] **Linked** — write the check ([log](log/x.md)) until: https://github.com/o/r/pull/5
+
+## Needs ruling
+### colregs
+- [ ] **Ruled** — decide the name ([o/r#1](https://github.com/o/r/issues/1)) default: a undo: revert until: https://github.com/o/r/issues/2 risk: churn judgment: direction model: fable effort: high
+EOF
+run 0 'model:, effort: and a date, event or link until: pass --file' --file "$SF/kanban.md"
+eq 'and print nothing' '' "$LAST"
+run 0 'the same card lines pass --diff as added lines' --diff "$SF" kanban.md
+
 # --- hook mode ---------------------------------------------------------------
 hook() { printf '%s' "$1" | sh "$LINT" 2>&1; }
 edit_json() { jq -n --arg f "$1" '{tool_name:"Edit",tool_input:{file_path:$f,old_string:"a",new_string:"b"},tool_response:{}}'; }
