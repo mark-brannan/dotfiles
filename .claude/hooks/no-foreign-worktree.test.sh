@@ -336,7 +336,7 @@ check_claim 'stamps could not be fetched -> unknown, never stale' \
   'A hand-off carries a branch'
 check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
   'no card' \
-  'git merge --ff-only <branch>'
+  'git merge --ff-only theirs'
 
 # The stub counts its invocations: the state and the attributed line must
 # come from one read, not a second call that can disagree with the first.
@@ -395,6 +395,16 @@ if printf '%s' "$out" | grep -qF 'git merge --ff-only <branch>' && ! printf '%s'
 else
   fail=$((fail + 1)); printf 'FAIL: EnterWorktree(path=...) must recommend ff-only merge, not checkout\n  hook output: %s\n' "$out"
 fi
+
+# The deny names the cross-repo recipe with this session's real scratchpad
+# and the foreign worktree's repo, and running that recipe is allowed.
+recipe_cmd="git -C $REPO worktree add $SCRATCH/$SID/scratchpad/<name> && cd $SCRATCH/$SID/scratchpad/<name>"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" --arg s "$SID" \
+  '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
+  | CLAUDE_CODE_TMPDIR="$TMP/scratch/claude-tmpdir" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF "$recipe_cmd"; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: deny must print the scratchpad worktree recipe\n  hook output: %s\n' "$out"; fi
+sid_check allow 'following the printed recipe' "${recipe_cmd//<name>/fresh-wt}" "$SID" /tmp
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \
