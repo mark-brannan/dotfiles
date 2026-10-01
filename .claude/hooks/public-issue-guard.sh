@@ -103,7 +103,7 @@ case "$tool" in
     printf '%s\n' "$cmd" | awk "$(cat "$LIB")"'
       function wv(i) { return (k[i] == "q") ? q[i] : w[i] }
       function flat(t) { gsub(/\n/, " ", t); return t }
-      function file(p) { if (p == "-") print "STDIN"; else print "F\t" flat(p) }
+      function file(p) { if (p == "-") print "STDIN"; else print (SEG_NESTED ? "FX\t" : "F\t") flat(p) }
       # Opaque = built at run time. Allowed only when the heredoc feeding it is
       # on the value itself: `$(cat <<EOF ...)` inline, or `$VAR` whose
       # assignment carries `<<`. The heredoc body is in TEXT and gets scanned.
@@ -176,8 +176,16 @@ case "$tool" in
         }
         print "CDTO\t" flat(t)
       }
+      # A NAME VALUE: a standalone or exported assignment (a prefix on the gh itself expands too late to count). FX: a path in nested text, which runs in a shell of its own: read as spelled, literal and absolute, or denied.
+      function assign(a, live,   name) { name = a; sub(/=.*$/, "", name); if ((!live && a ~ /\$/) || orig ~ ("(^|[;&|[:space:]])" name "=[\"\047]~")) sub(/=.*$/, "=$", a); print "A\t" flat(a) }   # a single-quoted $, or a quoted ~, is literal: poison it, so the path stays unresolvable
       function segment(lo, hi, nested,   g, i, t, v, repo, sub_, act, c) {
-        if (!nested) { c = seg_cmd(w, k, lo, hi); if (c && w[c] ~ /^(cd|pushd|popd)$/) cdto(c, hi) }
+        SEG_NESTED = nested
+        if (!nested) {
+          c = seg_cmd(w, k, lo, hi); ok = !c   # seg_cmd is also 0 when a quoted word leads: only a segment of nothing but assignments counts
+          for (i = lo; ok && i <= hi; i++) if (k[i] != "w" || w[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) ok = 0
+          if (ok || (c && w[c] ~ /^(export|local|readonly|declare|typeset)$/)) { for (i = lo; i <= hi; i++) if (k[i] == "w" && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w[i], SW_live[i]) }
+          else if (w[c] ~ /^(cd|pushd|popd)$/) cdto(c, hi)
+        }
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
         if (!g || g + 1 > hi) return
         repo = ""
@@ -322,7 +330,18 @@ normpath() {
 # resolve <path>: absolute and normalised, as the shell will read it, against
 # vcwd, where the command stands at that point (empty = unknown: relative fails).
 vcwd=$cwd
-resolve() { case "$1" in *'$'*|*'`'*) return 1 ;; '~'|'~'/*) normpath "$HOME${1#\~}" ;; /*) normpath "$1" ;; *) [ -n "$vcwd" ] || return 1; normpath "$vcwd/$1" ;; esac; }
+# expand <path>: $VAR/${VAR} from the assignments replayed so far, $HOME and a leading ~. An unknown $VAR stays, and resolve refuses it.
+expand() {
+  cat "$WORK/vars" 2>/dev/null | P="$1" HOMEV="${HOME:-}" awk 'BEGIN { FS = "\t"; v["HOME"] = ENVIRON["HOMEV"] } { v[$1] = $2 } END {
+      s = ENVIRON["P"]; if (s ~ /^~(\/|$)/) s = v["HOME"] substr(s, 2)   # ~ expands only where it is written, never where a $VAR puts it
+      while ((j = index(s, "$")) > 0) {
+        out = out substr(s, 1, j - 1); s = substr(s, j + 1)
+        if (!match(s, /^\{[A-Za-z_][A-Za-z0-9_]*\}/) && !match(s, /^[A-Za-z_][A-Za-z0-9_]*/)) { out = out "$"; continue }
+        name = substr(s, 1, RLENGTH); gsub(/[{}]/, "", name); if (name in v) { out = out v[name]; s = substr(s, RLENGTH + 1) } else out = out "$"
+      }
+      print out s }'
+}
+resolve() { rs_p=$(expand "$1"); case "$rs_p" in *'$'*|*'`'*) return 1 ;; /*) normpath "$rs_p" ;; *) [ -n "$vcwd" ] || return 1; normpath "$vcwd/$rs_p" ;; esac; }
 sed -n 's/^HFED	//p' "$META" | grep -v '^$' > "$WORK/hfed"
 hfed_has() { while IFS= read -r h; do [ "$(resolve "$h")" = "$1" ] && return 0; done < "$WORK/hfed"; return 1; }
 # META is replayed in command order, so what stands before a path is read
@@ -330,7 +349,8 @@ hfed_has() { while IFS= read -r h; do [ "$(resolve "$h")" = "$1" ] && return 0; 
 while IFS="$(printf '\t')" read -r kind a <&3; do
   case "$kind" in
     CDTO) if [ "$a" = - ]; then vcwd=""; else vcwd=$(resolve "$a") || vcwd=""; fi; continue ;;
-    F) ;; *) continue ;;
+    A) printf '%s\t%s\n' "${a%%=*}" "$(expand "${a#*=}")" >> "$WORK/vars"; continue ;;
+    F) ;; FX) case "$a" in *'$'*|[!/]*) printf '%s\n' "$a" > "$WORK/badfile"; continue ;; esac ;; *) continue ;;
   esac
   f=$(resolve "$a") || { printf '%s\n' "$a" > "$WORK/badfile"; continue; }
   # A file this command writes from a heredoc need not exist yet: its text is
@@ -338,7 +358,7 @@ while IFS="$(printf '\t')" read -r kind a <&3; do
   [ -r "$f" ] || { hfed_has "$f" || printf '%s\n' "$f" > "$WORK/badfile"; continue; }
   cat "$f" >> "$WORK/text-file"; printf '\n' >> "$WORK/text-file"
 done 3< "$META"
-[ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Write it to that same path from a heredoc in this same command (cat > PATH <<EOF ... EOF, or tee PATH <<EOF) -- the gate reads the heredoc body directly, so the file need not exist yet. Otherwise create the file in an earlier command and retry."
+[ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Write it to that same path from a heredoc in this same command (cat > PATH <<EOF ... EOF, or tee PATH <<EOF) -- the gate reads the heredoc body directly, so the file need not exist yet. Otherwise create the file in an earlier command and retry. The path is resolved with the \$VARs this same command assigns before it, after any cd in it, with . and .. collapsed; a variable set in an earlier command is invisible here, so spell the path out."
 cat "$WORK/text-cmd" "$WORK/text-file" > "$TEXT"
 
 grep -q -i -F -f "$WORK/terms" "$TEXT" || exit 0

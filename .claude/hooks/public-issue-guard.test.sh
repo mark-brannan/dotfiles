@@ -293,6 +293,55 @@ check allow 'cd - then an absolute path is still fine' \
   "$(bash_in "$PUB" "cd - && gh pr comment 3 --body-file $SCRATCH/clean.md")"
 check allow 'cd inside sh -c does not move the outer command' \
   "$(bash_in "$SCRATCH" "sh -c 'cd /nowhere'; gh pr comment 3 --body-file clean.md")"
+# Slice 3: a variable this same command assigns before the gh is expanded
+# in the path (88 of the measured denials). One it never assigned, or a
+# prefix assignment on the gh itself, stays a $ and is denied. A path
+# inside sh -c is read as spelled: literal and absolute, or denied.
+mkdir -p "$SCRATCH/sp"; cp "$SCRATCH/clean.md" "$SCRATCH/body.md" "$SCRATCH/sp/"
+check allow '$VAR assigned in the same command, clean file' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; gh pr create -t x --body-file \"\$SP/clean.md\"")"
+check deny  '$VAR assigned in the same command, file still scanned' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; gh pr create -t x --body-file \"\$SP/body.md\"")"
+reason 'names the term'              'Wanderlust'
+check allow '${VAR} via $HOME, chained through a second assignment' \
+  "$(bash_in "$PUB" 'export SP="$HOME"; S=$SP; gh issue create -t x --body-file ${S}/b.md')"
+check allow '$VAR assigned, heredoc writes the file in the same command' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp
+cat > \"\$SP/new.md\" <<'EOF'
+all public
+EOF
+gh pr create -t x --body-file \"\$SP/new.md\"")"
+check allow 'cd to a $VAR, then a relative path' \
+  "$(bash_in "$PUB" "D=$SCRATCH; cd \$D/sp && gh pr comment 3 -F clean.md")"
+check allow 'a later assignment wins' \
+  "$(bash_in "$PUB" "SP=/nowhere; SP=$SCRATCH/sp; gh pr comment 3 -F \$SP/clean.md")"
+check deny  '$VAR not assigned in this command' \
+  "$(bash_in "$PUB" 'gh pr create -t x --body-file "$SP/clean.md"')"
+reason 'names the path as spelled'   '$SP/clean.md'
+reason 'says earlier commands are invisible' 'earlier command is invisible'
+check deny  'prefix assignment on the gh does not feed its own path' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp gh pr create -t x --body-file \"\$SP/clean.md\"")"
+check deny  'a quoted word leading a segment is not an assignment list' \
+  "$(mkdir -p "$SCRATCH/decoy"; cp "$SCRATCH/clean.md" "$SCRATCH/decoy/notes.md"; cp "$SCRATCH/body.md" "$SCRATCH/sp/notes.md"; bash_in "$PUB" "SP=$SCRATCH/sp
+\"touch x\" SP=$SCRATCH/decoy
+gh pr create -t x --body-file \"\$SP/notes.md\"")"
+reason 'reads the real path, not the decoy' 'Wanderlust'
+check deny  'a single-quoted $ in a value is literal, so the path is unknowable' \
+  "$(bash_in "$PUB" "SP='\$HOME'; gh pr create -t x --body-file \"\$SP/b.md\"")"
+check deny  'a quoted ~ in a value is literal, so the path is unknowable' \
+  "$(mkdir -p "$PUB/~"; cp "$SCRATCH/body.md" "$PUB/~/b.md"; bash_in "$PUB" "X='~'; gh pr create -t x --body-file \"\$X/b.md\"")"
+check deny  'a double-quoted ~ is literal too' \
+  "$(bash_in "$PUB" 'X="~/d"; gh pr create -t x --body-file "$X/../b.md"')"
+check allow 'SP=~ unquoted expands at assignment' \
+  "$(bash_in "$PUB" 'SP=~; gh pr comment 3 -F $SP/b.md')"
+check deny  '$VAR from $(...) stays unknowable' \
+  "$(bash_in "$PUB" 'SP=$(mktemp -d); gh pr create -t x --body-file "$SP/clean.md"')"
+check deny  'a $VAR inside sh -c is not fed by the outer assignment' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; sh -c 'gh pr create -t x --body-file \$SP/clean.md'")"
+check deny  'a ~ path inside sh -c is not expanded' \
+  "$(bash_in "$PUB" "sh -c 'gh pr create -t x --body-file ~/b.md'")"
+check allow 'an absolute path inside sh -c is read as spelled' \
+  "$(bash_in "$PUB" "sh -c 'gh pr create -t x --body-file $SCRATCH/sp/clean.md'")"
 
 # The exemption is the gate's weakest point: it says "that file will hold the
 # heredoc body I read". Two ways that stops being true, both denied.
