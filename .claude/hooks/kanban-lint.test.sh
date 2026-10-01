@@ -94,7 +94,7 @@ R="$SCRATCH/legacy"; mkrepo "$R"
 cat > "$R/kanban.md" <<'EOF'
 # Open loops
 
-## Solace's
+## Human's
 - [ ] **Run the review session** — the memos ([log](log/memos.md)) why you: learn
 
 ## Deferred — pre-1.0
@@ -151,6 +151,38 @@ run 1 'a ruling card without its fields fails L8' --diff "$NR" kanban.md
 has 'L8 names every missing field' '^8: L8 ruling card missing default:, undo:, until:, risk:, judgment:'
 has 'L8 names only the missing ones, across a continuation line, any case' '^9: L8 ruling card missing until:, judgment:'
 lacks 'L8 does not name a present field' '^9: L8 ruling card missing [^\n]*(default|undo|risk)'
+gitq "$NR" checkout -- kanban.md
+
+# L8: until: holds a date, a PR/issue link, or an event in words -- and
+# nothing else: an empty value or a date that is no calendar day fails.
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Dated** — pick ([l](log/a.md)) default: a undo: revert until: 2026-10-05. risk: low judgment: direction
+- [ ] **Linked** — pick ([l](log/a.md)) default: a undo: revert until: https://github.com/o/r/pull/7 risk: low judgment: direction
+- [ ] **Short ref** — pick ([l](log/a.md)) default: a undo: revert until: o/r#8 risk: low judgment: direction
+- [ ] **Worded** — pick ([l](log/a.md)) default: a undo: revert until: the next migration, ~2026-11-01 risk: low judgment: direction
+- [ ] **Leap day** — pick ([l](log/a.md)) default: a undo: revert until: 2028-02-29 risk: low judgment: direction
+- [ ] **Folded** — pick ([l](log/a.md)) default: a undo: revert
+      until: before 1.8 ships risk: low judgment: direction
+EOF
+run 0 'the three until: forms, and a date inside words, pass L8' --diff "$NR" kanban.md
+gitq "$NR" checkout -- kanban.md
+cat >> "$NR/kanban.md" <<'EOF'
+
+## Needs ruling
+### colregs
+- [ ] **Empty** — pick ([l](log/a.md)) default: a undo: revert until: risk: low judgment: direction
+- [ ] **Bad date** — pick ([l](log/a.md)) default: a undo: revert until: 2026-13-02 risk: low judgment: direction
+- [ ] **Bad day** — pick ([l](log/a.md)) default: a undo: revert until: M6, 2026-12-00 risk: low judgment: direction
+- [ ] **No such day** — pick ([l](log/a.md)) default: a undo: revert until: 2026-02-29 risk: low judgment: direction
+EOF
+run 1 'an empty until: or an impossible date fails L8' --diff "$NR" kanban.md
+has 'L8 names an empty until:' '^8: L8 until: is empty'
+has 'L8 names a month past 12' '^9: L8 until: date 2026-13-02 is no calendar day'
+has 'L8 names a day of 00 inside words' '^10: L8 until: date 2026-12-00 is no calendar day'
+has 'L8 names a day past the end of its month' '^11: L8 until: date 2026-02-29 is no calendar day'
 gitq "$NR" checkout -- kanban.md
 
 # L10: a "kind: tentative ADR" card carries gates:/settle:/repos: instead of
@@ -228,17 +260,17 @@ has 'L4 names the verb'            '^5: L4 "decide"'
 has 'L4 points at the ruling section' '## Needs ruling'
 gitq "$NR" checkout -- kanban.md
 
-# ## Solace's is the third section: click work, with its two proofs (L9).
+# ## Human's is the third section: click work, with its two proofs (L9).
 cat >> "$NR/kanban.md" <<'EOF'
 
-## Solace's
+## Human's
 - [ ] **Install the App** — consent screen ([org](https://github.com/o)) why you: no API installs an App on an org why this: the workflow's 403 names the missing installation ([run](https://github.com/o/r/actions/runs/1))
 - [ ] **Rocq in the IDE** — set up the extension ([doc](https://example.invalid/rocq)) why you: learn
 - [ ] **Rotate the key** — on the boat ([log](log/key.md))
 - [ ] **Update the secret** — in GitHub ([log](log/secret.md)) why you: the value exists only in the user's password manager
 - [ ] **Half learn** — the setup ([log](log/l.md)) Why You: learner
 EOF
-run 1 'a ## Solace'"'"'s section: proofs pass, missing proofs fail L9' --diff "$NR" kanban.md
+run 1 'a ## Human'"'"'s section: proofs pass, missing proofs fail L9' --diff "$NR" kanban.md
 lacks 'no L3 on the third section'          'L3'
 lacks 'both proofs present passes'          '^7: '
 lacks 'a learn card needs no why this'      '^8: '
@@ -256,7 +288,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 EOF
 run 1 'a ## Yours heading added fails L3' --diff "$NR" kanban.md
 has 'L3 names the heading'      '^6: L3 new heading "## Yours"'
-has 'L3 names the sections'     '## Needs ruling, ## Solace'"'"'s and ## Claude'"'"'s'
+has 'L3 names the sections'     '## Needs ruling, ## Human'"'"'s and ## Claude'"'"'s'
 gitq "$NR" checkout -- kanban.md
 
 # --- heading-only diffs: a card is re-scoped without its own line changing ---
@@ -269,8 +301,8 @@ has 'L7 fires though only the heading line was added'    '^4: L7 '
 has 'L8 fires though only the heading line was added'    '^4: L8 '
 gitq "$NR" checkout -- kanban.md
 
-printf '# Open loops\n\n## Solace'"'"'s\n- [ ] **Fix the awk** — drops the first bullet ([o/r#90](https://github.com/o/r/pull/90))\n' > "$NR/kanban.md"
-run 1 'a heading-only diff into ## Solace'"'"'s still validates the untouched card beneath it' --diff "$NR" kanban.md
+printf '# Open loops\n\n## Human'"'"'s\n- [ ] **Fix the awk** — drops the first bullet ([o/r#90](https://github.com/o/r/pull/90))\n' > "$NR/kanban.md"
+run 1 'a heading-only diff into ## Human'"'"'s still validates the untouched card beneath it' --diff "$NR" kanban.md
 has 'L9 fires though only the heading line was added'    '^4: L9 click-work card missing why you:'
 gitq "$NR" checkout -- kanban.md
 
@@ -295,7 +327,7 @@ D="$SCRATCH/diff"; mkrepo "$D"; mkdir -p "$D/state/global"
 cat > "$D/state/global/kanban.md" <<'EOF'
 # Open loops
 
-## Solace's
+## Human's
 - [x] **Merge [o/r#29](https://github.com/o/r/pull/29)** — CI green, awaiting you
 - [ ] **Rule on [o/r#32](https://github.com/o/r/issues/32)** — the aground question
 
@@ -333,7 +365,7 @@ has 'L3 on the added heading' '^10: L3 new heading "## Deferred"'
 gitq "$D" checkout -- state/global/kanban.md
 
 # Moving an existing heading is not a new heading.
-printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Solace'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn\n' > "$D/state/global/kanban.md"
+printf '# Open loops\n\n## Claude'"'"'s\n- [ ] **Old card** — merged history stays ([log](log/old.md))\n\n## Human'"'"'s\n- [ ] **Moved card** — the aground question ([log](log/aground.md)) why you: learn\n' > "$D/state/global/kanban.md"
 run 0 'reordering headings already in HEAD passes' --diff "$D" state/global/kanban.md
 gitq "$D" checkout -- state/global/kanban.md
 
@@ -387,6 +419,28 @@ run 2 'missing file' --file "$SCRATCH/nope.md"
 run 2 'missing epic' --epic "$SCRATCH/nope.md"
 run 2 'bad flag' --wat x
 run 2 'missing operand' --diff "$D"
+
+# --- model:, effort: and until: are optional shared fields ---------------------
+# A card may carry model:/effort: and an until: that is a date, an event or a
+# link; none is required and none is checked, so no existing card fails.
+SF="$SCRATCH/shared"; mkrepo "$SF"
+cat > "$SF/kanban.md" <<'EOF'
+# Open loops
+
+## Claude's
+- [ ] **Plain** — write the check ([log](log/x.md))
+- [ ] **Sized** — write the check ([log](log/x.md)) model: sonnet effort: medium
+- [ ] **Dated** — write the check ([log](log/x.md)) model: opus effort: high until: 2026-10-15
+- [ ] **Evented** — write the check ([log](log/x.md)) until: the next release is cut
+- [ ] **Linked** — write the check ([log](log/x.md)) until: https://github.com/o/r/pull/5
+
+## Needs ruling
+### colregs
+- [ ] **Ruled** — decide the name ([o/r#1](https://github.com/o/r/issues/1)) default: a undo: revert until: https://github.com/o/r/issues/2 risk: churn judgment: direction model: fable effort: high
+EOF
+run 0 'model:, effort: and a date, event or link until: pass --file' --file "$SF/kanban.md"
+eq 'and print nothing' '' "$LAST"
+run 0 'the same card lines pass --diff as added lines' --diff "$SF" kanban.md
 
 # --- hook mode ---------------------------------------------------------------
 hook() { printf '%s' "$1" | sh "$LINT" 2>&1; }

@@ -36,6 +36,7 @@ Procedures only. The hook designs and the scars behind them are in
 - [Find out which session holds a branch](#find-out-which-session-holds-a-branch)
 - [Waive the churn gate on a PR](#waive-the-churn-gate-on-a-pr)
 - [Waive the mixed-loops gate on a PR](#waive-the-mixed-loops-gate-on-a-pr)
+- [Grind a project](#grind-a-project)
 - [Run the PR fixer on a timer](#run-the-pr-fixer-on-a-timer)
 
 **Troubleshooting**
@@ -54,46 +55,23 @@ A Claude Code cloud environment configures exactly four things: **name, network
 access, environment variables, and a setup script.** Repositories are *not*
 part of the environment — they attach per session, as sources.
 
-**1 — Setup script.** The field only takes pasted text, so every environment's
-script is version-controlled here as the source of truth and pasted in by
-hand — the field itself is never the record.
+**1 — Setup script.** Paste the variant for the environment, verbatim, into
+**every** environment — one with no seed looks fine until something is missing.
 
-`Trusted` and `Full network access` take
-[`cloud-session-setup.sh`](../.local/bin/cloud-session-setup.sh)'s caller
-verbatim. It only clones and delegates, so the logic stays in the repo rather
-than going stale in a web form:
+`Trusted` and `Full network access`:
 
 ```sh
 git clone -q https://github.com/mark-brannan/dotfiles \
   "$HOME/.local/share/dotfiles-seed" 2>/dev/null
-CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh"
-exit 0
+CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh" || true
 ```
 
-`Default (with tailscale)` needs tailscale installed before the seed exists to
-delegate to, so it can't be a bare clone-and-delegate — paste
-[`cloud-session-setup-tailscale.sh`](../.local/bin/cloud-session-setup-tailscale.sh)
-verbatim instead; it ends with the same clone-and-delegate. Neither variant is
-executed by the platform — both files exist only so the pasted text has an
-authoritative copy in git. Keep them in sync by hand if either changes.
+`Default (with tailscale)`: the contents of
+[`cloud-session-setup-tailscale.sh`](../.local/bin/cloud-session-setup-tailscale.sh).
 
-Paste the matching variant into **every** environment, not just the one in
-front of you — an environment with no seed is indistinguishable from one that
-has it until something is missing.
-
-**The setup script runs once, when the container is created**, and the
-container is then checkpointed and reused. So the blob's `git clone` is the
-seed's only chance to be fresh, and it is a no-op forever after. Two things
-close that gap and both are in this repo, not in the web form:
-`cloud-session-setup.sh` pulls the seed before installing from it, and
-`session-start-seed-refresh.sh` re-runs the whole installer on every
-SessionStart. A rule edited here therefore reaches the next session with no
-re-provision — deliberately live rather than pinned, because these are
-interactive sessions and a stale standing order is worse than a changed one.
-
-Only `CLAUDE.md` cannot be refreshed in place: it is loaded before any hook
-runs. When the refresh rewrites it, the hook emits the new copy as
-`additionalContext` so the current session gets it too.
+Re-paste only when that block or that file changes. A rule edited in this repo
+reaches the next session on its own; `session-start-seed-refresh.sh` re-runs the
+seed at every SessionStart.
 
 **2 — Sources.** Add **both**:
 
@@ -235,6 +213,14 @@ Edit that file, not the scripts.
 | `metrics-live.sh` | writes the cache; prints the two-line event block |
 | `statusline-metrics.sh` | prints the one-line statusline row |
 | `lib-metrics-fmt.jq` | **every field and both layouts** |
+
+The decision count is measured, never alarmed: `metrics-live.sh` has no
+decision line on screen or to the model. The decisions-per-session-hour ratio
+(session clock, first prompt to last) appears in exactly two places, the
+session-start "Decision load, last 7 days" block and the Stop checkpoint's
+`- decision rate:` line. Do not add it to the statusline or the event block.
+Verify: `grep -c 'decision rate' ~/claude_prompts_scratch/state/global/log/auto/*.md | tail -3`
+after a session with two or more prompts.
 
 Fields are `env`, `cost`, `time`, `dec`, `turns`, `work` (plus `split`, unused).
 Layouts are `row` and `block`. Both draw from one `fields` list, so field order
@@ -621,6 +607,24 @@ If it fails with `'mixed-loops-ok' not found`, create the label once:
 ```bash
 gh label create mixed-loops-ok --repo mark-brannan/dotfiles --color BFD4F2 --description "Human waiver: design and implementation may land in this one PR"
 ```
+
+## Grind a project
+
+`grind <project>` works one queue over every repo carrying the GitHub topic
+`project-<project>` — the set `worklist <project>` shows — from any directory.
+Each item's worktree is cut from that repo's checkout at `$HOME/<name>` (or
+`$GRIND_CHECKOUTS/<name>`); a repo with no checkout is dropped on one line,
+never worked blind.
+
+```bash
+grind --dry-run --kind issue --kind card colregs
+```
+
+**Verify:** the plan lists items from more than one repo, every `worktree:`
+line names `git -C $HOME/<that repo>`, and no `no local checkout of` line names
+a repo you meant to include. Then drop `--dry-run`. One lock covers the family:
+a second `grind colregs` refuses with `another grind is already running against
+project colregs`.
 
 ## Run the PR fixer on a timer
 

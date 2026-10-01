@@ -146,6 +146,23 @@ if [ -f "$MARKER" ]; then pass=$((pass+1)); else
 fi
 rm -rf "$LOCKDIR" "$MARKER"
 
+# state_lock_wait is the portable `flock -w`: it gives up on a live holder
+# after its budget, and takes a lock freed while it waits.
+mkdir -p "$LOCKDIR"
+printf 'pid=%s\nhostname=%s\n' "$$" "$(uname -n)" > "$LOCKDIR/meta"
+cat > "$CASE" <<EOF
+. "$HOOKS/lib-state.sh"
+state_lock_wait "$LOCKDIR" 1
+EOF
+lock_check "state_lock_wait: live holder past the budget fails" 1
+( sleep 1; rm -rf "$LOCKDIR" ) &
+cat > "$CASE" <<EOF
+. "$HOOKS/lib-state.sh"
+state_lock_wait "$LOCKDIR" 5 && grep -q "^pid=\$\$" "$LOCKDIR/meta"
+EOF
+lock_check "state_lock_wait: a lock freed mid-wait is taken" 0
+wait; rm -rf "$LOCKDIR"
+
 mkdir -p "$LOCKDIR"
 printf 'pid=999999999\nhostname=%s\n' "$(uname -n)" > "$LOCKDIR/meta"
 cat > "$CASE" <<EOF
@@ -308,6 +325,113 @@ got=$(HOOK_DIR="$FAKE" ARCHIVABLE_HOME_FILE="$HF" bash -c '
   printf "%s|%s" "$r" "$(cat "$ARCHIVABLE_HOME_FILE" 2>/dev/null)"')
 if [ "$got" = "|home: pr https://github.com/o/r/pull/1" ]; then pass=$((pass+1))
 else fail=$((fail+1)); echo "FAIL home line through file: got [$got]"; fi
+
+# --- unpushed_state: a commit on a differently-named remote branch ------------
+# `mergify stack push` leaves @{u} at origin/main and pushes to stack/<name>;
+# counting @{u}..HEAD called that pushed commit unpushed.
+STK="$SCRATCH/stack"; git clone -q "$ORIGIN" "$STK" >/dev/null 2>&1
+gitq "$STK" checkout -q -b main origin/feature
+gitq "$STK" push -q -u origin main
+gitq "$STK" checkout -q -b local-stack
+gitq "$STK" branch -q -u origin/main
+printf 'y\n' > "$STK/g"; gitq "$STK" add g; gitq "$STK" commit -q -m stacked
+ust() { bash -c '. "'"$HOOKS"'/lib-state.sh"; unpushed_state "$1" "$2"' _ "$@"; }
+eq_ust() { if [ "$2" = "$3" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL $1: expected [$2], got [$3]"; fi; }
+eq_ust "commit on no remote branch, @{u}=main: ahead 1" 'ahead 1' "$(ust "$STK" local-stack)"
+gitq "$STK" push -q origin local-stack:refs/heads/wip/sid
+eq_ust "same commit only on a wip/ salvage ref: still ahead 1" 'ahead 1' "$(ust "$STK" local-stack)"
+gitq "$STK" push -q origin local-stack:refs/heads/stack/x
+eq_ust "same commit on stack/x, @{u} still main: ahead 0" 'ahead 0' "$(ust "$STK" local-stack)"
+gitq "$STK" branch -q --unset-upstream
+eq_ust "no upstream, commit on a remote branch: safe" 'safe' "$(ust "$STK" local-stack)"
+
+# --- decision_rate -----------------------------------------------------------
+dr() { bash -c '. "'"$HOOKS"'/lib-state.sh"; decision_rate "$@"' _ "$@"; }
+eq_ust "decision_rate: 3 in 1h10"      '3 decisions in 1h10 (2.6/h)' "$(dr 3 4200)"
+eq_ust "decision_rate: singular"       '1 decision in 0h30 (2.0/h)'  "$(dr 1 1800)"
+eq_ust "decision_rate: no clock, no line" ''                          "$(dr 3 0)"
+
+# --- work_record: a pickup item and a card read into one record shape -------
+# Fields: kind title status until claim model effort link id updated.
+wr() { ( . "$HOOKS/lib-state.sh"; export WORK_CLAIMS=${WC:-}; work_record "$@" ) | tr '\037' '|'; }
+WR="$SCRATCH/wr"; mkdir -p "$WR"
+printf 'status: open\nupdated: 2026-09-09T10:00:00Z\nmodel: claude-sonnet-5\npr: https://github.com/o/r/pull/7\n---\n\nFinish the thing\nlink: https://github.com/o/r/issues/3\nmodel: Opus\neffort: high\n' \
+  > "$WR/2026-09-09T10-00-abcd1234.md"
+eq_ust "work_record: a pickup item, body's hand-off lines win" \
+  'pickup|Finish the thing|open|||opus|high|https://github.com/o/r/issues/3|2026-09-09T10-00-abcd1234|2026-09-09T10:00:00Z' \
+  "$(wr "$WR/2026-09-09T10-00-abcd1234.md")"
+printf 'status: taken\nupdated: 2026-09-10T10:00:00Z\nmodel: claude-sonnet-5\npr: none\n---\n' > "$WR/2026-09-10T10-00-00000000.md"
+eq_ust "work_record: a bare item falls back to the header's model, no link" \
+  'pickup||taken|||sonnet|||2026-09-10T10-00-00000000|2026-09-10T10:00:00Z' \
+  "$(wr "$WR/2026-09-10T10-00-00000000.md")"
+eq_ust "work_record: a card with model, effort and until" \
+  'card|Fix the gate|open|o/r#9 merges||opus|high|https://github.com/o/r/issues/8|https://github.com/o/r/issues/8|2026-09-11T00:00:00Z' \
+  "$(wr '- [ ] **Fix the gate** -- see [o/r#8](https://github.com/o/r/issues/8) model: opus effort: high until: o/r#9 merges' 2026-09-11T00:00:00Z)"
+eq_ust "work_record: a card without them leaves them empty, title from its link text" \
+  'card|tidy the docs (log)|open|||||log/2026-09-01.md|log/2026-09-01.md|' \
+  "$(wr '- [ ] tidy the docs ([log](log/2026-09-01.md))')"
+eq_ust "work_record: a card with a live claim is taken, the holder named" \
+  'card|Held|taken||abcd1234|||https://example.invalid/h|https://example.invalid/h|' \
+  "$(WC=$(printf 'live\tabcd1234\thost-x\t3m\thttps://example.invalid/h\nlive\teeeeeeee\thost-y\t1m\thttps://example.invalid/other') wr '- [ ] **Held** ([x](https://example.invalid/h))')"
+eq_ust "work_record: a stale claim leaves it open" 'open' \
+  "$(WC=$(printf 'stale\tabcd1234\thost-x\t300m\thttps://example.invalid/h') wr '- [ ] **Held** ([x](https://example.invalid/h))' | cut -d'|' -f3)"
+eq_ust "work_record: same field count for both kinds" '10 10' \
+  "$(wr "$WR/2026-09-09T10-00-abcd1234.md" | awk -F'|' '{print NF}') $(wr '- [ ] **A** ([x](https://example.invalid/a))' | awk -F'|' '{print NF}')"
+
+# --- claude_cards: only the agent's section, folded, ticked lines skipped -----
+KB="$SCRATCH/kb"; mkdir -p "$KB"
+printf '# Board\n\n## Needs ruling\n\n### global\n- [ ] a ruling ([x](https://example.invalid/r))\n\n## Claude'"'"'s\n\n- [ ] **One** -- first\n  continued ([x](https://example.invalid/1))\n- [x] **Done** ([x](https://example.invalid/d))\n- [ ] **Two** ([x](https://example.invalid/2))\n\n## Human'"'"'s\n\n- [ ] click ([x](https://example.invalid/c))\n' > "$KB/kanban.md"
+cc() { ( . "$HOOKS/lib-state.sh"; claude_cards "$KB/kanban.md" ) | cut -f2- | tr '\n' '|'; }
+eq_ust "claude_cards: Claude's only, folded, unticked" \
+  '- [ ] **One** -- first continued ([x](https://example.invalid/1))|- [ ] **Two** ([x](https://example.invalid/2))|' "$(cc)"
+gitq "$KB" init -q -b main
+gitq "$KB" add kanban.md
+GIT_COMMITTER_DATE='2026-09-01T12:00:00Z' GIT_AUTHOR_DATE='2026-09-01T12:00:00Z' gitq "$KB" commit -q -m one
+eq_ust "claude_cards: a committed card carries its blame time" '2026-09-01T12:00:00Z' \
+  "$( ( . "$HOOKS/lib-state.sh"; claude_cards "$KB/kanban.md" ) | head -1 | cut -f1)"
+
+# --- ruling_readiness ----------------------------------------------------------
+# Under sh as well as bash: worklist sources this file from /bin/sh. gh is
+# faked: the reply for ref n is read from $RR/state.<n>, and every call logged.
+RR="$SCRATCH/rr"; export RR; mkdir -p "$RR/bin"
+cat > "$RR/bin/gh" <<'EOF'
+#!/bin/sh
+n=""; for a in "$@"; do case $a in n=*) n=${a#n=} ;; esac; done
+echo "$n" >> "$RR/gh.log"
+[ -f "$RR/state.$n" ] && cat "$RR/state.$n" || exit 1
+EOF
+chmod +x "$RR/bin/gh"
+for sh_ in bash sh; do
+  rr() { PATH="$RR/bin:$PATH" XDG_CACHE_HOME="$RR/cache.$sh_" RULING_TODAY=2026-10-01 \
+           "$sh_" -c '. "'"$HOOKS"'/lib-state.sh"; ruling_readiness "$1"' _ "$1"; }
+  : > "$RR/gh.log"
+  eq_ust "$sh_: a date passed is ready"         ready   "$(rr 'x until: 2026-09-12 (2.2, before 1.8 risk: y')"
+  eq_ust "$sh_: a date today is ready"          ready   "$(rr 'x until: 2026-10-01. risk: y')"
+  eq_ust "$sh_: a date ahead is waiting"        waiting "$(rr 'x until: 2026-10-05 risk: y')"
+  eq_ust "$sh_: a date inside words counts"     ready   "$(rr 'x until: M6 card, 2026-09-30 judgment: risk')"
+  eq_ust "$sh_: an event in words is waiting"   waiting "$(rr 'x until: the next session rooted in dotfiles risk: z')"
+  eq_ust "$sh_: a bare #n names no repo, words" waiting "$(rr 'x until: before #15 or #16 is picked up risk: z')"
+  eq_ust "$sh_: no until: at all is ready"      ready   "$(rr 'x kind: tentative ADR gates: y')"
+  eq_ust "$sh_: a field after until: is not read as its value" waiting "$(rr 'x until: next week risk: 2026-01-01 outage')"
+  printf 'pr-open' > "$RR/state.1"; printf 'issue-open' > "$RR/state.2"
+  printf 'issue-inflight' > "$RR/state.3"; printf 'issue-closed' > "$RR/state.4"
+  eq_ust "$sh_: an open PR is ready"            ready   "$(rr 'x until: https://github.com/o/r/pull/1 risk: y')"
+  eq_ust "$sh_: an open issue no PR closes is waiting" waiting "$(rr 'x until: [o/r#2](https://github.com/o/r/issues/2) risk: y')"
+  eq_ust "$sh_: an issue an open PR closes is ready" ready "$(rr 'x until: o/r#3 risk: y')"
+  eq_ust "$sh_: a closed issue is ready"        ready   "$(rr 'x until: o/r#4 risk: y')"
+  eq_ust "$sh_: a link gh cannot answer is ready" ready "$(rr 'x until: o/r#5 risk: y')"
+  printf 'pr-merged' > "$RR/state.2"
+  eq_ust "$sh_: a cached state is reused within the TTL" waiting "$(rr 'x until: o/r#2 risk: y')"
+  rr 'x until: o/r#5 risk: y' >/dev/null
+  eq_ust "$sh_: gh asked once per ref, failures not cached" '1 2 3 4 5 5' "$(tr '\n' ' ' < "$RR/gh.log" | sed 's/ $//')"
+  : > "$RR/gh.log"
+  eq_ust "$sh_: cache-only takes a stale entry" waiting \
+    "$(RULING_REF_TTL=0 RULING_REF_CACHE_ONLY=1 rr 'x until: o/r#2 risk: y')"
+  eq_ust "$sh_: cache-only, no entry, ready"    ready   "$(RULING_REF_CACHE_ONLY=1 rr 'x until: o/r#6 risk: y')"
+  eq_ust "$sh_: cache-only never calls gh"      ''      "$(cat "$RR/gh.log")"
+  eq_ust "$sh_: past the TTL gh is asked again" ready   "$(RULING_REF_TTL=0 rr 'x until: o/r#2 risk: y')"
+  rm -f "$RR"/state.*
+done
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

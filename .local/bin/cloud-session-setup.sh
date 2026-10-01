@@ -6,8 +6,7 @@
 #
 #   git clone -q https://github.com/mark-brannan/dotfiles \
 #     "$HOME/.local/share/dotfiles-seed" 2>/dev/null
-#   CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh"
-#   exit 0
+#   CLOUD_SESSION=1 sh "$HOME/.local/share/dotfiles-seed/.local/bin/cloud-session-setup.sh" || true
 #
 # Deliberately NOT yadm. This repo uses no yadm encryption (secrets are
 # sops+age, and the age key never reaches a VM) and its only alternate is
@@ -63,6 +62,7 @@ INSTALL="
 .claude/skills/agora/SKILL.md
 .claude/skills/curia/SKILL.md
 .claude/skills/curia/template.md
+.claude/skills/scoping/SKILL.md
 .claude/hooks/lib-state.sh
 .claude/hooks/session-metrics.jq
 .claude/hooks/lib-metrics-fmt.jq
@@ -105,6 +105,7 @@ INSTALL="
 .local/bin/prose-budget
 .local/bin/worklist
 .local/bin/pickup-list
+.local/bin/scoping-lock
 .local/bin/gh-resolve-thread
 .local/bin/pr-label-audit
 .local/bin/npm-publish-bg

@@ -163,10 +163,56 @@ timeout 25 git -C "$SR" pull --rebase --autostash -q >/dev/null 2>&1 || true
       echo
       echo "### Decision load, last 7 days"
       echo
-      echo "$counts — \`scoping\` is cheap (asked before work exists),"
+      # Per session-hour, session clock first prompt to last. Measured only:
+      # shown here and in the Stop checkpoint, never nudged (§5, 2026-09-30).
+      week=$(cat "$SD/metrics/sessions"/*.json 2>/dev/null | jq -rs --arg since "$since" \
+        '[.[] | select(.ts >= $since and (.prompt_span_seconds // 0) >= 60)]
+         | [(map(.decisions.total) | add // 0), (map(.prompt_span_seconds) | add // 0)] | @tsv' 2>/dev/null)
+      wd=${week%%$'\t'*}; ws=${week##*$'\t'}
+      perh=""
+      [ "${ws:-0}" -gt 0 ] 2>/dev/null \
+        && perh=$(awk -v d="$wd" -v s="$ws" 'BEGIN { printf " · %.1f decisions per session-hour", d * 3600 / s }')
+      echo "$counts$perh"
+      last=$(cat "$SD/metrics/sessions"/*.json 2>/dev/null | jq -rs \
+        '[.[] | select((.prompt_span_seconds // 0) >= 60)] | sort_by(.ts) | last
+         | select(. != null) | [.decisions.total, .prompt_span_seconds, .friction.total] | @tsv' 2>/dev/null)
+      if [ -n "$last" ]; then
+        IFS=$'\t' read -r ld ls lf <<<"$last"
+        lr=$(decision_rate "$ld" "$ls")
+        [ -n "$lr" ] && echo "last session: $lr · friction $lf"
+      fi
+      echo
+      echo "\`scoping\` is cheap (asked before work exists),"
       echo "\`gate\` is expensive (open-ended, mid-flight, needs the user to reload"
       echo "context). Prefer front-loading questions; board the rest."
     fi
+  fi
+
+  # What followed each sitting rung (metrics-live.sh stamp_time_after), so the
+  # rungs can be set from the user's own behaviour. Measured, never nudged.
+  if [ -d "$SD/metrics/crossings" ]; then
+    since28=$(date -u -d '28 days ago' +%Y-%m-%d 2>/dev/null \
+              || date -u -v-28d +%Y-%m-%d 2>/dev/null || echo "")
+    rungs=$(cat "$SD/metrics/crossings"/*.jsonl 2>/dev/null | jq -rs --arg since "$since28" \
+      '[.[] | select(.kind == "time_after" and .ts >= $since)]
+       | group_by(.at) | map(
+           (map(.min) | sort) as $m | ($m | length) as $n
+           | "\(.[0].at)m: median \(($m[($n - 1) / 2 | floor] + $m[$n / 2 | floor]) / 2 | floor)m to next prompt, \(map(select(.stay)) | length)/\($n) stay")
+       | join(" · ")' 2>/dev/null)
+    [ -n "$rungs" ] && { echo; echo "Sitting rungs, last 28 days: $rungs"; }
+    # How each rung's sitting ended (stamp_time_last; the latest reading per
+    # crossing counts). A rung "ended it" when the final prompt came within 10m.
+    ends=$(cat "$SD/metrics/crossings"/*.jsonl 2>/dev/null | jq -rs --arg since "$since28" \
+      'def med: sort | (.[(length - 1) / 2 | floor] + .[length / 2 | floor]) / 2 | floor;
+       def key: .session_id + .crossing_ts;
+       (map(select(.kind == "time_after" and .stay_min != null)) | INDEX(key)) as $st
+       | map(select(.kind == "time_last" and .ts >= $since)) | INDEX(key) | [.[]]
+       | group_by(.at) | map(
+           [.[] | $st[key].stay_min // empty] as $s | [.[] | .overrun | values] as $o
+           | "\(.[0].at)m: median \(map(.min_to_last) | med)m to sitting end, \(map(select(.min_to_last <= 10)) | length)/\(length) ended it"
+             + (if $s == [] then "" else ", stay median \($s | med)m, \($o | map(select(.)) | length)/\($o | length) overrun" end))
+       | join(" · ")' 2>/dev/null)
+    [ -n "$ends" ] && echo "Sitting ends, last 28 days: $ends"
   fi
 } | emit
 

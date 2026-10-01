@@ -33,12 +33,15 @@ cd "$S/repo" || exit 1
   printf '# Board\n\nA card names the pushed branch pointed-by-board somewhere in its body.\n\n## Needs ruling\n'
   printf -- '### demo\n'
   printf -- '- [ ] **Board sections** — decide whether a question is a card or an issue ([o/r#90](https://github.com/o/r/pull/90))\n'
+  printf -- '- [ ] **Later** — decide after the migration ([o/r#95](https://github.com/o/r/pull/95))\n'
+  printf -- '      default: keep undo: revert until: the next migration risk: low judgment: direction\n'
   printf -- '### global\n'
   printf -- '- [ ] **Engine pin** — decide whether to pin the engine by tag ([o/r#93](https://github.com/o/r/pull/93))\n'
   printf -- '### colregs\n'
   printf -- '- [ ] **Give-way rule** — decide whether rule 15 wins ([o/r#94](https://github.com/o/r/pull/94))\n'
-  printf '\n## Solace'"'"'s\n- [ ] **Not an agent card** — [x](https://example.invalid)\n\n## Claude'"'"'s\n'
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  printf '\n## Human'"'"'s\n- [ ] **Not an agent card** — [x](https://example.invalid)\n\n## Claude'"'"'s\n'
+  printf -- '- [ ] **Card 0** — linked to its evidence, worked elsewhere ([o/beta#5](https://github.com/o/beta/pull/5)) repo: o/alpha\n'
+  for i in 1 2 3 4 5 6 7 8 9; do
     printf -- '- [ ] **Card %s** — a card body long enough to be cut at eighty characters when brief is asked for ([link](https://example.invalid/%s))\n' "$i" "$i"
   done
   printf -- '- [x] **Ticked card** — done ([link](https://example.invalid/t))\n'
@@ -101,7 +104,12 @@ case "$1 $2" in
   "repo list") printf '[{"name":"alpha"},{"name":"beta"}]\n' ;;
   "search prs") printf '[{"number":1},{"number":2},{"number":3}]\n' ;;
   "search issues") printf '[{"number":1},{"number":2}]\n' ;;
+  "api repos/"*)
+    # sub_issues: a fixture named for the parent, else none
+    k=$(printf '%s' "$2" | sed -e 's#^repos/##' -e 's#/issues/#-#' -e 's#/sub_issues.*##' -e 's#/#-#g')
+    if [ -f "$FIXTURES/subs-$k.json" ]; then cat "$FIXTURES/subs-$k.json"; else echo '[]'; fi ;;
   "api graphql")
+    case " $* " in *issueOrPullRequest*) echo issue-open; exit 0 ;; esac
     name=""; for a in "$@"; do case $a in name=*) name=${a#name=} ;; esac; done
     # pickup-list's fixup-hard search: no name=, a q= instead.
     case " $* " in *" q=is:pr "*) printf '{"data":{"search":{"nodes":[]}}}\n'; exit 0 ;; esac
@@ -149,20 +157,22 @@ eq 'topic looked up once' 1 "$(calls 'repo view o/alpha --json repositoryTopics'
 eq 'repo set from the topic' 1 "$(calls 'repo list o --topic project-demo')"
 eq 'two account-wide searches' 2 "$(calls 'search ')"
 OUT_ALL=$OUT
-OUT=$(section "Solace's turn")
-has 'ready PR is Solace'"'"'s turn' '^\| \[alpha#10\]\(https://github.com/o/alpha/pull/10\) \| Ready PR \|  \|$'
-has 'release PR (no checks, bot author) is Solace'"'"'s turn, author named' '^\| \[alpha#14\].* \| Release PR \| by release-please\[bot\]'
-lacks 'no issue reaches Solace'"'"'s turn' 'alpha#2[0-9]'
+OUT=$(section "Human's turn")
+has 'ready PR is Human'"'"'s turn' '^\| \[alpha#10\]\(https://github.com/o/alpha/pull/10\) \| Ready PR \|  \|$'
+has 'release PR (no checks, bot author) is Human'"'"'s turn, author named' '^\| \[alpha#14\].* \| Release PR \| by release-please\[bot\]'
+lacks 'no issue reaches Human'"'"'s turn' 'alpha#2[0-9]'
 lacks 'the (assigned) suffix is gone' '\(assigned\)'
-lacks 'queued PR not Solace'"'"'s turn' 'alpha#11'
-lacks 'threaded PR not Solace'"'"'s turn' 'alpha#12'
-lacks 'red PR not Solace'"'"'s turn' 'alpha#13'
-lacks 'draft PR not Solace'"'"'s turn' 'beta#5'
+lacks 'queued PR not Human'"'"'s turn' 'alpha#11'
+lacks 'threaded PR not Human'"'"'s turn' 'alpha#12'
+lacks 'red PR not Human'"'"'s turn' 'alpha#13'
+lacks 'draft PR not Human'"'"'s turn' 'beta#5'
 OUT=$(section "Queued (auto-merge)"); has 'queued PR listed separately' '^\| \[alpha#11\].* \| Queued PR \|'
 OUT=$OUT_ALL
-has 'Needs ruling reads the board section' "^Needs ruling, showing 2 of 2$"
-first_section=$(printf '%s\n' "$OUT_ALL" | grep -E "^(Needs ruling|Solace's turn|Queued|Ready:|Board \()" | head -1)
-assert 'Needs ruling prints before every GitHub bucket' [ "$first_section" = "Needs ruling, showing 2 of 2" ]
+has 'Needs ruling lists the ready cards by default' "^Needs ruling \(ready\), showing 2 of 2$"
+has 'the counts line: in scope, ready, waiting, other projects, each section' \
+  "^Board: Needs ruling 3 \(2 ready, 1 waiting: --waiting, all: --all\), \+1 in other projects \(--all-rulings\); Human's 1; Claude's 10$"
+first_section=$(printf '%s\n' "$OUT_ALL" | grep -E "^(Board:|Needs ruling|Human's turn|Queued|Ready:|Board \()" | head -1)
+assert 'the board counts print before every GitHub bucket' [ "${first_section%% *}" = "Board:" ]
 assert 'and after the counts header' \
   [ "$(printf '%s\n' "$OUT_ALL" | grep -nE '^(counts:|Needs ruling)' | head -1 | cut -d: -f1)" -lt \
     "$(printf '%s\n' "$OUT_ALL" | grep -n '^Needs ruling' | cut -d: -f1)" ]
@@ -170,17 +180,33 @@ OUT=$(section "Needs ruling")
 has 'a ruling card renders, unprefixed in its own project' '^- \*\*Board sections\*\* — decide whether a question is a card or an issue'
 has '### global is in scope everywhere' '^- \*\*Engine pin\*\*'
 lacks 'another project'"'"'s group is out of scope' 'Give-way rule'
+lacks 'a waiting card is hidden by default' 'Later'
 has 'the hidden groups are counted' '^- \+1 in other projects \(worklist --all-rulings\)$'
 lacks 'no issue reaches Needs ruling' 'alpha#'
 OUT=$OUT_ALL
 
 # --all-rulings: every group, each card named by its group.
 run --all-rulings
-has 'all rulings shows every group' '^Needs ruling, showing 3 of 3$'
+has 'all rulings shows every group' '^Needs ruling \(ready\), showing 3 of 3$'
 OUT=$(section "Needs ruling")
 has 'a card carries its group'      '^- demo: \*\*Board sections\*\*'
 has 'the other project is listed'   '^- colregs: \*\*Give-way rule\*\*'
 lacks 'nothing is hidden'           'in other projects'
+
+# --waiting and --all: the drill paths behind the counts line.
+run --waiting
+OUT=$(section "Needs ruling")
+has 'waiting lists the card whose until: is words' '^- \*\*Later\*\* — decide after the migration'
+lacks 'waiting hides the ready cards' 'Board sections|Engine pin'
+run --brief
+has 'brief carries the counts line too' '^Board: Needs ruling 3 \(2 ready, 1 waiting'
+run --all
+has 'all lists every in-scope ruling card' '^Needs ruling \(all\), showing 3 of 3$'
+OUT=$(section "Needs ruling")
+has 'all marks the waiting card' '^- \[waiting\] \*\*Later\*\*'
+has 'all leaves a ready card unmarked' '^- \*\*Engine pin\*\*'
+OUT=$OUT_ALL
+has 'all lifts the 8-card cap on a board section' "^Board \(## Claude's, showing 10 of 10\)$"
 run
 OUT=$OUT_ALL
 lacks 'the Ruled, unlanded bucket is gone' 'Ruled, unlanded'
@@ -210,8 +236,8 @@ OUT=$OUT_ALL
 has 'board heading with counts' "^Board \(## Claude's, showing 8 of 10\)$"
 eq 'at most eight cards' 8 "$(printf '%s\n' "$OUT" | grep -c '^- \*\*Card ')"
 lacks 'ticked card dropped' 'Ticked card'
-has 'Solace section shown with its count' "^Board \(## Solace's, showing 1 of 1\)$"
-OUT=$(section "Board (## Solace's")
+has "Human's section shown with its count" "^Board \(## Human's, showing 1 of 1\)$"
+OUT=$(section "Board (## Human's")
 has 'click-work card shown' 'Not an agent card'
 OUT=$OUT_ALL
 has 'full mode keeps the whole card' 'eighty characters when brief is asked for \(\[link\]'
@@ -266,6 +292,9 @@ has 'brief keeps the failing check names' 'failing: ci-gate / gate, coverage'
 run --json
 eq 'json exit 0' 0 "$RC"
 eq 'json carries both repos' 2 "$(printf '%s' "$OUT" | jq '.records | length')"
+eq "a card's repo: field routes it, not its link" 'o/alpha' "$(printf '%s' "$OUT" | jq -r '.buckets.claudes[] | select(.name == "Card 0") | .repo')"
+eq 'a card without repo: routes on its github link' 'o/r' "$(printf '%s' "$OUT" | jq -r '.buckets.rulings[] | select(.name == "Give-way rule") | .repo')"
+eq 'a card with neither repo: nor a github link has no repo' 'null' "$(printf '%s' "$OUT" | jq -r '.buckets.claudes[] | select(.name == "Card 1") | .repo')"
 eq 'json carries the raw PRs' 5 "$(printf '%s' "$OUT" | jq '.records[0].data.pullRequests.nodes | length')"
 
 # --- --milestone: buckets scoped, milestone not deferred, json same shape ------
@@ -285,6 +314,49 @@ eq 'json keeps the record shape' 2 "$(printf '%s' "$OUT" | jq '.records | length
 eq 'json issues scoped to the milestone' '["1.0"]' "$(printf '%s' "$OUT" | jq -c '[.records[].data.issues.nodes[].milestone.title] | unique')"
 eq 'json PRs untouched' 5 "$(printf '%s' "$OUT" | jq '.records[0].data.pullRequests.nodes | length')"
 run --milestone; eq 'bare --milestone is a usage error' 2 "$RC"
+
+# --- Ready: parents, sub-issues, two repos ------------------------------------------
+# alpha#50 Ready parent, children in alpha and beta; alpha#51 Ready parent, all
+# children closed-or-unready; alpha#52 not Ready, with Ready child alpha#53.
+sub() { # repo number title labels-json state
+  jq -nc --arg r "$1" --argjson n "$2" --arg t "$3" --argjson l "$4" --arg s "$5" \
+    '{number:$n, title:$t, state:$s, html_url:"https://github.com/o/\($r)/issues/\($n)", repository_url:"https://api.github.com/repos/o/\($r)",
+      labels:($l|map({name:.})), body:"", updated_at:"2026-09-20T00:00:00Z"}'
+}
+{ sub alpha 60 "Child in alpha" '["ready"]' open; sub beta 61 "Child in beta" '["ready"]' open
+  sub alpha 62 "Child blocked" '["ready","blocked"]' open; sub alpha 63 "Child closed" '["ready"]' closed; } | jq -sc . > "$FIXTURES/subs-o-alpha-50.json"
+{ sub alpha 64 "Child not ready" '[]' open; } | jq -sc . > "$FIXTURES/subs-o-alpha-51.json"
+jq -c '.data.repository.issues.nodes += [
+    {number:50,title:"Parent two repos",url:"https://github.com/o/alpha/issues/50",labels:{nodes:[{name:"ready"}]},milestone:null,body:""},
+    {number:51,title:"Parent nothing ready",url:"https://github.com/o/alpha/issues/51",labels:{nodes:[{name:"ready"}]},milestone:null,body:""},
+    {number:53,title:"Orphan-ish child",url:"https://github.com/o/alpha/issues/53",labels:{nodes:[{name:"ready"}]},milestone:null,body:"",
+      parent:{number:52,title:"Unlabelled parent",url:"https://github.com/o/alpha/issues/52",repository:{nameWithOwner:"o/alpha"}}},
+    {number:60,title:"Child in alpha",url:"https://github.com/o/alpha/issues/60",labels:{nodes:[{name:"ready"}]},milestone:null,body:"",
+      parent:{number:50,title:"Parent two repos",url:"https://github.com/o/alpha/issues/50",repository:{nameWithOwner:"o/alpha"}}}]' \
+  "$FIXTURES/alpha.json" > "$FIXTURES/alpha-subs.json"
+cp "$FIXTURES/alpha.json" "$FIXTURES/alpha-plain.json"; cp "$FIXTURES/alpha-subs.json" "$FIXTURES/alpha.json"
+: > "$GH_LOG"; run --fresh
+OUT_ALL=$OUT; OUT=$(section "Ready")
+has 'a parent is a parent line, with its Ready count' '^\| \[alpha#50\].* \| Parent two repos \| parent, 2 Ready \|$'
+has 'its same-repo Ready child is indented under it' '^\| \[alpha#60\].* \|   ↳ Child in alpha \|'
+has 'its other-repo Ready child carries its own repo' '^\| \[beta#61\]\(https://github.com/o/beta/issues/61\) \|   ↳ Child in beta \|'
+lacks 'a blocked child is not Ready' 'alpha#62'
+lacks 'a closed child is not Ready' 'alpha#63'
+has 'a parent with no Ready children is still a parent line' '^\| \[alpha#51\].* \| Parent nothing ready \| parent, none Ready \|$'
+lacks 'its unready child is not listed' 'alpha#64'
+has 'a Ready child of a non-Ready parent shows under the parent' '^\| \[alpha#52\].* \| Unlabelled parent \| parent \(not Ready\), 1 Ready \|$'
+has 'and is indented under it' '^\| \[alpha#53\].* \|   ↳ Orphan-ish child \|'
+assert 'no child is also a top-level Ready row' \
+  [ "$(printf '%s\n' "$OUT" | grep -c 'alpha#60')" = 1 ]
+has 'a childless Ready issue is still a plain row' '^\| \[alpha#23\].* \| Ready issue \|'
+assert 'the child follows its parent' \
+  [ "$(printf '%s\n' "$OUT" | grep -n 'alpha#50\|alpha#60\|beta#61' | cut -d: -f1 | tr '\n' ' ')" = "$(printf '%s\n' "$OUT" | grep -n 'alpha#50' | cut -d: -f1) $(( $(printf '%s\n' "$OUT" | grep -n 'alpha#50' | cut -d: -f1) + 1 )) $(( $(printf '%s\n' "$OUT" | grep -n 'alpha#50' | cut -d: -f1) + 2 )) " ]
+eq 'one sub_issues call per Ready, unblocked issue' 7 "$(calls 'sub_issues')"
+OUT=$OUT_ALL
+run --json
+eq 'json ready holds leaves, never a parent' '[]' "$(printf '%s' "$OUT" | jq -c '[.buckets.ready[] | select(.number == 50 or .number == 51 or .number == 52)]')"
+eq 'json child names its parent' 'o/alpha#50' "$(printf '%s' "$OUT" | jq -r '.buckets.ready[] | select(.repo == "o/beta") | .parent')"
+cp "$FIXTURES/alpha-plain.json" "$FIXTURES/alpha.json"
 
 # --- one repo 403 ---------------------------------------------------------------------------
 GH_MODE=403 run --fresh
@@ -345,15 +417,28 @@ mv "$S/state/state/global/kanban.md" "$S/kb.bak"; run; has 'missing board named'
 
 # --- the pickup bucket is first (dotfiles#110) ------------------------------------
 run
-has 'pickup bucket present' '^Pickup: none$'
-eq 'pickup is the first bucket' 'Pickup: none' \
-  "$(printf '%s\n' "$OUT" | grep -nE '^(Pickup|Needs ruling|Solace|Queued|Ready|Blocked|Untriaged|Stranded)' | head -1 | cut -d: -f2-)"
+has 'the board'"'"'s Claude cards are pickup candidates' '^Pickup, newest first$'
+eq 'pickup is the first bucket' 'Pickup, newest first' \
+  "$(printf '%s\n' "$OUT" | grep -nE '^(Pickup|Needs ruling|Human|Queued|Ready|Blocked|Untriaged|Stranded)' | head -1 | cut -d: -f2-)"
 mkdir -p "$S/state/state/global/pickup"
 printf 'status: open\nupdated: 2026-09-09T10:00:00Z\nsession: abcd1234\nmodel: claude-opus-5-5\nbranch: alpha claude/x (1 ahead, clean)\npr: none\nwhere: w\nprompt: p\n---\nFinish the thing\nlink: o/alpha#10\nmodel: opus\neffort: high\n' \
   > "$S/state/state/global/pickup/2026-09-09T10-00-abcd1234.md"
 run
 has 'a real item shows in worklist' 'Finish the thing'
+# One line shape for both kinds: marker, title, age, model, effort, until, link.
+shape() { printf '%s\n' "$OUT" | grep -E "$1" | head -1 | sed -E 's/^  (.) .{56}  (.{4})  (.{6})  (.{6})  (.{12})  [^ ]+.*$/ok/'; }
+eq 'a pickup item renders in the shared shape' ok "$(shape 'Finish the thing')"
+eq 'a card renders in the same shape' ok "$(shape '^  ◆ ')"
 rm -rf "$S/state/state/global/pickup"
+
+# --- the background refresh warms the ruling-link cache --brief reads ------------
+kb="$S/state/state/global/kanban.md"; cp "$kb" "$S/kanban.bak"
+awk '{ print } /^### global$/ { print "- [ ] **Linked** — wait on it ([o/r#7](https://github.com/o/r/issues/7)) default: a undo: revert until: o/r#7 risk: low judgment: direction" }' "$S/kanban.bak" > "$kb"
+sh "$WL" --_refresh
+eq 'refresh caches the state of an until: link' issue-open "$(cut -d' ' -f2 "$XDG_CACHE_HOME/ruling-refs/o_r_7" 2>/dev/null)"
+run --brief
+has 'brief reads the warmed cache: the linked card waits' '^Board: Needs ruling 4 \(2 ready, 2 waiting'
+cp "$S/kanban.bak" "$kb"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

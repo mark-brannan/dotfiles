@@ -23,7 +23,7 @@ BOARD="$SR/state/global/kanban.md"
 cat > "$BOARD" <<'EOF'
 # Open loops
 
-## Solace's
+## Human's
 - [x] **Merge [o/r#29](https://github.com/o/r/pull/29)** — CI green
 
 ## Claude's

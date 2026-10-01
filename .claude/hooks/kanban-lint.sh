@@ -1,7 +1,7 @@
 #!/bin/sh
 # Lints a kanban.md board (or an epic file's Status lines) against the board
 # contract: the board is the agent's pull queue in three sections -- ## Needs
-# ruling for a question only the user can settle, ## Solace's for click work
+# ruling for a question only the user can settle, ## Human's for click work
 # an agent cannot do, ## Claude's for agent rabbit-trails -- with cards that
 # carry a link and no state.
 #
@@ -18,7 +18,7 @@
 # Rules, each printed by id so the reason can be looked up:
 #   L1  a "- [x]" line                  -- delete, never tick
 #   L2  a bullet above the first "## "  -- cards live under a heading
-#   L3  a heading other than ## Needs ruling, ## Solace's or ## Claude's,
+#   L3  a heading other than ## Needs ruling, ## Human's or ## Claude's,
 #       when it is not already in HEAD -- including a "### " group heading
 #       anywhere but inside ## Needs ruling, where the groups live
 #   L4  a card whose action verb is the user's (review, merge, land, bump,
@@ -40,8 +40,12 @@
 #       the card so the ruling is one word; a bare question is hedging
 #       written down. judgment: names the kind -- values, risk, direction,
 #       legal or people -- and a card that cannot is toil, not a ruling.
+#       until: holds one of three forms -- a date (YYYY-MM-DD), a PR/issue
+#       link, or an event in words -- so an empty value, or a date that is
+#       no calendar day, fails: worklist reads it to call the card ready or
+#       waiting (ruling_readiness in lib-state.sh).
 #       Skipped for a "kind: tentative ADR" card -- L10 checks that one
-#   L9  a card under ## Solace's missing "why you:" (the mechanism an agent
+#   L9  a card under ## Human's missing "why you:" (the mechanism an agent
 #       lacks, or "learn"), or missing "why this:" (the evidence this is the
 #       confirmed fix) when "why you:" is not "learn" -- click work with no
 #       proof sent the user to rotate a secret sops already held
@@ -92,7 +96,7 @@ run_lint() {
       n = split(ENVIRON["KL_HEADS"], a, "\n")
       for (i = 1; i <= n; i++) if (a[i] != "") heads[a[i]] = 1
       claudes = "## Claude\047s"
-      solaces = "## Solace\047s"
+      humans = "## Human\047s"
       ruling = "## Needs ruling"
       cursec = ""; curgroup = ""
       nv = split("review merge land bump close approve ship ratify rule_on decide confirm answer watch", verbs, " ")
@@ -150,6 +154,22 @@ run_lint() {
     # L8/L9: the fields a ruling or click-work card must carry, matched as
     # "<name>:" anywhere on the folded card, case-insensitive.
     function has_field(t, name) { return index(t, " " name ":") || index(t, "(" name ":") || substr(t, 1, length(name) + 1) == name ":" }
+    # The until: value, cut at the next field: "" when it holds one of the
+    # three forms, else what is wrong with it. Any text is an event in words.
+    function until_problem(t,   p, v, d, y, m, dd, ml) {
+      p = index(t, "until:"); if (!p) return ""
+      v = substr(t, p + 6)
+      if (match(v, /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this|id):/)) v = substr(v, 1, RSTART - 1)
+      sub(/^[ \t*]+/, "", v); sub(/[ \t*.;,]+$/, "", v)
+      if (v == "") return "until: is empty"
+      while (match(v, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) {
+        d = substr(v, RSTART, 10); y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+        ml = substr("312831303130313130313031", 2 * m - 1, 2) + (m == 2 && y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))
+        if (m < 1 || m > 12 || dd < 1 || dd > ml) return "until: date " d " is no calendar day"
+        v = substr(v, RSTART + 10)
+      }
+      return ""
+    }
     function judged(t) { return t ~ /judgment:[ \t]*(values|risk|direction|legal|people)([^a-z]|$)/ }
     function fields(text,   t, miss) {
       t = " " tolower(text)
@@ -171,10 +191,12 @@ run_lint() {
         if (!has_field(t, "risk")) miss = miss ", risk:"
         if (!has_field(t, "judgment")) miss = miss ", judgment:"
         if (miss != "")
-          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: the event or date it can wait for, risk: the consequence if the default is wrong, judgment: values, risk, direction, legal or people) so the ruling is one word; without a default it is hedging, not a one-way door")
+          report(cstart, "L8", "ruling card missing " substr(miss, 3) " -- a ruling card carries the agent\047s evaluation (default: what you would do, undo: the reversal and its cost, until: a date, a PR/issue link, or an event in words, risk: the consequence if the default is wrong, judgment: values, risk, direction, legal or people) so the ruling is one word; without a default it is hedging, not a one-way door")
         else if (!judged(t))
           report(cstart, "L8", "judgment: must be values, risk, direction, legal or people -- a call that is none of those is toil: take the default, record it where the work lands, and delete the card")
-      } else if (cursec == solaces) {
+        else if ((miss = until_problem(t)) != "")
+          report(cstart, "L8", miss " -- until: holds a date (YYYY-MM-DD), a PR/issue link (a github.com URL or owner/repo#n), or an event in words; worklist reads it to call the card ready or waiting")
+      } else if (cursec == humans) {
         if (!has_field(t, "why you"))
           report(cstart, "L9", "click-work card missing why you: -- name the mechanism an agent lacks (no API, a consent screen, a USB bus), or \"learn\" when the user has chosen to do it by hand; \"needs a credential\" is not a reason unless the credential cannot be given to an agent")
         else if (t !~ /why you:[ \t]*learn([^a-z]|$)/ && !has_field(t, "why this"))
@@ -188,8 +210,8 @@ run_lint() {
     /^## / {
       flush(); h = trim($0); seenhead = 1
       if (mode == "epic") { instatus = (h == "## Status"); next }
-      if (added(NR) && h != claudes && h != ruling && h != solaces && l3 == "enforce" && !(h in heads))
-        report(NR, "L3", "new heading \"" h "\" -- the board has three sections, " ruling ", " solaces " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
+      if (added(NR) && h != claudes && h != ruling && h != humans && l3 == "enforce" && !(h in heads))
+        report(NR, "L3", "new heading \"" h "\" -- the board has three sections, " ruling ", " humans " and " claudes "; real work with an owner and a next action is an issue (public repo when it passes the private-terms check, else claude_prompts_scratch); deferred work is an issue on milestone 1.0")
       cursec = h; curgroup = ""
       # An added/changed "## " line re-parents every card below it -- until
       # the next "## " -- so those cards must be (re)validated even though
@@ -213,7 +235,7 @@ run_lint() {
       flush(); cstart = NR; ctext = $0
       # touched: this card own line was added, OR the "## "/"### " scope it
       # now sits under changed -- a heading edit that re-parents a card into
-      # Needs ruling or the Solaces section (or into/out of a project group)
+      # Needs ruling or the Human section (or into/out of a project group)
       # must still (re)validate it, not just lines the diff literally added.
       touched = added(NR) || hdrtouched || grptouched
       if (added(NR)) {
@@ -313,7 +335,7 @@ hook_mode() {
     1) block "kanban-lint: $fp breaks the board contract. Each line below is a line number in the file, the rule it broke, and where that fact lives instead:
 $out
 
-Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk:/judgment: (or, for a kind: tentative ADR card, gates:/settle:/repos:/judgment:) -- click work an agent cannot do under ## Solace's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
+Fix or delete each line named, then carry on. The board holds a question only the user can settle under ## Needs ruling -- grouped by project under \"### <name>\" headings, \"### global\" when no project owns it, each card carrying default:/undo:/until:/risk:/judgment: (or, for a kind: tentative ADR card, gates:/settle:/repos:/judgment:) -- click work an agent cannot do under ## Human's, each card carrying why you:/why this: -- and agent rabbit-trails under ## Claude's, one flat list; /card-write has the routing table for everything else." ;;
     *) block "kanban-lint: $fp could not be linted ($out). This check fails closed: make the file lintable (or revert the edit) before carrying on." ;;
   esac
 }

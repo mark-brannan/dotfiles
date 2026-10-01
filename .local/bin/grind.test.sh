@@ -14,6 +14,11 @@
 set -uo pipefail
 
 GRIND="$(cd "$(dirname "$0")" && pwd)/grind"
+# grind is halted (dotfiles#439): it must refuse to run. The suite below is
+# kept for when it is revived; delete this block and the exit then.
+out=$("$GRIND" --dry-run 2>&1); rc=$?
+case $out in *"halted"*"issues/439"*) [ "$rc" -eq 1 ] && { echo "1 passed, 0 failed"; exit 0; } ;; esac
+echo "FAIL: grind did not halt (rc=$rc): $out"; exit 1
 pass=0; fail=0
 S=$(mktemp -d); export S
 cleanup() { rm -rf "$S"; }
@@ -36,7 +41,7 @@ cd "$S/repo" || exit 1
 # --- canned Ready queue --------------------------------------------------------
 cat > "$S/ready.json" <<'JSON'
 [
-  {"number": 20, "title": "Second item", "body": "do the second thing", "url": "https://github.com/o/alpha/issues/20", "labels": [{"name": "ready"}]},
+  {"number": 20, "title": "Second item", "body": "do the second thing\n\nmodel: opus\neffort: high", "url": "https://github.com/o/alpha/issues/20", "labels": [{"name": "ready"}]},
   {"number": 5, "title": "First item", "body": "do the first thing", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]},
   {"number": 9, "title": "Blocked item", "body": "not yet", "url": "https://github.com/o/alpha/issues/9", "labels": [{"name": "ready"}, {"name": "blocked"}]}
 ]
@@ -69,6 +74,7 @@ case "\$1 \$2" in
   "issue list") cat "$S/ready.json" ;;
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
+  "api repos/"*"/sub_issues"*) f="$S/subs/\$(printf '%s' "\${2%%\?*}" | tr / _).json"; if [ "\$(cat "\$f" 2>/dev/null)" = FAIL ]; then exit 1; elif [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
 GH
@@ -79,15 +85,21 @@ chmod +x "$S/bin/gh"
 # issue buckets (blocked label -> buckets.blocked), audit.json (when the --prs
 # section has written it) the not_ready PRs, cards.json the ## Claude's cards.
 cat > "$S/bin/worklist" <<WL
-#!/bin/sh
+#!/bin/bash
 echo "\$*" >> "$S/worklist.log"
 ready=\$(jq -c '[.[] | select(.labels|map(.name)|index("blocked")|not) | {kind:"issue", repo:"o/alpha", number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready.json")
 blocked=\$(jq -c '[.[] | select(.labels|map(.name)|index("blocked")) | {kind:"issue", repo:"o/alpha", number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready.json")
 prs='[]'; [ -f "$S/audit.json" ] && prs=\$(jq -s -c '[.[] | select(.section == "unfinished" or .section == "stale-label") | {kind:"pr", repo:"o/alpha", number, title, url, isDraft:false, labels, author}]' "$S/audit.json")
 cards='[]'; [ -f "$S/cards.json" ] && cards=\$(cat "$S/cards.json")
 awaiting='[]'; [ -f "$S/awaiting-human.json" ] && awaiting=\$(cat "$S/awaiting-human.json")
-jq -nc --argjson r "\$ready" --argjson b "\$blocked" --argjson p "\$prs" --argjson c "\$cards" --argjson ah "\$awaiting" \
-  '{owner:"o", repos:["o/alpha"], buckets:{awaiting_human:\$ah, queued:[], not_ready:\$p, ready:\$r, blocked:\$b, untriaged:[], stranded:[], rulings:[], solaces:[], claudes:\$c}}'
+repos='["o/alpha"]'
+case "\$1" in
+  -*) [ "\$PWD" = "$S/home/beta" ] && { repos='["o/beta"]'  # --here answers for the cwd
+        ready=\$(jq -c '[.[] | select(.repo == null) | {kind:"issue", repo:"o/beta", number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready-beta.json"); } ;;
+  *) repos='["o/alpha","o/beta","o/gamma"]'
+  ready=\$(jq -c -s '.[0] + [.[1][] | .repo = (.repo // "o/beta")]' <(printf '%s' "\$ready") <(jq -c '[.[] | {kind:"issue", repo, number, title, url, body, labels:(.labels|map(.name))}]' "$S/ready-beta.json")) ;; esac
+jq -nc --argjson r "\$ready" --argjson b "\$blocked" --argjson p "\$prs" --argjson c "\$cards" --argjson ah "\$awaiting" --argjson repos "\$repos" \
+  '{owner:"o", repos:\$repos, buckets:{awaiting_human:\$ah, queued:[], not_ready:\$p, ready:\$r, blocked:\$b, untriaged:[], stranded:[], rulings:[], humans:[], claudes:\$c}}'
 WL
 chmod +x "$S/bin/worklist"
 
@@ -165,13 +177,19 @@ eq 'no claude call in dry-run' 0 "$(calls_claude)"
 has 'first item is the lower-numbered one' '^\[1/2\] o/alpha#5 -- First item$'
 has 'second item follows' '^\[2/2\] o/alpha#20 -- Second item$'
 lacks 'blocked item excluded' 'alpha#9'
-has 'a worktree command is shown' 'git worktree add -b grind-5'
+has 'a worktree command is shown' 'git -C .* worktree add -b grind-5'
 has 'the claude command is shown, with defaults' 'claude -p <issue o/alpha#5 body> --output-format stream-json --verbose --max-budget-usd 5 --model sonnet --effort medium'
 assert 'dry-run wrote no state file' bash -c '! ls '"$S"'/state/grind/*.json >/dev/null 2>&1'
 
-# --- --dry-run respects override flags -----------------------------------------
-run --dry-run --model opus --effort high --item-budget 2
-has 'overrides reach the command line' -- '--max-budget-usd 2 --model opus --effort high'
+# --- --model and --effort are refused; the item carries them -------------------------
+run --dry-run --model opus
+eq 'a --model flag is refused' 2 "$RC"
+has 'the refusal names the item fields' '`model:` and `effort:`'
+run --dry-run --effort high
+eq 'an --effort flag is refused' 2 "$RC"
+run --dry-run --item-budget 2
+has 'an item with fields runs on its own pair' 'alpha#20 body>.*--model opus --effort high'
+has 'an item without fields gets the one default pair' 'alpha#5 body>.*--max-budget-usd 2 --model sonnet --effort medium'
 
 # --- a real run: cost/tokens parsed, running total and percent printed ----------
 rm -f "$S/claude-replies"/*.json
@@ -182,9 +200,10 @@ run --session-budget 20 --pause-every 5
 eq 'exit 0' 0 "$RC"
 eq 'two claude invocations' 2 "$(calls_claude)"
 has 'first item line: cost, tokens, running total, percent' '^o/alpha#5: First item -- sonnet, \$1\.00, 150 tokens -- running \$1\.00 / \$20\.00 -- 5%$'
-has 'second item line: running total accumulates' '^o/alpha#20: Second item -- sonnet, \$2\.00, 150 tokens -- running \$3\.00 / \$20\.00 -- 15%$'
+has 'second item line: running total accumulates' '^o/alpha#20: Second item -- opus, \$2\.00, 150 tokens -- running \$3\.00 / \$20\.00 -- 15%$'
 has 'queue exhausted, final tally' '^done: queue exhausted \(2 issue\)\. Running total \$3\.00 / \$20\.00\. 0 skipped\.$'
-has 'INFO: session line names repo, count, model, caps' 'INFO  session grind-.* on o/alpha: 2 item\(s\) \(2 issue; finish-first\), sonnet/medium, cap \$5\.00/item \$20\.00/session'
+has 'INFO: session line names repo, count, model, caps' 'INFO  session grind-.* on o/alpha: 2 item\(s\) \(2 issue; finish-first\), cap \$5\.00/item \$20\.00/session'
+eq 'the state file records each item'"'"'s own pair' 'sonnet/medium opus/high' "$(jq -r '[.items[] | "\(.model)/\(.effort)"] | join(" ")' "$(latest_session)")"
 has 'INFO: item start line' 'INFO  \[1/2\] starting o/alpha#5 -- First item'
 has 'INFO: worker line names the permission mode' 'INFO  worker running: .*--permission-mode bypassPermissions'
 has 'INFO: worker exit line' 'INFO  worker exited 0 after [0-9]+s'
@@ -809,10 +828,104 @@ fi
 GH
 chmod +x "$S/bin/claude"
 
-# --- --repo naming a repo the cwd is not a checkout of ---------------------------
+# --- --repo naming a repo with no local checkout ---------------------------------
 run --repo o/other
-eq 'exit 1 when cwd is not a checkout of --repo' 1 "$RC"
-has 'says which repo it found' 'not a checkout of o/other \(found: o/alpha\)'
+eq 'exit 1 when neither the cwd nor $HOME/other is a checkout of --repo' 1 "$RC"
+has 'says where it looked' "no local checkout of o/other \(not the cwd, not $HOME/other\)"
+has 'and that nothing is left in scope' 'no repo in scope has a local checkout'
+run --repo o/alpha fam
+eq 'exit 2 when --repo and a project are both given' 2 "$RC"
+has 'and says they are two scopes' 'two scopes; pass one'
+
+# --- a project: one queue over every repo carrying the topic ---------------------
+# The fake worklist answers a project name with two repos; beta's checkout is
+# $HOME/beta (the cwd is alpha's), gamma has none and is dropped on one line.
+git -C "$S/home" init -q beta && git -C "$S/home/beta" remote add origin https://github.com/o/beta.git \
+  && git -C "$S/home/beta" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty -m init
+cat > "$S/ready.json" <<'JSON'
+[{"number": 5, "title": "Alpha item", "body": "alpha", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]}]
+JSON
+cat > "$S/ready-beta.json" <<'JSON'
+[{"number": 5, "title": "Beta item", "body": "beta", "url": "https://github.com/o/beta/issues/5", "labels": [{"name": "ready"}]},
+ {"number": 7, "title": "Gamma item", "body": "gamma", "url": "https://github.com/o/gamma/issues/7", "labels": [{"name": "ready"}], "repo": "o/gamma"}]
+JSON
+rm -f "$S/state/grind"/*.json
+run --dry-run fam
+eq 'a project dry-run exits 0' 0 "$RC"
+grep -q '^fam --json --fresh$' "$S/worklist.log" && ok || bad 'worklist was called with the project name'
+has 'the repo without a checkout is dropped, on one line' "^grind: no local checkout of o/gamma \(not the cwd, not $HOME/gamma\); it is out of this run$"
+has 'alpha item cut from the cwd' "o/alpha#5 -- Alpha item"
+has 'alpha worktree under its repo name' "git -C $S/repo worktree add -b grind-5 $TMPDIR/grind-worktrees/alpha/5"
+has 'beta item cut from $HOME/beta' "git -C $S/home/beta worktree add -b grind-5 $TMPDIR/grind-worktrees/beta/5"
+lacks 'gamma item never queued' 'o/gamma#7'
+: > "$S/worklist.log"
+cd "$S/nogit" && run --dry-run --repo o/beta; cd "$S/repo" || exit 1
+eq '--repo from outside any checkout exits 0' 0 "$RC"
+grep -q '^--here --json --fresh$' "$S/worklist.log" && ok || bad 'the record was fetched with --here'
+has 'from the named repo checkout: its item is queued' '^\[1/1\] o/beta#5 -- Beta item$'
+lacks 'and nothing from the cwd-less alpha' 'o/alpha#5'
+run fam
+eq 'a project run exits 0' 0 "$RC"
+has 'the session line names the project' 'INFO  session grind-.* on project fam: 2 item\(s\)'
+eq 'the state file records the project' fam "$(jq -r .project "$(latest_session)")"
+eq 'both items recorded done' 'o/alpha#5=done o/beta#5=done' "$(jq -r '[.items[] | "\(.ref)=\(.status)"] | join(" ")' "$(latest_session)")"
+assert 'beta worktree removed from beta checkout' bash -c '! git -C '"$S"'/home/beta worktree list | grep -q grind-worktrees'
+: > "$CLAUDE_LOG"
+run --resume "$(basename "$(latest_session)" .json)"
+eq 'a resume takes the project from the session file' 0 "$RC"
+has 'and finds both items already accounted for' '^done: queue exhausted'
+eq 'so no worker ran' 0 "$(calls_claude)"
+mkdir -p "$S/state/grind/locks/project_fam.lock"; jq -n '{pid: 999999, hostname: "elsewhere"}' > "$S/state/grind/locks/project_fam.lock/meta.json"
+run fam
+eq 'a project lock is keyed by the project, not a repo' 1 "$RC"
+has 'and names the project' 'another grind is already running against project fam'
+rm -rf "$S/state/grind/locks/project_fam.lock" "$S/ready-beta.json"
+rm -f "$S/state/grind"/*.json
+
+# --- sub-issues: a parent is worked through its open Ready sub-issues ----------
+# Each one is cut from its own repo's checkout: beta's is $HOME/beta (above),
+# gamma has none. #13 is Ready on its own too and must be worked once, as
+# #5's; #14 is not Ready and #15 is closed, so neither is worked; #6 has no
+# sub-issues and is one unit, as ever.
+sub() { jq -nc --arg r "$1" --argjson n "$2" --arg s "$3" --arg l "$4" \
+  '{repository_url: "https://api.github.com/repos/\($r)", number: $n, title: "Sub \($n)", body: "sub \($n)",
+    html_url: "https://github.com/\($r)/issues/\($n)", state: $s, labels: [{name: $l}]}'; }
+mkdir -p "$S/subs"
+{ sub o/beta 12 open ready; sub o/alpha 13 open ready; sub o/beta 14 open triage; sub o/alpha 15 closed ready; } \
+  | jq -s . > "$S/subs/repos_o_alpha_issues_5_sub_issues.json"
+sub o/gamma 3 open ready | jq -s . > "$S/subs/repos_o_alpha_issues_8_sub_issues.json"
+echo FAIL > "$S/subs/repos_o_alpha_issues_9_sub_issues.json"  # gh api fails for #9
+cat > "$S/ready.json" <<'JSON'
+[{"number": 5, "title": "Two-repo parent", "body": "parent", "url": "https://github.com/o/alpha/issues/5", "labels": [{"name": "ready"}]},
+ {"number": 6, "title": "No sub-issues", "body": "whole", "url": "https://github.com/o/alpha/issues/6", "labels": [{"name": "ready"}]},
+ {"number": 8, "title": "Gamma parent", "body": "parent", "url": "https://github.com/o/alpha/issues/8", "labels": [{"name": "ready"}]},
+ {"number": 9, "title": "Unreadable parent", "body": "parent", "url": "https://github.com/o/alpha/issues/9", "labels": [{"name": "ready"}]},
+ {"number": 13, "title": "Sub 13", "body": "sub 13", "url": "https://github.com/o/alpha/issues/13", "labels": [{"name": "ready"}]}]
+JSON
+run --dry-run
+eq 'a sub-issue dry-run exits 0' 0 "$RC"
+has 'the beta sub-issue is an item, named for its parent' '\] o/beta#12 -- Sub 12 \(part of o/alpha#5\)$'
+has 'cut from the beta checkout, under its repo name' "git -C $S/home/beta worktree add -b grind-12 $TMPDIR/grind-worktrees/beta/12$"
+has 'the same-repo sub-issue is an item' '\] o/alpha#13 -- Sub 13 \(part of o/alpha#5\)$'
+eq 'and is queued once, not again on its own' 1 "$(grep -c 'o/alpha#13 --' <<<"$OUT")"
+lacks 'a parent with open sub-issues is not itself worked' 'o/alpha#(5|8) --'
+lacks 'a sub-issue that is not Ready is not worked' 'o/beta#14'
+lacks 'nor a closed one' 'o/alpha#15'
+has 'an issue with no sub-issues is one unit, unchanged' "git -C $S/repo worktree add -b grind-6 $TMPDIR/grind-worktrees/6$"
+has 'a sub-issue whose repo has no checkout is dropped, on the usual line' "no local checkout of o/gamma \(not the cwd, not $HOME/gamma\)"
+lacks 'and never queued' 'o/gamma#3 --'
+has 'an issue whose sub-issues cannot be read is skipped, loudly' 'WARN  skipping o/alpha#9 -- could not read its sub-issues$'
+lacks 'and not worked whole' '\] o/alpha#9 --'
+jq '[.[0]]' "$S/ready.json" > "$S/ready.json.tmp" && mv "$S/ready.json.tmp" "$S/ready.json"
+jq '[.[0]]' "$S/subs/repos_o_alpha_issues_5_sub_issues.json" > "$S/subs/x" && mv "$S/subs/x" "$S/subs/repos_o_alpha_issues_5_sub_issues.json"
+: > "$GH_LOG"
+run
+eq 'a sub-issue run exits 0' 0 "$RC"
+eq 'the sub-issue is recorded done under its own ref' 'o/beta#12=done' "$(jq -r '[.items[] | "\(.ref)=\(.status)"] | join(" ")' "$(latest_session)")"
+grep -q -- '^pr list --repo o/beta --head grind-12 ' "$GH_LOG" && ok || bad 'the done check reads the sub-issue repo' "$(cat "$GH_LOG")"
+grep -qF 'The PR body says `Fixes o/beta#12` and `Part of o/alpha#5`.' "$S/prompt.txt" && ok || bad 'the prompt names the sub-issue and its parent' "$(cat "$S/prompt.txt")"
+rm -rf "$S/subs"
+rm -f "$S/state/grind"/*.json
 
 # --- empty queue -----------------------------------------------------------------
 cat > "$S/ready.json" <<'JSON'
@@ -903,7 +1016,7 @@ eq 'dry-run exit 0' 0 "$RC"
 has 'a keyless machine drops the pr kind by default, on one line' '^grind: pr kind skipped -- needs a signing key'
 has 'issues first' '\[1/3\] o/alpha#5 -- First item'
 has 'the card after them, by ref' '\[3/3\] card:alpha-tidy-the-widget -- alpha: tidy the widget'
-has 'on a branch named from its bold name' 'worktree: git worktree add -b grind-card-alpha-tidy-the-widget'
+has 'on a branch named from its bold name' 'worktree: git -C .* worktree add -b grind-card-alpha-tidy-the-widget'
 lacks 'a card linking another repo is not queued' 'beta-elsewhere'
 run --dry-run --kind card
 has '--kind card queues only the card' '\[1/1\] card:alpha-tidy-the-widget'
@@ -1048,6 +1161,7 @@ case "\$1 \$2" in
   "issue list") cat "$S/ready.json" ;;
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
+  "api repos/"*"/sub_issues"*) f="$S/subs/\$(printf '%s' "\${2%%\?*}" | tr / _).json"; if [ "\$(cat "\$f" 2>/dev/null)" = FAIL ]; then exit 1; elif [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
   "pr view")    jq -r "\$filter" "$S/pr-\$3.json" ;;
   "run rerun")  [ "\${GH_RERUN_FAIL:-0}" = 1 ] && exit 1; exit 0 ;;
   "pr edit"|"pr comment") exit 0 ;;
@@ -1075,7 +1189,7 @@ eq 'dry-run spends nothing' 0 "$(calls_claude)"
 has 'stale-label PR is an item, lowest number first' '^\[1/9\] .*#11 -- \[not-green\] PR 11$'
 has 'unfinished PR is an item, with its verdict' '^\[[0-9]+/9\] .*#30 -- \[conflicted\] PR 30$'
 lacks 'a green, labelled PR is not an item' '#50'
-has 'the checkout is onto the PR head branch, not a new one' 'git worktree add -B fix-11 .* origin/fix-11'
+has 'the checkout is onto the PR head branch, not a new one' 'git -C .* worktree add -B fix-11 .* origin/fix-11'
 has 'the command names the briefs and the contract' 'claude -p <.*#11 briefs \+ fixup contract>.*--max-budget-usd 1.25 --model sonnet'
 
 # --- every skip rule fires, with its reason ------------------------------------------
@@ -1330,6 +1444,7 @@ case "\$1 \$2" in
   "issue list") cat "$S/ready.json" ;;
   "pr list")    jq -r "\$filter" "$S/pr-list.json" ;;
   "issue view") jq -r "\$filter" "$S/issue-comments.json" ;;
+  "api repos/"*"/sub_issues"*) f="$S/subs/\$(printf '%s' "\${2%%\?*}" | tr / _).json"; if [ "\$(cat "\$f" 2>/dev/null)" = FAIL ]; then exit 1; elif [ -f "\$f" ]; then cat "\$f"; else echo '[]'; fi ;;
   *) echo "gh shim: unexpected \$*" >&2; exit 1 ;;
 esac
 GH
