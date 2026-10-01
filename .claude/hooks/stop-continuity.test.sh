@@ -211,6 +211,10 @@ eq 'a found PR is kept without a second lookup' https://github.com/o/r/pull/7 "$
 # An until: header, written by a model, survives the rewrite like prompt: does;
 # an item that never had one gets no until: line.
 assert 'no until: line on an item that has none' bash -c "! grep -q '^until:' '$ITEM'"
+printf 'until: a line in the body\n' >> "$ITEM"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
+eq 'an until: line in the body is not hoisted into the header' '' "$(awk '/^---$/{exit} /^until:/' "$ITEM")"
+sed -i '/^until: a line in the body$/d' "$ITEM"
 sed -i 's|^\(where: .*\)$|\1\nuntil: https://github.com/o/r/issues/9|' "$ITEM"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 eq 'until: survives the rewrite' https://github.com/o/r/issues/9 "$(sfield until)"

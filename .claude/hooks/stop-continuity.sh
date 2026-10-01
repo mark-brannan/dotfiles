@@ -522,7 +522,8 @@ pickup_item() {
     old_prompt=$(sed -n 's/^prompt: //p' "$f" | head -1)
     old_status=$(sed -n 's/^status: //p' "$f" | head -1)
     old_pr=$(sed -n 's/^pr: //p' "$f" | head -1)
-    old_until=$(sed -n 's/^until: //p' "$f" | head -1)
+    # Header only: a hand-off body may well hold a line starting "until: ".
+    old_until=$(awk '/^---$/ { exit } sub(/^until: /, "") { print; exit }' "$f")
     old_body=$(awk 'f { print } /^---$/ { f = 1 }' "$f")
   fi
 
