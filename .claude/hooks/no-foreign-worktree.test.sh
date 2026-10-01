@@ -34,13 +34,30 @@ setup() (
   # nobody's private space, so it must stay allowed.
   cd "$TMP"
   git clone -q repo other-clone
+  # Worktrees created under a session's scratchpad, in the claude-tmpdir
+  # layout: one for the session the payloads will claim to be, one for
+  # another session. Linked worktrees, so without the session-id rule both
+  # are foreign.
+  mkdir -p "scratch/claude-tmpdir/claude-1000/proj/$SID/scratchpad" \
+           "scratch/claude-tmpdir/claude-1000/proj/$OTHER_SID/scratchpad"
+  git -C repo worktree add -q -b own-scratch "$TMP/scratch/claude-tmpdir/claude-1000/proj/$SID/scratchpad/wt"
+  git -C repo worktree add -q -b other-scratch "$TMP/scratch/claude-tmpdir/claude-1000/proj/$OTHER_SID/scratchpad/wt"
+  # A directory whose name merely CONTAINS the id is not that session's.
+  mkdir -p "scratch/claude-tmpdir/claude-1000/proj/x$SID/scratchpad"
+  git -C repo worktree add -q -b substr-scratch "$TMP/scratch/claude-tmpdir/claude-1000/proj/x$SID/scratchpad/wt"
 )
+SID=aaaaaaaa-1111-4222-8333-444444444444
+OTHER_SID=bbbbbbbb-1111-4222-8333-444444444444
 setup || { echo "fixture setup failed"; exit 1; }
 
 REPO="$TMP/repo"
 MINE="$REPO/.claude/worktrees/mine"
 THEIRS="$REPO/.claude/worktrees/theirs"
 CLONE="$TMP/other-clone"
+SCRATCH="$TMP/scratch/claude-tmpdir/claude-1000/proj"
+OWN_WT="$SCRATCH/$SID/scratchpad/wt"
+OTHER_WT="$SCRATCH/$OTHER_SID/scratchpad/wt"
+SUBSTR_WT="$SCRATCH/x$SID/scratchpad/wt"
 
 pass=0
 fail=0
@@ -91,6 +108,54 @@ bash_check allow 'a ref, not a path'               'git log origin/main'
 bash_check allow 'no path at all'                  'git status --porcelain'
 # The whole point of the alternative the deny message offers.
 bash_check allow 'reading a branch from here'      'git show theirs:sub/file.txt'
+
+# --- own-scratchpad worktrees (measured 2026-09-30: 25 of 187 denials) -----
+# sid_check <deny|allow> <description> <command> <session_id or ""> [cwd]
+# A payload carrying a session id; an empty id leaves the field out, which
+# is what a payload with no session looks like to the hook.
+sid_check() {
+  local json
+  if [ -n "$4" ]; then
+    json=$(jq -n --arg c "$3" --arg d "${5:-$MINE}" --arg s "$4" \
+      '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')
+  else
+    json=$(jq -n --arg c "$3" --arg d "${5:-$MINE}" \
+      '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')
+  fi
+  check_json "$1" "$2" "$json"
+}
+sid_check allow 'own-scratchpad worktree, id in payload'      "git -C $OWN_WT status" "$SID"
+sid_check allow 'a file inside it'                            "cat $OWN_WT/file.txt" "$SID"
+sid_check allow 'cd into it'                                  "cd $OWN_WT && git log" "$SID"
+sid_check allow 'from the main worktree'                      "git -C $OWN_WT status" "$SID" "$REPO"
+sid_check deny  'another session scratchpad worktree'         "git -C $OTHER_WT status" "$SID"
+sid_check deny  'own-scratchpad path, no session id'          "git -C $OWN_WT status" ""
+sid_check deny  'own-scratchpad path, wrong session id'       "git -C $OWN_WT status" "$OTHER_SID"
+sid_check deny  'a dir name that merely contains the id'      "git -C $SUBSTR_WT status" "$SID"
+sid_check deny  'the id does not unlock sibling worktrees'    "git -C $THEIRS status" "$SID"
+check_json deny 'EnterWorktree(path=own-scratchpad worktree)' \
+  "$(jq -n --arg p "$OWN_WT" --arg d "$MINE" --arg s "$SID" \
+    '{tool_name:"EnterWorktree",tool_input:{path:$p},cwd:$d,session_id:$s}')"
+# TMPDIR pointing at the scratchpad changes nothing by itself: the id in the
+# payload is what decides, so a bare TMPDIR of /tmp allows nothing.
+out=$(printf '%s' "$(jq -n --arg c "git -C $OWN_WT status" --arg d "$MINE" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}')" \
+  | TMPDIR="$SCRATCH/$SID/scratchpad" bash "$HOOK" 2>&1)
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: TMPDIR alone, no session id, must not allow\n  hook output: %s\n' "$out"; fi
+out=$(printf '%s' "$(jq -n --arg c "git -C $OWN_WT status" --arg d "$MINE" --arg s "$SID" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
+  | TMPDIR=/tmp bash "$HOOK" 2>&1)
+if grep -q '"permissionDecision":"deny"' <<<"$out"; then
+  fail=$((fail + 1)); printf 'FAIL: own-scratchpad worktree with TMPDIR=/tmp must still allow on the id\n  hook output: %s\n' "$out"; else pass=$((pass + 1)); fi
+for tool in Edit Write; do
+  check_json allow "$tool inside own-scratchpad worktree" \
+    "$(jq -n --arg p "$OWN_WT/file.txt" --arg d "$MINE" --arg t "$tool" --arg s "$SID" \
+      '{tool_name:$t,tool_input:{file_path:$p},cwd:$d,session_id:$s}')"
+  check_json deny "$tool into another session scratchpad worktree" \
+    "$(jq -n --arg p "$OTHER_WT/file.txt" --arg d "$MINE" --arg t "$tool" --arg s "$SID" \
+      '{tool_name:$t,tool_input:{file_path:$p},cwd:$d,session_id:$s}')"
+done
 
 # --- must allow: prose that mentions a foreign path -----------------------
 # A quoted string holding whitespace is one unresolvable word, and the
