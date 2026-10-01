@@ -89,6 +89,8 @@ check deny  'for loop'                 "$(bash_in 'for t in a b c; do gh issue c
 check deny  'while loop'               "$(bash_in 'while read t; do gh issue create -t "$t" -b x; done < list')"
 check deny  'xargs'                    "$(bash_in 'cat list | xargs -I{} gh issue create -t {} -b x')"
 check allow 'loop closed before the create' "$(bash_in 'for f in a b; do echo "$f"; done; gh issue create -t one -b b')"
+check deny  'inner loop closed, outer still open' "$(bash_in 'for t in a b; do for s in x y; do :; done; gh issue create -t "$t" -b b; done')"
+check deny  'loop opened after then'    "$(bash_in 'if true; then for t in a b; do gh issue create -t "$t" -b b; done; fi')"
 open_door
 check allow 'door survived the denials' "$(bash_in 'gh issue create -t one -b b')"
 open_door
