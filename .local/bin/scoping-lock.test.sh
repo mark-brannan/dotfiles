@@ -71,6 +71,9 @@ has 'the holder releases' 'released:' "$(B release "$D" sid-three)"
 git -C "$S/a" pull -q --rebase 2>/dev/null
 eq 'released everywhere' free "$(A read "$D")"
 
+out=$(cd "$(dirname "$SL")" && CLAUDE_STATE_REPO="$S/a" sh ./scoping-lock take state/global/curia/r sid-rel "$S/a/$D/roll.md" 2>&1); rc=$?
+eq 'a relative invocation still reads the record commit' 0 "$rc"
+
 out=$(CLAUDE_STATE_REPO="$S/none" sh "$SL" take "$D" s x 2>&1); rc=$?
 eq 'no state repo fails closed' 2 "$rc"
 git -C "$S/a" remote set-url origin "$S/gone.git"

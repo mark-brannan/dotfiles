@@ -37,6 +37,7 @@ set -u
 
 SR=${CLAUDE_STATE_REPO:-$HOME/claude_prompts_scratch}
 STALE=${SCOPING_LOCK_STALE_SECS:-7200}
+SELF=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")  # $0 may be relative; we cd below
 
 die() { printf 'scoping-lock: %s\n' "$*" >&2; exit 2; }
 
@@ -106,7 +107,7 @@ case "$cmd" in
     sid=$2; read_at=$3
     sync || die "cannot sync with origin; a lock another machine cannot see is no lock"
     case "$read_at" in /*) rf=$read_at ;; *) rf=$SR/$read_at ;; esac
-    if [ -f "$rf" ]; then read_at=$(sh "$0" read-of "$rf") || exit 2; fi
+    if [ -f "$rf" ]; then read_at=$(sh "$SELF" read-of "$rf") || exit 2; fi
     if [ -f "$lock" ]; then
       d=$(describe "$(cat "$lock")"); set -- $d
       if [ "$2" != "$sid" ]; then
