@@ -293,6 +293,35 @@ check allow 'cd - then an absolute path is still fine' \
   "$(bash_in "$PUB" "cd - && gh pr comment 3 --body-file $SCRATCH/clean.md")"
 check allow 'cd inside sh -c does not move the outer command' \
   "$(bash_in "$SCRATCH" "sh -c 'cd /nowhere'; gh pr comment 3 --body-file clean.md")"
+# A cd that runs in a pipeline, a subshell or the background does not move
+# the shell that runs the gh: its place is unknown, so a relative path denies.
+check deny  'cd in a pipeline does not move the later gh' \
+  "$(bash_in "$SCRATCH" "cd $SCRATCH/proj | cat; gh pr comment 3 -F clean.md")"
+check deny  'cd in a background job does not move the later gh' \
+  "$(bash_in "$SCRATCH" "cd $SCRATCH/proj & gh pr comment 3 -F clean.md")"
+check deny  'cd in a ( ) subshell, then a relative path' \
+  "$(bash_in "$SCRATCH" "(cd $SCRATCH/proj); gh pr comment 3 -F clean.md")"
+check deny  'a CDPATH prefix on the cd sends it somewhere unseen' \
+  "$(bash_in "$SCRATCH" "CDPATH=/elsewhere cd proj && gh pr comment 3 -F clean.md")"
+check allow 'cd after && still moves the shell' \
+  "$(bash_in "$PUB" "true && cd $SCRATCH/proj && gh pr comment 3 -F clean.md")"
+check allow 'a cd in a pipeline is fine when the path is absolute' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj | cat; gh pr comment 3 -F $SCRATCH/clean.md")"
+# A ( ) subshell inherits the cwd and its cd dies at the ): a paren that
+# belongs to a neighbouring statement, or encloses both the cd and the gh,
+# moves nothing. Only an unmatched ) means the shell is somewhere unseen.
+check allow 'a ( ) statement before the cd does not touch it' \
+  "$(bash_in "$PUB" "(true); cd $SCRATCH/proj; gh pr comment 3 -F clean.md")"
+check allow 'a & ending the previous command does not background the cd' \
+  "$(bash_in "$PUB" "true & cd $SCRATCH/proj && gh pr comment 3 -F clean.md")"
+check allow 'the gh in a ( ) subshell inherits the cd before it' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj; (gh pr comment 3 -F clean.md)")"
+check allow 'cd and gh inside the same ( ) subshell' \
+  "$(bash_in "$PUB" "true; (cd $SCRATCH/proj && gh pr comment 3 -F clean.md)")"
+check allow 'a cd inside ( ) dies at the ), restoring the cwd before it' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj; (cd /); gh pr comment 3 -F clean.md")"
+check deny  'nested ( ): the inner ) restores, the outer ) loses the cd' \
+  "$(bash_in "$PUB" "(cd $SCRATCH/proj; (cd /)); gh pr comment 3 -F clean.md")"
 # Slice 3: a variable this same command assigns before the gh is expanded
 # in the path (88 of the measured denials). One it never assigned, or a
 # prefix assignment on the gh itself, stays a $ and is denied. A path

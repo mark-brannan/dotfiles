@@ -87,7 +87,7 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/public-issue-guard.XXXXXX") || deny 'cannot create a scratch directory'
 trap 'rm -rf "$WORK"' EXIT
 TEXT="$WORK/text"      # everything that will be posted, one candidate per line
-META="$WORK/meta"      # R repo | F file | CDTO dir | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
+META="$WORK/meta"      # R repo | F file | CDTO dir | CDPUSH/CDPOP ( ) | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
 : > "$TEXT"; : > "$META"; : > "$WORK/text-cmd"; : > "$WORK/text-file"
 
 # owner/name in lower case from any of the spellings gh and git accept.
@@ -163,13 +163,20 @@ case "$tool" in
           for (i = 1; i <= n + 1; i++) {
             if (i <= n && k[i] != ";") continue
             if (a0 < i) segment(a0, i - 1, nested[x])
+            # A ( ) subshell inherits the cwd and its cd dies at the ): push the
+            # virtual cwd at each ( and pop it at each ), in the order written.
+            if (!nested[x] && i <= n) for (j = 1; j <= length(SW_sepc[i]); j++) { sc = substr(SW_sepc[i], j, 1); if (sc == "(") print "CDPUSH"; else if (sc == ")") print "CDPOP" }
             a0 = i + 1
           }
         }
       }
       # CDTO <dir>: where a top-level cd/pushd goes. `cd -`, popd and a bare pushd land somewhere unseen: `-` = unknown.
-      function cdto(c, hi,   i, t) {
+      # A cd in a pipeline, in backticks or backgrounded by a trailing lone `&` runs in a subshell, and one under CDPATH lands wherever the
+      # variable says: `-` too. (`&&`, `||` and a `&` ending the previous command are sequence, not background.) `( )` is CDPUSH/CDPOP below.
+      function subshelled(lo, hi,   b, a) { b = SW_sepc[lo - 1]; a = SW_sepc[hi + 1]; gsub(/&&|\|\|/, "", b); gsub(/&&|\|\|/, "", a); return b ~ /[|`]/ || a ~ /[|&`]/ }
+      function cdto(c, lo, hi,   i, t) {
         t = (w[c] == "cd") ? "~" : "-"
+        if (subshelled(lo, hi) || orig ~ /CDPATH=/) { print "CDTO\t-"; return }
         for (i = c + 1; i <= hi && w[c] != "popd"; i++) {
           if (w[i] == "--") { if (i < hi) t = wv(i + 1); break }
           if (w[i] !~ /^[-+]./) { t = wv(i); break }
@@ -184,7 +191,7 @@ case "$tool" in
           c = seg_cmd(w, k, lo, hi); ok = !c   # seg_cmd is also 0 when a quoted word leads: only a segment of nothing but assignments counts
           for (i = lo; ok && i <= hi; i++) if (k[i] != "w" || w[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) ok = 0
           if (ok || (c && w[c] ~ /^(export|local|readonly|declare|typeset)$/)) { for (i = lo; i <= hi; i++) if (k[i] == "w" && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w[i], SW_live[i]) }
-          else if (w[c] ~ /^(cd|pushd|popd)$/) cdto(c, hi)
+          else if (w[c] ~ /^(cd|pushd|popd)$/) cdto(c, lo, hi)
         }
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
         if (!g || g + 1 > hi) return
@@ -330,6 +337,7 @@ normpath() {
 # resolve <path>: absolute and normalised, as the shell will read it, against
 # vcwd, where the command stands at that point (empty = unknown: relative fails).
 vcwd=$cwd
+cdstack=""; cddepth=0; NL=$(printf '\nx'); NL=${NL%x}   # the virtual cwd outside each open ( subshell, innermost first
 # expand <path>: $VAR/${VAR} from the assignments replayed so far, $HOME and a leading ~. An unknown $VAR stays, and resolve refuses it.
 expand() {
   cat "$WORK/vars" 2>/dev/null | P="$1" HOMEV="${HOME:-}" awk 'BEGIN { FS = "\t"; v["HOME"] = ENVIRON["HOMEV"] } { v[$1] = $2 } END {
@@ -349,6 +357,8 @@ hfed_has() { while IFS= read -r h; do [ "$(resolve "$h")" = "$1" ] && return 0; 
 while IFS="$(printf '\t')" read -r kind a <&3; do
   case "$kind" in
     CDTO) if [ "$a" = - ]; then vcwd=""; else vcwd=$(resolve "$a") || vcwd=""; fi; continue ;;
+    CDPUSH) cdstack="$vcwd$NL$cdstack"; cddepth=$((cddepth + 1)); continue ;;
+    CDPOP) if [ "$cddepth" -gt 0 ]; then vcwd=${cdstack%%"$NL"*}; cdstack=${cdstack#*"$NL"}; cddepth=$((cddepth - 1)); else vcwd=""; fi; continue ;;   # a ) whose ( was never seen: the shell is somewhere unseen
     A) printf '%s\t%s\n' "${a%%=*}" "$(expand "${a#*=}")" >> "$WORK/vars"; continue ;;
     F) ;; FX) case "$a" in *'$'*|[!/]*) printf '%s\n' "$a" > "$WORK/badfile"; continue ;; esac ;; *) continue ;;
   esac
