@@ -828,9 +828,6 @@ if [ "$run_engine" -eq 1 ]; then
   # writes it here. Off-screen: recall is from the user's own list.
   pickup_duty="Write the single next step as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, without showing it."
 
-  # The bedtime's shaping instruction.
-  shape_stop="shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth and leave the door open. $pickup_duty No question, no break offer, and never end the session on the user's behalf."
-
   # The sitting rung carries the fact, the mechanics the orders don't hold,
   # and a pointer: the orders say how to stop, and a procedure here would
   # displace them. The test checks the lead still exists in .claude/CLAUDE.md.
@@ -870,13 +867,13 @@ if [ "$run_engine" -eq 1 ]; then
     if [ "$now_ts" -ge "$bed_at" ] && [ "$bed_past_at" -ne "$bed_at" ]; then
       t="ok, it's $(lhhmm "$now_ts"), you said $(lhhmm "$bed_at")"
       add_line "$t"; record_crossing bed_past $(( (now_ts - bed_at) / 60 )) "$t"
-      add_model "It's $(lhhmm "$now_ts"); the user said bed at $(lhhmm "$bed_at"). Say that once, then $shape_stop"
+      add_model "It's $(lhhmm "$now_ts"); the user said bed at $(lhhmm "$bed_at"). Say that once. $pickup_duty $sit_orders"
       bed_past_at=$bed_at; bed_warn_at=$bed_at
     elif [ "$now_ts" -ge $((bed_at - NAG_BED_WARN_MIN * 60)) ] && [ "$bed_warn_at" -ne "$bed_at" ]; then
       bed_left=$(( (bed_at - now_ts + 59) / 60 ))
       t="$bed_left min to $(lhhmm "$bed_at")"
       add_line "$t"; record_crossing bed_warn "$bed_left" "$t"
-      add_model "Bedtime $(lhhmm "$bed_at") is $bed_left minutes away. Now $shape_stop"
+      add_model "Bedtime $(lhhmm "$bed_at") is $bed_left minutes away. $pickup_duty $sit_orders"
       bed_warn_at=$bed_at
     fi
   fi

@@ -695,7 +695,7 @@ set_bed $(( $(date +%s) + 240 ))
 o=$(BP bed1 "go on")
 has 'inside the warning window the minutes left are on screen' '^4 min to [0-9][0-9]:[0-9][0-9]$' "$(msg "$o")"
 has 'and the model gets the sitting rung'"'"'s shaping instruction' \
-    'Bedtime [0-9:]+ is 4 minutes away\. Now shape a good stopping point rather than ask for one' "$(ctx "$o")"
+    'Bedtime [0-9:]+ is 4 minutes away\. Write the single next step.*Standing orders' "$(ctx "$o")"
 hasnt 'which never asks' '\?' "$(ctx "$o")"
 o=$(BP bed1 "go on")
 t 'the warning is said once' '' "$(msg "$o")$(ctx "$o")"
@@ -706,7 +706,7 @@ set_bed $(( $(date +%s) - 60 ))
 o=$(BP bed1 "go on")
 has 'past the hour: the time now, and the time named' "^ok, it's [0-9:]+, you said [0-9:]+$" "$(msg "$o")"
 has 'the model says it once and shapes the stop' \
-    "^It's [0-9:]+; the user said bed at [0-9:]+\. Say that once, then shape a good stopping point" "$(ctx "$o")"
+    "^It's [0-9:]+; the user said bed at [0-9:]+\. Say that once\. Write the single next step.*Standing orders" "$(ctx "$o")"
 o=$(BP bed1 "go on")
 t 'then silence' '' "$(msg "$o")$(ctx "$o")"
 o=$(BT bed1)
