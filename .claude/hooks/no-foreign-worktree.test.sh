@@ -345,6 +345,9 @@ check_claim 'stamps could not be fetched -> unknown, never stale' \
 check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
   'no card' \
   'git merge --ff-only theirs'
+check_claim 'unknown-state message says why a self-made worktree is foreign (dotfiles#472)' \
+  'no card' \
+  'yours only when the command that creates it also'
 
 # The stub counts its invocations: the state and the attributed line must
 # come from one read, not a second call that can disagree with the first.
