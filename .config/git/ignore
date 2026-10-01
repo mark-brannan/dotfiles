@@ -1,0 +1,4 @@
+# git reads this file when core.excludesFile is unset
+**/.claude/settings.local.json
+__pycache__/
+*.py[cod]
