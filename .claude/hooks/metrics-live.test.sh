@@ -502,6 +502,8 @@ clock 61 10
 out6f=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 has 'the first sitting crossing is the time, the pickup and a pointer' \
     '^Sitting 1h01 at this machine, past 1h00\. Write the single next step .*pickup item.*without showing it\. Standing orders: "At a sitting rung"\.$' "$(ctx "$out6f")"
+has 'and names the pickup item by this session'"'"'s short id' \
+    "pickup/\*-${SID6e:0:8}\.md" "$(ctx "$out6f")"
 # The pointer is only as good as its target: an edit to the orders that
 # drops the bold lead fails here, not silently in a session.
 anchor=$(ctx "$out6f" | sed -n 's/.*Standing orders: "\([^"]*\)".*/\1/p')

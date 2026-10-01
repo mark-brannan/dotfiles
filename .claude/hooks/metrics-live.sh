@@ -825,8 +825,10 @@ if [ "$run_engine" -eq 1 ]; then
   fi
 
   # The Stop hook asks for the pickup only from two hours, so the first rung
-  # writes it here. Off-screen: recall is from the user's own list.
-  pickup_duty="Write the single next step as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, without showing it."
+  # writes it here. Off-screen: recall is from the user's own list. The file
+  # is named by its suffix: the Stop hook keys it on the session's short id,
+  # and a model that has to guess picks another session's item.
+  pickup_duty="Write the single next step as the body (below \`---\`) of this session's pickup item, $(state_dir)/pickup/*-${sid:0:8}.md, without showing it."
 
   # The sitting rung carries the fact, the mechanics the orders don't hold,
   # and a pointer: the orders say how to stop, and a procedure here would
