@@ -135,17 +135,26 @@ deny_literal() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","pe
 # recipe <dir> -- the one command that gives this session its own worktree
 # of <dir>'s repo, under its scratchpad: own by the session-id rule (see the
 # header), whichever repo the session started in and however often a
-# subagent's cwd resets. Placeholders where git or the glob cannot say.
+# subagent's cwd resets. `--git-dir=` rather than `-C <repo>`: the common
+# dir is what `worktree add` needs, it works from any cwd, and for yadm's
+# `$HOME` worktrees (`~/.local/share/yadm/repo.git`) there is no `-C`
+# directory to name at all. The scratchpad is looked for where Claude Code
+# puts it: `$CLAUDE_CODE_TMPDIR`, then `$TMPDIR`, then the state dir
+# (no-rm-tree.sh's allowlist names the same one). Placeholders where git or
+# the glob cannot say.
 recipe() {
-  repo='<repo>'; scratch='<scratchpad>'
+  gitdir='<git-dir>'; scratch='<scratchpad>'
   gcd=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
-  case "$gcd" in */.git) repo=${gcd%/.git} ;; esac
+  [ -n "$gcd" ] && gitdir=$gcd
   if [ -n "${session_id:-}" ]; then
-    for d in "${CLAUDE_CODE_TMPDIR:-${TMPDIR:-/tmp}}"/claude-*/*/"$session_id"/scratchpad; do
-      [ -d "$d" ] && { scratch=$d; break; }
+    for base in "${CLAUDE_CODE_TMPDIR:-}" "${TMPDIR:-}" "$HOME/.local/state/claude-tmpdir"; do
+      [ -n "$base" ] || continue
+      for d in "$base"/claude-*/*/"$session_id"/scratchpad; do
+        [ -d "$d" ] && { scratch=$d; break 2; }
+      done
     done
   fi
-  printf 'git -C %s worktree add %s/<name> && cd %s/<name>' "$repo" "$scratch" "$scratch"
+  printf 'git --git-dir=%s worktree add %s/<name> && cd %s/<name>' "$gitdir" "$scratch" "$scratch"
 }
 
 # claim-stamp.sh, overridable so tests can point this at a stub instead of
