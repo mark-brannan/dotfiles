@@ -159,10 +159,20 @@ timeout 25 git -C "$SR" pull --rebase --autostash -q >/dev/null 2>&1 || true
     counts=$(cat "$SD/metrics/decisions"/*.jsonl 2>/dev/null \
       | jq -r --arg since "$since" 'select(.ts >= $since) | .type' 2>/dev/null \
       | sort | uniq -c | awk '{printf "%s %s, ", $1, $2}' | sed 's/, $//')
+    # Decisions per session-hour: measured and shown here and in the Stop
+    # summary, never alarmed and never on the statusline. Only sessions whose
+    # record carries the session clock count, on both sides of the ratio.
+    rate=$(cat "$SD/metrics/sessions"/*.json 2>/dev/null \
+      | jq -rs --arg since "$since" '
+          [ .[] | select((.ts // "") >= $since and (.session_clock_seconds // 0) >= 60) ]
+          | if length == 0 then empty
+            else "\(map(.decisions.total // 0) | add) decisions in \(map(.session_clock_seconds) | add / 3600 | . * 10 | round / 10) session-hours, \(length) sessions: \(
+              (map(.decisions.total // 0) | add) * 36000 / (map(.session_clock_seconds) | add) | round / 10) per session-hour" end' 2>/dev/null)
     if [ -n "$counts" ]; then
       echo
       echo "### Decision load, last 7 days"
       echo
+      [ -n "$rate" ] && { echo "$rate."; echo; }
       echo "$counts — \`scoping\` is cheap (asked before work exists),"
       echo "\`gate\` is expensive (open-ended, mid-flight, needs the user to reload"
       echo "context). Prefer front-loading questions; board the rest."

@@ -477,6 +477,12 @@ def prev_ask($h): (last($atext[] | select(.i < $h)) // {text: null}).text | ask_
    | round) as $elapsed_s
 | (([ $gaps[] | ([.d, $cap] | min) ] | add) // 0 | round) as $active_s
 | (([ $gaps[] | select(.h) | ([.d, $cap] | min) ] | add) // 0 | round) as $human_s
+# The session clock: first human prompt to last, unclamped. Distinct from
+# the sitting clock (machine-wide, broken by a gap) and from elapsed (which
+# runs on past the last prompt into the agent's work). The denominator of
+# decisions per session-hour, which is measured and shown, never alarmed.
+| ([ $ev[] | select(.h) | .t ] | if length > 1 then (max - min) else 0 end
+   | round) as $clock_s
 
 | def sumu(f): ([ $amsgs[] | (.message.usage | f) // 0 ] | add) // 0;
 
@@ -555,6 +561,7 @@ def price:
       human_seconds:   $human_s,
       agent_seconds:   ($active_s - $human_s),
       idle_seconds:    ($elapsed_s - $active_s),
+      session_clock_seconds: $clock_s,
       model:      ([ $E[].value | select(.type=="assistant")
                      | .message.model | select(. != null) ] | last),
       # The pickup item's floor (stop-continuity.sh): the first line of the

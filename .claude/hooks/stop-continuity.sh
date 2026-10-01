@@ -143,7 +143,12 @@ resume_block=""
     "- session `\(.session_id)` · \(.model // "?") · started \(.started_at // "?")",
     "- \(.user_turns) prompts, \(.assistant_turns) turns, \(.tool_calls) tool calls",
     "- \(.output_tokens) output tokens, context peak \(.context_peak)",
-    "- decisions: \(.decisions.total) total (\(.decisions.scoping) scoping, \(.decisions.inline) inline, \(.decisions.gate) gate)",
+    "- decisions: \(.decisions.total) total (\(.decisions.scoping) scoping, \(.decisions.inline) inline, \(.decisions.gate) gate)\(
+       (.session_clock_seconds // 0) as $c
+       | if $c < 60 then ""
+         else " · \(.decisions.total * 36000 / $c | round / 10) per session-hour (\(
+           if $c >= 3600 then "\($c / 3600 | floor)h\($c % 3600 / 60 | floor | tostring | if length < 2 then "0" + . else . end)"
+           else "\($c / 60 | floor)m" end) first prompt to last)" end)",
     "- friction: \(.friction.total) total (\(.friction.correction) correction, \(.friction.override) override, \(.friction.rebuke) rebuke, \(.friction.pushback) pushback)",
     "- blocked: \(.blocked.total // 0) tool calls refused (\(.blocked.classifier // 0) classifier, \(.blocked.rule // 0) rule, \(.blocked.user // 0) user-declined)"'
 
