@@ -329,5 +329,21 @@ eq  'which collects it'                      "$(find "$LEDGER" -name '*-55555555
 sh "$CS" card-release "$LOGCARD"
 eq  'release with no sid frees every claim'  "$(sh "$CS" card-claims "$LOGCARD")" ''
 
+reset_store
+sh "$CS" card-claim "$CARD" 1111111100002222 >/dev/null 2>&1
+f=$(ls "$LEDGER"/*-11111111.tsv)
+awk -F'\t' 'BEGIN{OFS="\t"} {$3 = 1; print}' "$f" > "$f.n" && mv "$f.n" "$f"
+sh "$CS" card-claim "$CARD" 3333333300004444 >/dev/null 2>&1
+eq  'taking over a stale claim drops its stamp' "$(ncomments)" 1
+sh "$CS" release --scan 3333333300004444
+eq  '/wrapup'"'"'s release drops the card claim'  "$(sh "$CS" card-claims "$CARD")" ''
+eq  'and its stamp'                          "$(ncomments)" 0
+mkdir -p "$TMPDIR/claim-stamp-card-$(printf '%s' "$CARD" | cksum | awk '{print $1}').lock.d"
+printf 'pid=%s\nhostname=%s\n' "$$" "$(uname -n)" > "$TMPDIR/claim-stamp-card-$(printf '%s' "$CARD" | cksum | awk '{print $1}').lock.d/meta"
+out=$(sh "$CS" card-claim "$CARD" 1111111100002222 2>&1); rc=$?
+eq  'a take mid-claim is refused'            "$rc" 1
+has 'and says to try again'                  "$out" 'being claimed right now'
+rm -rf "$TMPDIR"/claim-stamp-card-*.lock.d
+
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

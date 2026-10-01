@@ -385,14 +385,26 @@ do_card_claim() {  # do_card_claim <url> <sid>
   [ -n "${1:-}" ] && [ -n "${2:-}" ] \
     || { printf 'claim-stamp: card-claim needs <url> <session-id>\n' >&2; return 1; }
   url=$1; s8=$(sid8 "$2"); d=$(claims_dir); key=$(claim_key "$url")
+  # The check and the write under one lock, or two sessions on this machine
+  # both read the card free and both take it. A take on another machine
+  # reaches this ledger only with its Stop push; that race stays open.
+  state_lock "${TMPDIR:-/tmp}/claim-stamp-card-$key.lock.d" \
+    || { printf 'claim-stamp: %s is being claimed right now; try again\n' "$url" >&2; return 1; }
+  trap state_unlock EXIT INT TERM
   held=$(card_ledger "$url" | awk -F'\t' -v s="$s8" '$1 == "live" && $2 != s')
   if [ -n "$held" ]; then
     printf '%s\n' "$held" | awk -F'\t' '{ printf "taken: session `%s` on `%s` claimed %s %s ago\n", $2, $3, $5, $4 }' >&2
     return 1
   fi
   mkdir -p "$d" 2>/dev/null || { printf 'claim-stamp: cannot write %s\n' "$d" >&2; return 1; }
-  # A stale claim on this card is a session that died holding it.
-  for f in "$d/$key"-*.tsv; do [ -f "$f" ] && [ "$f" != "$d/$key-$s8.tsv" ] && rm -f "$f"; done
+  # A stale claim on this card is a session that died holding it; its stamp
+  # goes with it, or the issue collects one per dead session.
+  for f in "$d/$key"-*.tsv; do
+    [ -f "$f" ] && [ "$f" != "$d/$key-$s8.tsv" ] || continue
+    IFS="$(printf '\t')" read -r _u _s _e _m _c < "$f"
+    if [ -n "${_c:-}" ] && usable && card_parts "$url"; then delete_stamp "$owner" "$repo" "$_c"; fi
+    rm -f "$f"
+  done
   cid=""
   if usable && card_parts "$url"; then
     mine=$(read_stamps "$owner" "$repo" "$number" | awk -F'\t' -v s="$s8" '$2 == s { print $1; exit }')
@@ -420,6 +432,16 @@ do_card_release() {  # do_card_release <url> [<sid>]
       rest=$(read_stamps "$owner" "$repo" "$number") && [ -z "$rest" ] \
         && remove_label "$owner" "$repo" "$number"
     fi
+  done
+  return 0
+}
+
+# /wrapup's deliberate release (--scan) drops this session's card claims
+# too: one left to go stale keeps its stamp and label on the issue.
+release_cards() {  # release_cards <sid>
+  _urls=$(for _rf in "$(claims_dir)"/*-"$(sid8 "$1")".tsv; do [ -f "$_rf" ] && cut -f1 "$_rf"; done)
+  printf '%s\n' "$_urls" | while IFS= read -r _ru; do
+    [ -n "$_ru" ] && do_card_release "$_ru" "$1"
   done
   return 0
 }
@@ -462,7 +484,8 @@ case "$cmd" in
   card-claim)   do_card_claim "${1:-}" "${2:-}"; exit $? ;;
   card-release) do_card_release "${1:-}" "${2:-}"; exit $? ;;
   card-claims)  card_ledger "${1:-}"; exit 0 ;;
-  release) [ $# -ge 1 ] || exit 0; do_release "$dir" "$1"; exit 0 ;;
+  release) [ $# -ge 1 ] || exit 0; [ "$SCAN" = 1 ] && release_cards "$1"
+           do_release "$dir" "$1"; exit 0 ;;
   read)    do_read "$dir"; exit 0 ;;
   session-start)
     payload=$(cat 2>/dev/null) || exit 0
