@@ -20,6 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$S/bin" "$S/home" "$S/cache" "$S/tmp" "$S/fx" "$S/repo" "$S/nogit" "$S/state/.git" "$S/state/state/global"
+unset CLAUDE_CODE_SESSION_ATTENDED
 export HOME="$S/home" XDG_CACHE_HOME="$S/cache" TMPDIR="$S/tmp" CLAUDE_STATE_REPO="$S/state" FIXTURES="$S/fx"
 export GH_LOG="$S/gh.log"; : > "$GH_LOG"
 CACHE="$S/cache/worklist"
@@ -450,6 +451,17 @@ run --all-rulings
 has 'a ruling card leads with its id' '^- global: 1790836842077c62eb \*\*Engine pin'
 has 'a Claude card leads with its id' '^- 1790836843077c62eb \*\*Card 0'
 lacks 'the trailing id field is not repeated' 'alpha id:'
+
+# --- side task: one Claude card for an attended session -------------------------
+CLAUDE_CODE_SESSION_ATTENDED=1 run --brief
+has 'attended brief offers a side task' "^Side task \(Claude's queue, oldest in this repo\):$"
+has 'side task names the cwd-repo card by id' '^  1790836843077c62eb Card 0$'
+has 'side task says land it or re-card it' '^  -> do it after the main work, or leave a one-line reason on the card$'
+run --brief
+lacks 'headless brief has no side task' 'Side task'
+(cd "$S" && CLAUDE_CODE_SESSION_ATTENDED=1 sh "$WL" --brief) > "$S/side.out" 2>&1
+OUT=$(cat "$S/side.out")
+has 'outside a repo the side task falls back to oldest overall' "^Side task \(Claude's queue, oldest overall\):$"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
