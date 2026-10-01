@@ -159,13 +159,13 @@ cat >> "$NR/kanban.md" <<'EOF'
 
 ## Needs ruling
 ### colregs
-- [ ] **Dated** — pick ([l](log/a.md)) default: a undo: revert until: 2026-10-05. risk: low judgment: direction
-- [ ] **Linked** — pick ([l](log/a.md)) default: a undo: revert until: https://github.com/o/r/pull/7 risk: low judgment: direction
-- [ ] **Short ref** — pick ([l](log/a.md)) default: a undo: revert until: o/r#8 risk: low judgment: direction
-- [ ] **Worded** — pick ([l](log/a.md)) default: a undo: revert until: the next migration, ~2026-11-01 risk: low judgment: direction
-- [ ] **Leap day** — pick ([l](log/a.md)) default: a undo: revert until: 2028-02-29 risk: low judgment: direction
+- [ ] **Dated** — pick ([l](log/a.md)) default: a undo: revert until: 2026-10-05. risk: low judgment: direction id: 1790000000aaaaaaaa
+- [ ] **Linked** — pick ([l](log/a.md)) default: a undo: revert until: https://github.com/o/r/pull/7 risk: low judgment: direction id: 1790000000aaaaaaaa
+- [ ] **Short ref** — pick ([l](log/a.md)) default: a undo: revert until: o/r#8 risk: low judgment: direction id: 1790000000aaaaaaaa
+- [ ] **Worded** — pick ([l](log/a.md)) default: a undo: revert until: the next migration, ~2026-11-01 risk: low judgment: direction id: 1790000000aaaaaaaa
+- [ ] **Leap day** — pick ([l](log/a.md)) default: a undo: revert until: 2028-02-29 risk: low judgment: direction id: 1790000000aaaaaaaa
 - [ ] **Folded** — pick ([l](log/a.md)) default: a undo: revert
-      until: before 1.8 ships risk: low judgment: direction
+      until: before 1.8 ships risk: low judgment: direction id: 1790000000aaaaaaaa
 EOF
 run 0 'the three until: forms, and a date inside words, pass L8' --diff "$NR" kanban.md
 gitq "$NR" checkout -- kanban.md
