@@ -483,7 +483,9 @@ for spec in $PLUGINS; do
   if [ "$DRY_RUN" = yes ]; then
     say "would install plugin $plugin from $repo"
   elif ! command -v claude >/dev/null 2>&1; then
-    warn "  FAILED plugin $plugin — no claude on PATH"; failed=$((failed + 1))
+    # No claude, no session for the guards to protect (a CI consumer of the
+    # claude-config action): skipped, not failed.
+    warn "  skipped plugin $plugin — no claude on PATH"
   elif claude plugin marketplace add "$repo" >/dev/null 2>&1 &&
        claude plugin install "$plugin" >/dev/null 2>&1; then
     say "plugin $plugin installed"
