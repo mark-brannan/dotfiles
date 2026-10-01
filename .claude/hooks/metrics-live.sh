@@ -79,7 +79,10 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 #             starts at the first one, restarts when the gap between two of
 #             them runs past SIT_GAP_MIN (a session picked up after dinner is
 #             a new sitting, not a nine-hour one), and is never read or moved
-#             by a Stop. 60 min says stand up, 120 says stop here and wrap up.
+#             by a Stop. Each hour rung prints the elapsed time and one
+#             outward-pointing tail (a meal, the sunset, a line from
+#             outside.txt), and asks the model to shape a stopping point.
+#             A prompt of `stay [minutes]` quiets it until then.
 #             The clock itself is machine-wide, not per session -- three open
 #             chats are still one chair -- while the line is reported once per
 #             session, so each chat says it where its user is reading
@@ -98,6 +101,11 @@ NAG_SIT_EVERY_MIN="${METRICS_SIT_EVERY_MIN:-60}"
 NAG_SIT_GAP_MIN="${METRICS_SIT_GAP_MIN:-15}"
 # Sitting rungs from here up draw ⏰ instead of ⏱️/🌙. 3 = past 90 min.
 NAG_SIT_HOT_RUNG="${METRICS_SIT_HOT_RUNG:-3}"
+# The sitting line's tail, picked by the clock first and the list second.
+# Meal windows are local hours, start inclusive, end exclusive; "" disables.
+NAG_MEAL_WINDOWS="${METRICS_MEAL_WINDOWS-12-14 18-20}"
+NAG_SUN_AFTER_HOUR="${METRICS_SUN_AFTER_HOUR:-13}"
+NAG_STAY_DEFAULT_MIN="${METRICS_STAY_DEFAULT_MIN:-30}"
 NAG_FRICTION_N="${METRICS_FRICTION_N:-3}"
 NAG_FRICTION_TURNS="${METRICS_FRICTION_TURNS:-20}"
 # Model-facing ladders. Separate from the screen ladders above: the screen
@@ -266,13 +274,14 @@ trap 'state_unlock' EXIT TERM INT
 # have to work on a machine without flock.
 SITF="$(state_dir)/metrics/sitting.json"
 
-sit_start=0; last_prompt=0
+sit_start=0; last_prompt=0; quiet_until=0
 if [ -f "$SITF" ]; then
-  IFS=$'\t' read -r sit_start last_prompt \
-    <<<"$(jq -r '[(.sitting_start // 0), (.last_prompt // 0)] | @tsv' "$SITF" 2>/dev/null)"
+  IFS=$'\t' read -r sit_start last_prompt quiet_until \
+    <<<"$(jq -r '[(.sitting_start // 0), (.last_prompt // 0), (.quiet_until // 0)] | @tsv' "$SITF" 2>/dev/null)"
 fi
 [ -n "$sit_start" ] || sit_start=0
 [ -n "$last_prompt" ] || last_prompt=0
+[ -n "$quiet_until" ] || quiet_until=0
 
 save_sitting() {
   mkdir -p "$(dirname "$SITF")" 2>/dev/null || return 0
@@ -294,11 +303,11 @@ save_sitting() {
   # Preview only, not the full prompt -- enough to recognize which turn wound
   # the clock without keeping a growing transcript excerpt in a machine-wide
   # file that gets read constantly.
-  jq -n --argjson ss "$sit_start" --argjson lp "$last_prompt" \
+  jq -n --argjson ss "$sit_start" --argjson lp "$last_prompt" --argjson qu "$quiet_until" \
     --arg local "$last_local" --arg sid "$sid" --arg repo "$work_repo" \
     --arg branch "$work_branch" --arg slug "$last_slug" --arg ckpt "$last_ckpt" \
     --arg cwd "$cwd" --arg prompt "${prompt_text:-}" \
-    '{sitting_start: $ss, last_prompt: $lp,
+    '{sitting_start: $ss, last_prompt: $lp, quiet_until: $qu,
       last_prompt_local: $local, last_session_id: $sid, last_repo: $repo,
       last_branch: $branch, last_worktree_slug: $slug, last_checkpoint: $ckpt,
       last_cwd: $cwd, last_prompt_preview: ($prompt[0:80])}' \
@@ -467,6 +476,61 @@ work_str() {
   printf '%s' "$s"
 }
 
+# Minutes until today's sunset at location.json's lat/lon, or nothing when
+# the file is missing or unfilled, or the sun is already down. NOAA's
+# sunrise equation, solved for the solar noon nearest now.
+sunset_min() {
+  local lat lon
+  IFS=$'\t' read -r lat lon <<<"$(jq -r '[(.lat // ""), (.lon // "")] | @tsv' \
+    "$(state_dir)/location.json" 2>/dev/null)"
+  [ -n "$lat" ] && [ -n "$lon" ] || return 0
+  awk -v now="$now_ts" -v lat="$lat" -v lon="$lon" 'BEGIN {
+    r = atan2(0, -1) / 180
+    jd = now / 86400 + 2440587.5
+    n = int(jd - 2451545.0009 + lon / 360 + 0.5)
+    js = 2451545.0009 - lon / 360 + n
+    m = (357.5291 + 0.98560028 * (js - 2451545)) % 360
+    c = 1.9148 * sin(m*r) + 0.02 * sin(2*m*r) + 0.0003 * sin(3*m*r)
+    l = (m + c + 282.9372) % 360
+    jt = js + 0.0053 * sin(m*r) - 0.0069 * sin(2*l*r)
+    sd = sin(l*r) * sin(23.4397*r)
+    cd = sqrt(1 - sd * sd)
+    cw = (sin(-0.833*r) - sin(lat*r) * sd) / (cos(lat*r) * cd)
+    if (cw < -1 || cw > 1) exit
+    w = atan2(sqrt(1 - cw * cw), cw) / r
+    left = int(((jt + w / 360 - 2440587.5) * 86400 - now) / 60)
+    if (left > 0) print left
+  }'
+}
+
+# The sitting line's tail: outward, never an instruction. Clock first (a
+# meal window, then the daylight left), the list second.
+sit_tail() {
+  local h w lo hi left
+  h=$(date +%H); h=$((10#$h))
+  for w in $NAG_MEAL_WINDOWS; do
+    lo=${w%-*}; hi=${w#*-}
+    if [ "$h" -ge "$lo" ] && [ "$h" -lt "$hi" ]; then
+      printf 'what did you eat today?'; return 0
+    fi
+  done
+  if [ "$h" -ge "$NAG_SUN_AFTER_HOUR" ]; then
+    left=$(sunset_min)
+    if [ -n "$left" ]; then
+      if [ "$left" -ge 60 ]; then
+        printf 'sun sets in %dh %02d' $((left / 60)) $((left % 60))
+      else
+        printf 'sun sets in %d min' "$left"
+      fi
+      return 0
+    fi
+  fi
+  local lines=()
+  mapfile -t lines < <(grep -v '^[[:space:]]*$' "$(state_dir)/outside.txt" 2>/dev/null)
+  [ "${#lines[@]}" -gt 0 ] && printf '%s' "${lines[RANDOM % ${#lines[@]}]}"
+  return 0
+}
+
 sys_lines=""; model_line=""; arch_lines=""
 add_line()  { sys_lines="${sys_lines:+$sys_lines
 }$1"; }
@@ -513,8 +577,20 @@ if [ "$run_engine" -eq 1 ]; then
     last_prompt=$now_ts
     [ "$sit_start" -gt 0 ] || sit_start=$now_ts
     tl_sitting=$sit_start
+    # The stay valve: `stay` or `stay <minutes>`, exactly, quiets the
+    # sitting line and its injection until then. Machine-wide, like the clock.
+    if [[ "$prompt_text" =~ ^[[:space:]]*stay([[:space:]]+([0-9]+))?[[:space:]]*$ ]]; then
+      stay_min=$NAG_STAY_DEFAULT_MIN
+      [ -n "${BASH_REMATCH[2]}" ] && stay_min=$((10#${BASH_REMATCH[2]}))
+      quiet_until=$((now_ts + stay_min * 60))
+      sit_min=$(( (now_ts - sit_start) / 60 ))
+      t="⏱ $(hm "$sit_min") · staying $stay_min, quiet until $(hm $((sit_min + stay_min)))"
+      add_line "$t"; record_crossing stay "$stay_min" "$t"
+      add_model "The user said stay: acknowledge in one line, nothing else."
+    fi
     save_sitting
   fi
+  sit_quiet=0; [ "$quiet_until" -gt "$now_ts" ] && sit_quiet=1
 
   IFS=$'\t' read -r ctx decisions fric_total fric_win <<<"$(printf '%s\n' "$metrics" | jq -r \
     --argjson w "$NAG_FRICTION_TURNS" \
@@ -599,29 +675,20 @@ if [ "$run_engine" -eq 1 ]; then
 
   # FROZEN -- THAW CAREFULLY.
   # sitting clock -- read on a prompt and nowhere else, so the line lands
-  # where the user is already reading, at the top of a turn.
+  # where the user is already reading, at the top of a turn. Elapsed time and
+  # an outward tail, no verdict: an instruction on screen is one more thing
+  # to argue with from the chair. Quiet after `stay` leaves the rung unspent,
+  # so it is said on the first prompt after the quiet ends.
   if [ "$is_prompt" -eq 1 ] && [ "$NAG_SIT_EVERY_MIN" -gt 0 ] \
-     && [ "$sit_start" -gt 0 ]; then
+     && [ "$sit_start" -gt 0 ] && [ "$sit_quiet" -eq 0 ]; then
     sit_min=$(( (now_ts - sit_start) / 60 ))
     n=$(( sit_min / NAG_SIT_EVERY_MIN * NAG_SIT_EVERY_MIN ))
     if [ "$n" -ge "$NAG_SIT_EVERY_MIN" ] && [ "$n" -gt "$time_line" ]; then
-      # Only "stop here" arms the Stop block. "Stand up" is a nudge to leave
-      # the chair for five minutes and come back to the same session; making
-      # it demand a resume block turned the one-hour mark into a wrap-up
-      # every hour. Two hours is the sitting clock's actual verdict.
-      #
-      # Work in flight (dirty tree / unpushed / open PR -- in_flight()) never
-      # gets a stop-or-stand verdict: landing unfinished work is not "stop
-      # here" advice, it is the same instruction the model-directed line
-      # already gives. Reassure instead of advise -- name the time, promise
-      # the session keeps going to the next checkpoint, nothing to act on.
-      if in_flight; then
-        verdict="still landing it -- will stop cleanly at the next checkpoint"
-      elif [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then
-        verdict="stop here, run /wrapup"; since_nag=1
-      else verdict="stand up"; fi
-      t="⏱ sitting $(hm "$n") — context $(kfmt "$ctx"): $verdict."
-      w=$(work_str); [ -n "$w" ] && t="$t $w"
+      # Two hours arms the Stop block's hand-off, unless work is in flight:
+      # landing it comes first, and the injection below already says so.
+      if [ "$n" -ge $((NAG_SIT_EVERY_MIN * 2)) ] && ! in_flight; then since_nag=1; fi
+      t="⏱ $(hm "$sit_min")"
+      sit_t=$(sit_tail); [ -n "$sit_t" ] && t="$t · $sit_t"
       add_line "$t"; record_crossing time "$n" "$t"
       time_line=$n
     fi
@@ -631,36 +698,22 @@ if [ "$run_engine" -eq 1 ]; then
   # line does and defines none of its own; a rung of 0 means the shared clock
   # restarted, which spends the injection with it.
   #
-  # Two markers, not one: m_sit_said is the last rung this session spoke, and
-  # gates the repeat (dotfiles#282); m_sit_at is the last rung whose *offer*
-  # was made, which the in-flight branch deliberately leaves unspent so the
-  # offer still fires at the same rung once the work has landed.
+  # Two markers: m_sit_said is the last rung this session spoke, and gates
+  # the repeat (dotfiles#282); m_sit_at is the last rung whose stop was
+  # shaped, which work in flight leaves unspent so the shaping still fires
+  # at that rung once the work has landed.
   if [ "$is_prompt" -eq 1 ] && [ "$NAG_SIT_EVERY_MIN" -gt 0 ] \
      && [ "$sit_start" -gt 0 ]; then
     m_min=$(( (now_ts - sit_start) / 60 ))
     r=$(rung_of "$NAG_SIT_EVERY_MIN" "$NAG_SIT_EVERY_MIN" "$m_min")
     if [ "$r" -eq 0 ]; then
       m_sit_at=0; m_sit_said=0
-    elif [ "$r" -gt "$m_sit_said" ] \
-         || { [ "$m_sit_at" -eq 0 ] && ! in_flight; }; then
-      inf=""; in_flight && inf=" with work in flight ($in_flight_memo)"
-      if [ -n "$inf" ]; then sv="Do not offer a break or /wrapup yet: land this without asking -- commit, push, open the PR -- then offer."
-      elif [ "$r" -ge $((NAG_SIT_EVERY_MIN * 2)) ]; then
-        # Only a genuine repeat (m_sit_at already spent) gets the softened
-        # wording -- a first crossing, including the deferred offer that
-        # fires once in-flight work lands, keeps the original imperative.
-        if [ "$m_sit_at" -eq 0 ]; then sv="Stop here and run /wrapup."
-        else sv="If the work is landed, this is a good place to stop; if not, land it and then offer."
-        fi
-      else sv="Say so and offer a break."; fi
-      if [ "$m_sit_at" -eq 0 ]; then
-        [ -n "$inf" ] || m_sit_at=$r   # unspent while in flight: fires once landed
-        add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r")$inf. $sv"
-      else
-        add_model "Sitting $(hm "$m_min"), past $(hm "$r") (last offered at $(hm "$m_sit_at")). $sv"
-        m_sit_at=$r
-      fi
+    elif [ "$sit_quiet" -eq 0 ] && in_flight && [ "$r" -gt "$m_sit_said" ]; then
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"), with work in flight ($in_flight_memo). Don't raise the time yet: land this first, without asking -- commit, push, open the PR."
       m_sit_said=$r
+    elif [ "$sit_quiet" -eq 0 ] && ! in_flight && [ "$r" -gt "$m_sit_at" ]; then
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). Name the time once, then shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth, name the single next step, write it as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, show it, and leave the door open. No question, no break offer, and never end the session on the user's behalf."
+      m_sit_at=$r; m_sit_said=$r
     fi
   fi
 
