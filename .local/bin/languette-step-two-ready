@@ -71,7 +71,7 @@ done | jq -rs --argjson sessions "$nsessions" '
   def guard:
     if test("no-delete-stacked-base|stacked on") then "no-delete-stacked-base"
     elif test("no-rm-tree|`rm -r") then "no-rm-tree"
-    elif test("no-git-footguns|`(git|yadm) [^`]*` is blocked|bare `git |force-pushing or deleting main") then "no-git-footguns"
+    elif test("no-git-footguns|`(git|yadm) [^`]*`[^`]* is blocked|bare `git |force-pushing or deleting main") then "no-git-footguns"
     else null end;
   def side:
     if test("\\[dotfiles copy\\] |missing from \\$HOME/\\.claude/hooks") then "copy" else "plugin" end;

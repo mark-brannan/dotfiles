@@ -50,6 +50,10 @@ deny e 'no-rm-tree.sh is missing from $HOME/.claude/hooks or crashed'   # copy w
 check 'copy-only counts tag and wrapper'         1 'copy denials, plugin silent 2' --since 2026-10-01T00:00:00Z
 check 'copy-only blocks ready'                   1 'NOT READY' --since 2026-10-01T00:00:00Z --min-sessions 1 --min-plugin 1
 check 'max-copy-only raises the bar'             0 'READY' --since 2026-10-01T00:00:00Z --min-sessions 1 --max-copy-only 2
+
+session f 2026-10-02T06:00:00.000Z 1               # the hook's real wording: words between the command and "is blocked"
+deny f "[dotfiles copy] \`git add -u\` with no path is blocked: stage by path."
+check 'copy reason worded like the hook'         1 'copy denials, plugin silent 3' --since 2026-10-01T00:00:00Z
 check 'missing --since is a usage error'         2 'required'
 check 'bad count is a usage error'               2 'not a count' --since 2026-10-01T00:00:00Z --min-plugin x
 check 'missing metrics dir'                      2 'no metrics' --since 2026-10-01T00:00:00Z --metrics "$M/nope"
