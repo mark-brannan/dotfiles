@@ -64,11 +64,14 @@ set -u
 HERE=$(dirname "$0")
 LIB="$HERE/lib-shell-words.awk"
 
+# Every reason starts "[dotfiles copy] ": the languette plugin runs the same
+# guard alongside this copy, and the metrics keep only a denial's first 160
+# characters, so the tag is what tells the two apart after the fact.
 decide() {
   if command -v jq >/dev/null 2>&1; then
-    jq -cn --arg d "$1" --arg r "$2" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'
+    jq -cn --arg d "$1" --arg r "[dotfiles copy] $2" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'
   else
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-delete-stacked-base: jq is missing, so the command cannot be inspected."}}\n'
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[dotfiles copy] no-delete-stacked-base: jq is missing, so the command cannot be inspected."}}\n'
   fi
   exit 0
 }

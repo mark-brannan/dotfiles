@@ -122,6 +122,28 @@ jobs:
             exit 1
           fi
           echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
+      # The languette plugin carries the rm, footgun and stacked-base guards,
+      # alongside the copies in .claude/hooks for now. Install it the way
+      # cloud-session-setup.sh does and run its own hooks.json entry: a plugin
+      # that installs but no longer gates is the failure this proves against.
+      - name: languette installs and gates rm
+        run: |
+          set -euo pipefail
+          npm install -g -q @anthropic-ai/claude-code
+          claude plugin marketplace add mark-brannan/languette
+          claude plugin install languette@languette
+          root=$(jq -er '.plugins["languette@languette"][0].installPath' "$HOME/.claude/plugins/installed_plugins.json")
+          cmd=$(jq -er '.hooks.PreToolUse[].hooks[] | select(.command | test("no-rm-tree")) | .command' "$root/hooks/hooks.json")
+          # Under $HOME, not /tmp: /tmp is an agent-owned root the guard allows wholesale.
+          proj=$(mktemp -d "$HOME/languette-proof.XXXXXX"); mkdir "$proj/build" "$proj/node_modules"
+          decide() {
+            out=$(jq -n --arg c "$1" --arg d "$proj" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+              | (cd "$proj" && CLAUDE_PLUGIN_ROOT="$root" sh -c "$cmd"))
+            if [ -n "$out" ]; then printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision'; else echo allow; fi
+          }
+          b=$(decide 'rm -rf build'); n=$(decide 'rm -rf node_modules')
+          echo "rm -rf build -> $b; rm -rf node_modules -> $n (plugin at $root)"
+          [ "$b" = deny ] && [ "$n" = allow ] || { echo "::error::the installed languette plugin did not gate rm as expected"; exit 1; }
 
   # Only these 8 guards share the awk tokenizer (lib-shell-words.awk) where
   # the three-implementation contract is real (#94 names them): a gawk-ism

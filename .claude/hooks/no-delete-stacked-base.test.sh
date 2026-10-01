@@ -75,6 +75,11 @@ check() {
 
 # --- must deny: deleting a branch an open PR is stacked on -----------------
 check deny 'push --delete of a base branch'      'git push origin --delete claude/base-branch'
+# The tag that tells this copy's denial from the languette plugin's in the metrics.
+case "$LAST_OUT" in
+  *'"permissionDecisionReason":"[dotfiles copy] '*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); printf 'FAIL: deny reason lacks the [dotfiles copy] tag\n  hook output: %s\n' "$LAST_OUT" ;;
+esac
 check deny 'push -d of a base branch'            'git push -d origin claude/base-branch'
 check deny 'colon refspec delete of a base'      'git push origin :claude/base-branch'
 check deny 'colon refspec, fully qualified'      'git push origin :refs/heads/claude/base-branch'
