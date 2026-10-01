@@ -12,7 +12,7 @@ door="${TMPDIR:-/tmp}/claude-issue-door.$(printf '%s' "$p" | jq -r '.session_id 
 [ "${1:-}" = prompt ] && { : > "$door"; exit 0; }
 tool=$(printf '%s' "$p" | jq -r '.tool_name // ""')
 cmd=$(printf '%s' "$p" | jq -r '.tool_input.command // ""'); cl=$(printf '%s\n' "$cmd" | tr ';&|(`' '\n')
-gh='^[[:space:]]*((do|then|else|time|command|exec|xargs.*)[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+'
+gh='^[[:space:]]*((do|then|else|time|command|exec|xargs.*|parallel.*)[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+'
 case $tool in
   Bash)
     n=$(printf '%s\n' "$cl" | grep -cE "${gh}issue[[:space:]]+(create|new|transfer|delete)([[:space:]]|\$)")
@@ -26,5 +26,5 @@ case $tool in
 esac
 [ "$n" -gt 0 ] || exit 0
 [ "$n" -gt 1 ] && deny "$n issue creates, transfers or deletes in one call. One per human turn, never a batch."
-printf '%s\n' "$cl" | grep -qE '(^|[[:space:]])(for|while|until|xargs|parallel)([[:space:]]|$)' && deny "an issue create, transfer or delete inside a loop. One per human turn, never a batch."
+printf '%s\n' "$cl" | grep -qE '^[[:space:]]*(\{[[:space:]]*)?(for|while|until|select|xargs|parallel)([[:space:]]|$)' && deny "an issue create, transfer or delete inside a loop. One per human turn, never a batch."
 rm "$door" 2>/dev/null || deny "the door is shut. One issue create, transfer or delete per human turn, and this turn's is spent or the human has not spoken since. Show the human the draft and wait for their yes."
