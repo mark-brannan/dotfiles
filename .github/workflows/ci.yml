@@ -187,7 +187,8 @@ jobs:
                      .claude/hooks/prose-budget-commit.test.sh \
                      .claude/hooks/no-rm-tree.test.sh \
                      .claude/hooks/public-issue-guard.test.sh \
-                     .claude/hooks/issue-door.test.sh; do
+                     .claude/hooks/issue-door.test.sh \
+                     .claude/hooks/pr-ownership-context.test.sh; do
               echo "::group::$t under $impl"
               if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
               echo "::endgroup::"
@@ -221,7 +222,8 @@ jobs:
                 .claude/hooks/prose-budget-commit.test.sh \
                 .claude/hooks/no-rm-tree.test.sh \
                 .claude/hooks/public-issue-guard.test.sh \
-                .claude/hooks/issue-door.test.sh) \
+                .claude/hooks/issue-door.test.sh \
+                .claude/hooks/pr-ownership-context.test.sh) \
             | xargs -P 4 -I{} bash -c '
                 t="$1"
                 echo "::group::$t"
