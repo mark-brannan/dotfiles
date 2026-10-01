@@ -109,6 +109,7 @@ case "$1 $2" in
     k=$(printf '%s' "$2" | sed -e 's#^repos/##' -e 's#/issues/#-#' -e 's#/sub_issues.*##' -e 's#/#-#g')
     if [ -f "$FIXTURES/subs-$k.json" ]; then cat "$FIXTURES/subs-$k.json"; else echo '[]'; fi ;;
   "api graphql")
+    case " $* " in *issueOrPullRequest*) echo issue-open; exit 0 ;; esac
     name=""; for a in "$@"; do case $a in name=*) name=${a#name=} ;; esac; done
     # pickup-list's fixup-hard search: no name=, a q= instead.
     case " $* " in *" q=is:pr "*) printf '{"data":{"search":{"nodes":[]}}}\n'; exit 0 ;; esac
@@ -429,6 +430,15 @@ shape() { printf '%s\n' "$OUT" | grep -E "$1" | head -1 | sed -E 's/^  (.) .{56}
 eq 'a pickup item renders in the shared shape' ok "$(shape 'Finish the thing')"
 eq 'a card renders in the same shape' ok "$(shape '^  ◆ ')"
 rm -rf "$S/state/state/global/pickup"
+
+# --- the background refresh warms the ruling-link cache --brief reads ------------
+kb="$S/state/state/global/kanban.md"; cp "$kb" "$S/kanban.bak"
+awk '{ print } /^### global$/ { print "- [ ] **Linked** — wait on it ([o/r#7](https://github.com/o/r/issues/7)) default: a undo: revert until: o/r#7 risk: low judgment: direction" }' "$S/kanban.bak" > "$kb"
+sh "$WL" --_refresh
+eq 'refresh caches the state of an until: link' issue-open "$(cut -d' ' -f2 "$XDG_CACHE_HOME/ruling-refs/o_r_7" 2>/dev/null)"
+run --brief
+has 'brief reads the warmed cache: the linked card waits' '^Board: Needs ruling 4 \(2 ready, 2 waiting'
+cp "$S/kanban.bak" "$kb"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

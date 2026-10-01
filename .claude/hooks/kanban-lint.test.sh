@@ -163,6 +163,7 @@ cat >> "$NR/kanban.md" <<'EOF'
 - [ ] **Linked** — pick ([l](log/a.md)) default: a undo: revert until: https://github.com/o/r/pull/7 risk: low judgment: direction
 - [ ] **Short ref** — pick ([l](log/a.md)) default: a undo: revert until: o/r#8 risk: low judgment: direction
 - [ ] **Worded** — pick ([l](log/a.md)) default: a undo: revert until: the next migration, ~2026-11-01 risk: low judgment: direction
+- [ ] **Leap day** — pick ([l](log/a.md)) default: a undo: revert until: 2028-02-29 risk: low judgment: direction
 - [ ] **Folded** — pick ([l](log/a.md)) default: a undo: revert
       until: before 1.8 ships risk: low judgment: direction
 EOF
@@ -175,11 +176,13 @@ cat >> "$NR/kanban.md" <<'EOF'
 - [ ] **Empty** — pick ([l](log/a.md)) default: a undo: revert until: risk: low judgment: direction
 - [ ] **Bad date** — pick ([l](log/a.md)) default: a undo: revert until: 2026-13-02 risk: low judgment: direction
 - [ ] **Bad day** — pick ([l](log/a.md)) default: a undo: revert until: M6, 2026-12-00 risk: low judgment: direction
+- [ ] **No such day** — pick ([l](log/a.md)) default: a undo: revert until: 2026-02-29 risk: low judgment: direction
 EOF
 run 1 'an empty until: or an impossible date fails L8' --diff "$NR" kanban.md
 has 'L8 names an empty until:' '^8: L8 until: is empty'
 has 'L8 names a month past 12' '^9: L8 until: date 2026-13-02 is no calendar day'
 has 'L8 names a day of 00 inside words' '^10: L8 until: date 2026-12-00 is no calendar day'
+has 'L8 names a day past the end of its month' '^11: L8 until: date 2026-02-29 is no calendar day'
 gitq "$NR" checkout -- kanban.md
 
 # L10: a "kind: tentative ADR" card carries gates:/settle:/repos: instead of

@@ -209,8 +209,6 @@ do_fetch() {
   printf '%s\n' "$key"
 }
 
-if [ "$refresh" = 1 ]; then do_fetch >/dev/null 2>&1; exit 0; fi
-
 # Detached so the caller's exit (a SessionStart hook ending) does not kill it.
 spawn_refresh() {
   set -- --_refresh
@@ -631,6 +629,15 @@ render() {
 emit_json() { build_record "$1"; }
 
 # --- main ------------------------------------------------------------------
+# The background refresh also re-asks gh for every ruling card's until: links,
+# so the cache-only read --brief makes at SessionStart is never older than
+# the last refresh.
+if [ "$refresh" = 1 ]; then
+  do_fetch >/dev/null 2>&1
+  board_path && ruling_section "$kb" "" >/dev/null 2>&1
+  exit 0
+fi
+
 if [ "$have_gh" = 0 ]; then
   cache=$(find_cache)
   [ "$json" = 1 ] && { [ -n "$cache" ] && emit_json "$cache" && exit 0; echo '{"error":"no gh"}'; exit 1; }

@@ -156,15 +156,16 @@ run_lint() {
     function has_field(t, name) { return index(t, " " name ":") || index(t, "(" name ":") || substr(t, 1, length(name) + 1) == name ":" }
     # The until: value, cut at the next field: "" when it holds one of the
     # three forms, else what is wrong with it. Any text is an event in words.
-    function until_problem(t,   p, v, d, m, dd) {
+    function until_problem(t,   p, v, d, y, m, dd, ml) {
       p = index(t, "until:"); if (!p) return ""
       v = substr(t, p + 6)
       if (match(v, /[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|why you|why this):/)) v = substr(v, 1, RSTART - 1)
       sub(/^[ \t*]+/, "", v); sub(/[ \t*.;,]+$/, "", v)
       if (v == "") return "until: is empty"
       while (match(v, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) {
-        d = substr(v, RSTART, 10); m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
-        if (m < 1 || m > 12 || dd < 1 || dd > 31) return "until: date " d " is no calendar day"
+        d = substr(v, RSTART, 10); y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+        ml = substr("312831303130313130313031", 2 * m - 1, 2) + (m == 2 && y % 4 == 0 && (y % 100 != 0 || y % 400 == 0))
+        if (m < 1 || m > 12 || dd < 1 || dd > ml) return "until: date " d " is no calendar day"
         v = substr(v, RSTART + 10)
       }
       return ""
