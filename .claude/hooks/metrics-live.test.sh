@@ -30,6 +30,10 @@ export HOME="$SCRATCH/home"; mkdir -p "$HOME" "$SCRATCH/bin"
 export CLAUDE_STATE_REPO=""
 export METRICS_CONTEXT_LINES="100000 150000 200000"
 export METRICS_CONTEXT_STEP=50000
+# Daylight, whatever the wall clock says: the suite runs at night too, and the
+# bedtime question would otherwise land on the first prompt of every case.
+# The night-side cases set their own hours per invocation.
+export METRICS_STOP_HOUR=24 METRICS_NIGHT_END_HOUR=0
 STATE="$HOME/.claude/state/global"
 
 # shellcheck source=lib-metrics-test-harness.sh
@@ -641,6 +645,88 @@ hasnt 'anything but stay [minutes] is an ordinary prompt' 'staying' "$(msg "$o")
 has   'and the rung fires as usual' '^⏱ 1h01' "$(msg "$o")"
 clock_clear
 
+# --- 6b5. bedtime --------------------------------------------------------------
+# One question per evening, machine-wide, on the first prompt after the night
+# hour; a bare clock time is the reply; a warning NAG_BED_WARN_MIN before it,
+# the hour itself once, then silence. Night is forced with METRICS_STOP_HOUR=0
+# and the clock read in UTC through location.json's tz.
+TPb="$SCRATCH/bed.jsonl"; turn "$TPb" 1000
+LOC="$STATE/location.json"; printf '{"tz": "UTC"}\n' > "$LOC"
+NIGHT=(METRICS_STOP_HOUR=0 METRICS_NIGHT_END_HOUR=0)
+BP() { payload "$TPb" "$1" "$SCRATCH" UserPromptSubmit "$2" | env "${NIGHT[@]}" bash "$HOOK" prompt 0 2>&1; }
+BT() { payload "$TPb" "$1" "$SCRATCH" PostToolUse | env "${NIGHT[@]}" bash "$HOOK" posttooluse 0 show 2>&1; }
+BD() { payload "$TPb" "$1" "$SCRATCH" UserPromptSubmit "$2" | bash "$HOOK" prompt 0 2>&1; }
+bedf() { jq -r "$1" "$SITF" 2>/dev/null; }
+set_bed() { jq --argjson b "$1" '.bed_at = $b' "$SITF" > "$SITF.t" && mv "$SITF.t" "$SITF"; }
+kinds() { jq -r '.kind' "$STATE/metrics/crossings/$1.jsonl" 2>/dev/null | grep '^bed_' | tr '\n' ' '; }
+clock_clear
+o=$(BD bed1 "go on")
+t 'by day nothing is asked' '' "$(msg "$o")"
+o=$(BP bed1 "go on")
+t 'the first prompt after the night hour asks' 'what time would you like to go to bed?' "$(msg "$o")"
+t 'and nothing goes to the model for it' '' "$(ctx "$o")"
+t 'the ask is stamped on the evening, machine-wide' "$(TZ=UTC date +%Y-%m-%d)" "$(bedf .bed_asked_eve)"
+o=$(BP bed1 "go on")
+t 'the next prompt does not ask again' '' "$(msg "$o")"
+o=$(BP bed2 "go on")
+t 'nor does another session the same evening' '' "$(msg "$o")"
+o=$(BP bed1 "11 is bedtime")
+t 'a sentence with a number in it is an ordinary prompt' '' "$(msg "$o")"
+o=$(BP bed1 "25")
+t 'an hour past 23 is not a time' '' "$(msg "$o")"
+nowb=$(date +%s); want=$(TZ=UTC date -d "@$((nowb + 420))" +%H:%M)
+o=$(BP bed1 "$want")
+t 'a bare HH:MM is the reply' "bed at $want noted" "$(msg "$o")"
+t 'and the model is told to acknowledge in one line' \
+  "The user named a bedtime, $want: acknowledge in one line, nothing else." "$(ctx "$o")"
+d=$(( $(bedf .bed_at) - nowb - 420 ))
+t 'bed_at lands in the machine-wide clock file' yes "$([ "${d#-}" -le 60 ] && echo yes || echo no)"
+hb=$(( ($(TZ=UTC date +%H | sed 's/^0*//;s/^$/0/') + 1) % 24 ))
+o=$(BP bed1 "$hb")
+has 'a bare hour is the next time the clock reads it' '^bed at [0-9][0-9]:00 noted$' "$(msg "$o")"
+d=$(( $(bedf .bed_at) - $(date +%s) ))
+t 'and that is within the hour' yes "$([ "$d" -gt 0 ] && [ "$d" -le 3600 ] && echo yes || echo no)"
+
+set_bed $(( $(date +%s) + 240 ))
+o=$(BP bed1 "go on")
+has 'inside the warning window the minutes left are on screen' '^4 min to [0-9][0-9]:[0-9][0-9]$' "$(msg "$o")"
+has 'and the model gets the sitting rung'"'"'s shaping instruction' \
+    'Bedtime [0-9:]+ is 4 minutes away\. Now shape a good stopping point rather than ask for one' "$(ctx "$o")"
+hasnt 'which never asks' '\?' "$(ctx "$o")"
+o=$(BP bed1 "go on")
+t 'the warning is said once' '' "$(msg "$o")$(ctx "$o")"
+o=$(BT bed2)
+has 'another open session says it once too, on a tool call' '^4 min to ' "$(msg "$o")"
+
+set_bed $(( $(date +%s) - 60 ))
+o=$(BP bed1 "go on")
+has 'past the hour: the time now, and the time named' "^ok, it's [0-9:]+, you said [0-9:]+$" "$(msg "$o")"
+has 'the model says it once and shapes the stop' \
+    "^It's [0-9:]+; the user said bed at [0-9:]+\. Say that once, then shape a good stopping point" "$(ctx "$o")"
+o=$(BP bed1 "go on")
+t 'then silence' '' "$(msg "$o")$(ctx "$o")"
+o=$(BT bed1)
+t 'on tool calls too' '' "$(ctx "$o")"
+t 'every step is a crossing the measurement can read' 'bed_ask bed_set bed_set bed_warn bed_past ' "$(kinds bed1)"
+
+want2=$(TZ=UTC date -d "@$(( $(date +%s) + 600 ))" +%H:%M)
+o=$(BP bed1 "$want2")
+t 'a new time can be named after the hour' "bed at $want2 noted" "$(msg "$o")"
+set_bed $(( $(date +%s) + 170 ))
+o=$(BP bed1 "go on")
+has 'and it re-arms the warning' '^3 min to ' "$(msg "$o")"
+
+set_bed $(( $(date +%s) - 60 ))
+o=$(BD bed3 "go on")
+t 'a bedtime left from last night is not read out by day' '' "$(msg "$o")$(ctx "$o")"
+
+rm -f "$LOC"; clock_clear
+BP bed4 "go on" >/dev/null
+wantp=$(TZ=America/Los_Angeles date -d "@$(( $(date +%s) + 420 ))" +%H:%M)
+o=$(BP bed4 "$wantp")
+t 'without a tz in location.json the clock is Pacific' "bed at $wantp noted" "$(msg "$o")"
+clock_clear
+
 # --- 6c. model injection: decision load, mirrors section 6 --------------------
 # askturn() is turn() with an assistant "ask" message, the shape
 # session-metrics.jq counts as a decision pushed to the user.
@@ -871,7 +957,7 @@ for n in 2 3; do
   o12c=$(payload "$TP12" ptu "$SCRATCH" \
          | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)
 done
-has 'a raised rung is said again after the repeat count'     'for 3 tool calls\. If' "$(ctx "$o12c")"
+has 'a raised rung is said again after the repeat count'     'for 3 tool calls: a stopping point is due' "$(ctx "$o12c")"
 turn "$TP12" 154000
 o12d=$(payload "$TP12" ptu "$SCRATCH" \
        | METRICS_MODEL_CONTEXT_REPEAT=3 bash "$HOOK" posttooluse 0 show 2>&1)

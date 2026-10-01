@@ -86,6 +86,10 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 #             The clock itself is machine-wide, not per session -- three open
 #             chats are still one chair -- while the line is reported once per
 #             session, so each chat says it where its user is reading
+#   bedtime   one question per evening, machine-wide, on the first prompt after
+#             STOP_HOUR: "what time would you like to go to bed?". A bare clock
+#             time is the reply; a warning BED_WARN_MIN before it, the hour
+#             itself once, then silence. No reply is an answer: never re-asked
 #   friction  corrections and rebukes inside a window of human turns; the one
 #             line that goes to the model rather than to the screen, since the
 #             standing orders' capacity rule is what it is asking for
@@ -129,6 +133,8 @@ NAG_DECISION_GAP_MIN="${METRICS_DECISION_GAP_MIN:-180}"
 # "when is it night" is one pair of knobs and the tests can force either side.
 NAG_STOP_HOUR="${METRICS_STOP_HOUR:-22}"
 NAG_NIGHT_END_HOUR="${METRICS_NIGHT_END_HOUR:-5}"
+# Minutes before the named bedtime that the warning lands.
+NAG_BED_WARN_MIN="${METRICS_BED_WARN_MIN:-5}"
 
 # One jq for all three fields: the statusline reaches this code on every
 # render, and three spawns before the staleness check was most of its cost.
@@ -274,14 +280,19 @@ trap 'state_unlock' EXIT TERM INT
 # have to work on a machine without flock.
 SITF="$(state_dir)/metrics/sitting.json"
 
-sit_start=0; last_prompt=0; quiet_until=0
+# bed_asked_eve is the local date of the evening the bedtime question was
+# put (one ask per evening, machine-wide); bed_at the epoch it was answered
+# with, 0 until then. Both live here because the person is one per machine.
+sit_start=0; last_prompt=0; quiet_until=0; bed_asked_eve=""; bed_at=0
 if [ -f "$SITF" ]; then
-  IFS=$'\t' read -r sit_start last_prompt quiet_until \
-    <<<"$(jq -r '[(.sitting_start // 0), (.last_prompt // 0), (.quiet_until // 0)] | @tsv' "$SITF" 2>/dev/null)"
+  IFS=$'\t' read -r sit_start last_prompt quiet_until bed_asked_eve bed_at \
+    <<<"$(jq -r '[(.sitting_start // 0), (.last_prompt // 0), (.quiet_until // 0),
+                  (.bed_asked_eve // ""), (.bed_at // 0)] | @tsv' "$SITF" 2>/dev/null)"
 fi
 [ -n "$sit_start" ] || sit_start=0
 [ -n "$last_prompt" ] || last_prompt=0
 [ -n "$quiet_until" ] || quiet_until=0
+[ -n "$bed_at" ] || bed_at=0
 
 save_sitting() {
   mkdir -p "$(dirname "$SITF")" 2>/dev/null || return 0
@@ -304,10 +315,12 @@ save_sitting() {
   # the clock without keeping a growing transcript excerpt in a machine-wide
   # file that gets read constantly.
   jq -n --argjson ss "$sit_start" --argjson lp "$last_prompt" --argjson qu "$quiet_until" \
+    --arg be "$bed_asked_eve" --argjson ba "$bed_at" \
     --arg local "$last_local" --arg sid "$sid" --arg repo "$work_repo" \
     --arg branch "$work_branch" --arg slug "$last_slug" --arg ckpt "$last_ckpt" \
     --arg cwd "$cwd" --arg prompt "${prompt_text:-}" \
     '{sitting_start: $ss, last_prompt: $lp, quiet_until: $qu,
+      bed_asked_eve: $be, bed_at: $ba,
       last_prompt_local: $local, last_session_id: $sid, last_repo: $repo,
       last_branch: $branch, last_worktree_slug: $slug, last_checkpoint: $ckpt,
       last_cwd: $cwd, last_prompt_preview: ($prompt[0:80])}' \
@@ -324,7 +337,12 @@ save_sitting() {
 ctx_line=0; ctx_rungs=0; ctx_stop_line=0; time_line=0; tl_sitting=0; fric_tripped=0
 since_nag=0; resume_ts=0; nag_pending=0; late_nagged=0
 m_ctx_at=0; m_sit_at=0; m_sit_said=0; m_ctx_tools=0
+bed_warn_at=0; bed_past_at=0
 if [ -f "$NAGF" ]; then
+  IFS=$'\t' read -r bed_warn_at bed_past_at \
+    <<<"$(jq -r '[(.bed_warn_at // 0), (.bed_past_at // 0)] | @tsv' "$NAGF" 2>/dev/null)"
+  [ -n "$bed_warn_at" ] || bed_warn_at=0
+  [ -n "$bed_past_at" ] || bed_past_at=0
   IFS=$'\t' read -r ctx_line ctx_rungs ctx_stop_line time_line tl_sitting fric_tripped \
                     since_nag resume_ts nag_pending late_nagged m_ctx_at m_sit_at m_sit_said \
                     m_ctx_tools \
@@ -386,6 +404,7 @@ save_nag() {
         --argjson mc "$m_ctx_at" --argjson ms "$m_sit_at" \
         --argjson mss "$m_sit_said" \
         --argjson mct "$m_ctx_tools" \
+        --argjson bw "$bed_warn_at" --argjson bp "$bed_past_at" \
     '{context_line: $cl, context_rungs: $cr, context_stop_line: $cs,
       time_line: $tl, time_line_sitting: $ts,
       friction_tripped: ($ft == 1),
@@ -393,7 +412,8 @@ save_nag() {
       late_nagged: ($ln == 1),
       model_context_at: $mc, model_sitting_at: $ms,
       model_sitting_said: $mss,
-      model_context_tools: $mct}' \
+      model_context_tools: $mct,
+      bed_warn_at: $bw, bed_past_at: $bp}' \
     > "$NAGF.$$" 2>/dev/null \
     && mv -f "$NAGF.$$" "$NAGF" 2>/dev/null || rm -f "$NAGF.$$" 2>/dev/null
   state_unlock
@@ -503,6 +523,33 @@ sunset_min() {
   }'
 }
 
+# The bedtime clock's zone: location.json's tz, else Pacific.
+local_tz() {
+  local tz
+  tz=$(jq -r '.tz // ""' "$(state_dir)/location.json" 2>/dev/null)
+  printf '%s' "${tz:-America/Los_Angeles}"
+}
+lhhmm() {  # lhhmm <epoch> -- HH:MM on the local (bedtime) clock
+  TZ="$LTZ" date -d "@$1" +%H:%M 2>/dev/null || TZ="$LTZ" date -r "$1" +%H:%M 2>/dev/null || echo "??:??"
+}
+# The epoch of the next time the local clock reads h:mm, read the way a
+# person says it at night: "11" is 23:00, "1" is 01:00, "12:30" is 00:30.
+# Every candidate (h, h+12 below noon, 0 for 12) today and tomorrow is
+# tried and the earliest one still ahead wins. Built from local midnight by
+# arithmetic, so a DST change between now and then is off by the hour.
+bed_resolve() {  # bed_resolve <hour> <minute>
+  local h=$1 m=$2 hh c best=0 cands
+  cands="$h"
+  [ "$h" -lt 12 ] && cands="$cands $((h + 12))"
+  [ "$h" -eq 12 ] && cands="$cands 0"
+  for hh in $cands; do
+    for c in $((l_midnight + hh * 3600 + m * 60)) $((l_midnight + 86400 + hh * 3600 + m * 60)); do
+      if [ "$c" -gt "$now_ts" ] && { [ "$best" -eq 0 ] || [ "$c" -lt "$best" ]; }; then best=$c; fi
+    done
+  done
+  printf '%s' "$best"
+}
+
 # The sitting line's tail: outward, never an instruction. Clock first (a
 # meal window, then the daylight left), the list second.
 sit_tail() {
@@ -558,6 +605,19 @@ in_flight() {
 }
 
 if [ "$run_engine" -eq 1 ]; then
+  # The local clock the bedtime reads: hour, midnight and the evening's date.
+  # An hour before NAG_NIGHT_END_HOUR still belongs to last night's evening.
+  LTZ=$(local_tz)
+  IFS=$'\t' read -r l_h l_m l_s l_date <<<"$(TZ="$LTZ" date -d "@$now_ts" $'+%H\t%M\t%S\t%Y-%m-%d' 2>/dev/null \
+    || TZ="$LTZ" date -r "$now_ts" $'+%H\t%M\t%S\t%Y-%m-%d' 2>/dev/null)"
+  l_h=$((10#${l_h:-0})); l_m=$((10#${l_m:-0})); l_s=$((10#${l_s:-0}))
+  l_midnight=$((now_ts - l_h * 3600 - l_m * 60 - l_s))
+  bed_night=0
+  { [ "$l_h" -ge "$NAG_STOP_HOUR" ] || [ "$l_h" -lt "$NAG_NIGHT_END_HOUR" ]; } && bed_night=1
+  l_eve=$l_date
+  [ "$l_h" -lt "$NAG_NIGHT_END_HOUR" ] && l_eve=$(TZ="$LTZ" date -d "@$((now_ts - 86400))" +%Y-%m-%d 2>/dev/null \
+    || TZ="$LTZ" date -r "$((now_ts - 86400))" +%Y-%m-%d 2>/dev/null)
+
   # The sitting clock is wound by prompts and by nothing else -- started
   # here, reset here, and read only under is_prompt below. A Stop or a
   # SubagentStop leaves sitting_start exactly as it found it: those fire on
@@ -587,6 +647,22 @@ if [ "$run_engine" -eq 1 ]; then
       t="⏱ $(hm "$sit_min") · staying $stay_min, quiet until $(hm $((sit_min + stay_min)))"
       add_line "$t"; record_crossing stay "$stay_min" "$t"
       add_model "The user said stay: acknowledge in one line, nothing else."
+    fi
+    # Bedtime (Solace, 2026-10-01). The question goes on screen once per
+    # evening, machine-wide, on the first prompt after the night hour, and
+    # is never repeated: no answer is an answer. A bare clock time typed
+    # after it -- and nothing else -- is the reply, any number of times.
+    if [ -n "$bed_asked_eve" ] && [ "$bed_asked_eve" = "$l_eve" ] \
+       && [[ "$prompt_text" =~ ^[[:space:]]*([0-9]{1,2})(:([0-9]{2}))?[[:space:]]*$ ]] \
+       && [ "$((10#${BASH_REMATCH[1]}))" -le 23 ] && [ "$((10#${BASH_REMATCH[3]:-0}))" -le 59 ]; then
+      bed_at=$(bed_resolve "$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[3]:-0}))")
+      t="bed at $(lhhmm "$bed_at") noted"
+      add_line "$t"; record_crossing bed_set "$bed_at" "$t"
+      add_model "The user named a bedtime, $(lhhmm "$bed_at"): acknowledge in one line, nothing else."
+    elif [ "$bed_night" -eq 1 ] && [ "$bed_asked_eve" != "$l_eve" ]; then
+      bed_asked_eve=$l_eve; bed_at=0
+      t="what time would you like to go to bed?"
+      add_line "$t"; record_crossing bed_ask 0 "$t"
     fi
     save_sitting
   fi
@@ -651,7 +727,7 @@ if [ "$run_engine" -eq 1 ]; then
     r=$(rung_of "$NAG_MODEL_CONTEXT_LINES" "$NAG_MODEL_CONTEXT_STEP" "$ctx")
     if [ "$r" -gt "$m_ctx_at" ]; then
       if [ "$m_ctx_at" -eq 0 ]; then
-        add_model "Context at $(kfmt "$ctx"), past $(kfmt "$r") — a stopping point. Offer one, or /wrapup."
+        add_model "Context at $(kfmt "$ctx"), past $(kfmt "$r"): a stopping point is due."
       else
         add_model "Context at $(kfmt "$ctx"), past $(kfmt "$r") (last offered at $(kfmt "$m_ctx_at"))."
       fi
@@ -667,7 +743,7 @@ if [ "$run_engine" -eq 1 ]; then
       # the context during the stretch this arm exists to cover.
       m_ctx_tools=$((m_ctx_tools + 1))
       if [ "$m_ctx_tools" -ge "$NAG_MODEL_CONTEXT_REPEAT" ]; then
-        add_model "Context at $(kfmt "$ctx"), past $(kfmt "$m_ctx_at") for $m_ctx_tools tool calls. If there's a stopping point, offer it, or /wrapup."
+        add_model "Context at $(kfmt "$ctx"), past $(kfmt "$m_ctx_at") for $m_ctx_tools tool calls: a stopping point is due."
         m_ctx_tools=0
       fi
     fi
@@ -695,6 +771,9 @@ if [ "$run_engine" -eq 1 ]; then
     fi
   fi
 
+  # The one shaping instruction, shared by the sitting rung and the bedtime.
+  shape_stop="shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth, name the single next step, write it as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, show it, and leave the door open. No question, no break offer, and never end the session on the user's behalf."
+
   # Model side of the sitting clock. Reads the same thresholds the screen
   # line does and defines none of its own; a rung of 0 means the shared clock
   # restarted, which spends the injection with it.
@@ -713,8 +792,30 @@ if [ "$run_engine" -eq 1 ]; then
       add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"), with work in flight ($in_flight_memo). Don't raise the time yet: land this first, without asking -- commit, push, open the PR."
       m_sit_said=$r
     elif [ "$sit_quiet" -eq 0 ] && ! in_flight && [ "$r" -gt "$m_sit_at" ]; then
-      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). Name the time once, then shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth, name the single next step, write it as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, show it, and leave the door open. No question, no break offer, and never end the session on the user's behalf."
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). Name the time once, then $shape_stop"
       m_sit_at=$r; m_sit_said=$r
+    fi
+  fi
+
+  # Bedtime, the two arms after the reply: the warning NAG_BED_WARN_MIN
+  # before it, and the hour itself. Each is said once per session for the
+  # bedtime it was set for -- a re-set bedtime re-arms both -- and then
+  # nothing. Gated on the night, so a bedtime left from last night is not
+  # read out this morning. On can_inject like the context ladder: the hour
+  # arrives on the wall clock, not on the user's rhythm, and a long turn
+  # would otherwise carry past it in silence.
+  if [ "$can_inject" -eq 1 ] && [ "$bed_at" -gt 0 ] && [ "$bed_night" -eq 1 ]; then
+    if [ "$now_ts" -ge "$bed_at" ] && [ "$bed_past_at" -ne "$bed_at" ]; then
+      t="ok, it's $(lhhmm "$now_ts"), you said $(lhhmm "$bed_at")"
+      add_line "$t"; record_crossing bed_past $(( (now_ts - bed_at) / 60 )) "$t"
+      add_model "It's $(lhhmm "$now_ts"); the user said bed at $(lhhmm "$bed_at"). Say that once, then $shape_stop"
+      bed_past_at=$bed_at; bed_warn_at=$bed_at
+    elif [ "$now_ts" -ge $((bed_at - NAG_BED_WARN_MIN * 60)) ] && [ "$bed_warn_at" -ne "$bed_at" ]; then
+      bed_left=$(( (bed_at - now_ts + 59) / 60 ))
+      t="$bed_left min to $(lhhmm "$bed_at")"
+      add_line "$t"; record_crossing bed_warn "$bed_left" "$t"
+      add_model "Bedtime $(lhhmm "$bed_at") is $bed_left minutes away. Now $shape_stop"
+      bed_warn_at=$bed_at
     fi
   fi
 
