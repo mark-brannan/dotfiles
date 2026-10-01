@@ -29,13 +29,14 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 
 ## Set up a new machine
 
-**1 — Tooling.** `jq`, `gh` and, on macOS, `flock` are for the hooks;
-`tmux` is optional.
+**1 — Tooling.** `tmux` is optional. Intel Macs skip brew (that path
+is unwritten); the checks still hold.
 
 ```zsh
-# macOS
-brew install yadm age sops jq gh flock tmux
-command -v yadm age sops jq gh flock    # all six, before continuing
+# macOS, Apple Silicon
+brew install yadm age sops jq gh flock coreutils bash tmux
+command -v yadm age sops jq gh flock gtimeout   # all seven
+bash -c 'mapfile -t x </dev/null' && echo ok    # bash 4+ first on PATH
 ```
 
 ```bash
