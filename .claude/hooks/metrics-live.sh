@@ -824,13 +824,16 @@ if [ "$run_engine" -eq 1 ]; then
     fi
   fi
 
-  # The bedtime's shaping instruction. The pickup is the Stop hook's to ask
-  # for, and recall stays off-screen, so neither is asked for here.
-  shape_stop="shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth and leave the door open. No question, no break offer, and never end the session on the user's behalf."
+  # The Stop hook asks for the pickup only from two hours, so the first rung
+  # writes it here. Off-screen: recall is from the user's own list.
+  pickup_duty="Write the single next step as the body (below \`---\`) of this session's pickup item in $(state_dir)/pickup/, without showing it."
 
-  # The sitting rung carries a fact and a pointer, nothing else: the orders
-  # say what to do with it, and a procedure here would displace them. The
-  # test checks the pointer still names a bold lead in .claude/CLAUDE.md.
+  # The bedtime's shaping instruction.
+  shape_stop="shape a good stopping point rather than ask for one: a good stop is landed work, or mid-work with a clear pickup; a bad one is deep in an entangled stack. Reduce stack depth and leave the door open. $pickup_duty No question, no break offer, and never end the session on the user's behalf."
+
+  # The sitting rung carries the fact, the mechanics the orders don't hold,
+  # and a pointer: the orders say how to stop, and a procedure here would
+  # displace them. The test checks the lead still exists in .claude/CLAUDE.md.
   sit_orders='Standing orders: "At a sitting rung".'
 
   # Model side of the sitting clock. Reads the same thresholds the screen
@@ -848,10 +851,10 @@ if [ "$run_engine" -eq 1 ]; then
     if [ "$r" -eq 0 ]; then
       m_sit_at=0; m_sit_said=0
     elif [ "$sit_quiet" -eq 0 ] && in_flight && [ "$r" -gt "$m_sit_said" ]; then
-      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"), with work in flight ($in_flight_memo). This rung comes back once it lands. $sit_orders"
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"), with work in flight ($in_flight_memo). Don't raise the time yet: land this first, without asking -- commit, push, open the PR. This rung comes back once it lands. $sit_orders"
       m_sit_said=$r
     elif [ "$sit_quiet" -eq 0 ] && ! in_flight && [ "$r" -gt "$m_sit_at" ]; then
-      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). $sit_orders"
+      add_model "Sitting $(hm "$m_min") at this machine, past $(hm "$r"). $pickup_duty $sit_orders"
       m_sit_at=$r; m_sit_said=$r
     fi
   fi

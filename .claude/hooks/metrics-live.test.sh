@@ -500,8 +500,8 @@ t 'below the first sitting rung, nothing reaches the model' '' "$(ctx "$out6e")"
 
 clock 61 10
 out6f=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
-t 'the first sitting crossing is the time and a pointer, nothing else' \
-  'Sitting 1h01 at this machine, past 1h00. Standing orders: "At a sitting rung".' "$(ctx "$out6f")"
+has 'the first sitting crossing is the time, the pickup and a pointer' \
+    '^Sitting 1h01 at this machine, past 1h00\. Write the single next step .*pickup item.*without showing it\. Standing orders: "At a sitting rung"\.$' "$(ctx "$out6f")"
 # The pointer is only as good as its target: an edit to the orders that
 # drops the bold lead fails here, not silently in a session.
 anchor=$(ctx "$out6f" | sed -n 's/.*Standing orders: "\([^"]*\)".*/\1/p')
@@ -513,7 +513,7 @@ hasnt 'and never offers a break or asks' 'offer a break|Offer one|\?' "$(ctx "$o
 clock 121 10
 out6g=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 has 'a later sitting crossing shapes the stop again at the new rung' \
-    'Sitting 2h01 at this machine, past 2h00\. Standing orders' "$(ctx "$out6g")"
+    'Sitting 2h01 at this machine, past 2h00\. Write the single next step' "$(ctx "$out6g")"
 hasnt 'with no "last offered" repeat line' 'last offered' "$(ctx "$out6g")"
 
 # dotfiles#282: still past 2h, no new rung -- silence, not a re-nag.
@@ -528,7 +528,7 @@ t 'a sitting-clock restart resets the model side too' '' "$(ctx "$out6h")"
 clock 61 10
 out6i=$(payload "$TP2" "$SID6e" "$SCRATCH" | bash "$HOOK" prompt 0 2>&1)
 has 'so the next real crossing shapes a stop again' \
-    'past 1h00\. Standing orders' "$(ctx "$out6i")"
+    'past 1h00\. Write the single' "$(ctx "$out6i")"
 clock_clear
 
 # --- 6b2. sitting clock with work in flight ----------------------------------
@@ -544,15 +544,15 @@ SID6j=sitflight
 sitting "$SID6j" 61 10
 out6j=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
 has 'with work in flight the rung is held until it lands' \
-    'with work in flight .*This rung comes back once it lands\. Standing orders' "$(ctx "$out6j")"
-hasnt 'and does not point at the stop yet' 'past 1h00\. Standing orders' "$(ctx "$out6j")"
+    'with work in flight .*land this first, without asking.*comes back once it lands\. Standing orders' "$(ctx "$out6j")"
+hasnt 'and does not point at the stop yet' 'past 1h00\. Write the single' "$(ctx "$out6j")"
 
 clock 121 10
 out6k=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
 has   'two hours in flight still holds the rung' \
       'comes back once it lands' "$(ctx "$out6k")"
 hasnt 'and still does not point at the stop' \
-      'past 2h00\. Standing orders' "$(ctx "$out6k")"
+      'past 2h00\. Write the single' "$(ctx "$out6k")"
 
 # dotfiles#282: unspent is not the same as unlimited -- the in-flight line
 # still fires once per rung, not on every prompt.
@@ -566,7 +566,7 @@ git -C "$WT" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 rm -f "$WT/dirty.txt"
 out6k3=$(payload "$TP2" "$SID6j" "$WT" | bash "$HOOK" prompt 0 2>&1)
 has 'and once the work lands the unspent shaping fires' \
-    'past 2h00\. Standing orders' "$(ctx "$out6k3")"
+    'past 2h00\. Write the single' "$(ctx "$out6k3")"
 clock_clear
 
 # --- 6b3. the sitting line's tail: clock first, list second ------------------
@@ -638,7 +638,7 @@ t     'and sends no sitting injection' '' "$(ctx "$o")"
 jq '.quiet_until = 1' "$SITF" > "$SITF.t" && mv "$SITF.t" "$SITF"
 o=$(SPROMPT stay1 "go on")
 has 'after the quiet the rung it covered is said' '^⏱ 2h01' "$(msg "$o")"
-has 'and the stop is shaped then' 'past 2h00\. Standing orders' "$(ctx "$o")"
+has 'and the stop is shaped then' 'past 2h00\. Write the single' "$(ctx "$o")"
 
 sitting stay2 10 2
 o=$(SPROMPT stay2 "stay")
