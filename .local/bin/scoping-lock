@@ -119,9 +119,19 @@ case "$cmd" in
     fi
     mkdir -p "$(dirname "$lock")" || die "cannot create $(dirname "$lock")"
     printf '%s %s %s\n' "$sid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$read_at" > "$lock" || die "cannot write $lock"
+    before=$(git rev-parse HEAD)
     git add -- "$lock" && commit_lock "$lock" "scoping lock: take $lock (${sid%"${sid#????????}"})" \
       || die "cannot commit $lock"
-    push || die "lock committed but not pushed; another machine may hold it. Run read after the next sync"
+    ours=$(git rev-parse HEAD)
+    if ! push; then
+      # A lost race or a dead origin. An unpushed lock commit left here would
+      # conflict with the winner's on every later pull, so drop it.
+      [ "$ours" != "$before" ] && [ "$(git rev-parse HEAD)" = "$ours" ] && git reset -q --keep "$before"
+      die "lock not pushed, so not taken; another machine may hold it. Run read after the next sync"
+    fi
+    # Two sessions on this machine can both pass the check above; the file says who won.
+    # shellcheck disable=SC2046  # splitting wanted: the line's three fields
+    set -- $(cat "$lock"); [ "$1" = "$sid" ] || { printf 'held: %s (%s)\n' "$1" "$lock"; exit 1; }
     echo "taken: $lock" ;;
 
   release)

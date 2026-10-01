@@ -20,6 +20,7 @@ mkdir -p "$S/a/state/global/curia/q"; echo record > "$S/a/state/global/curia/q/r
 git -C "$S/a" add . && git -C "$S/a" commit -qm init && git -C "$S/a" push -q origin HEAD:main 2>/dev/null
 git -C "$S/a" branch -q -u origin/main
 git clone -q "$S/origin.git" "$S/b" 2>/dev/null
+git clone -q --bare "$S/origin.git" "$S/stale.git"; git clone -q "$S/stale.git" "$S/c" 2>/dev/null
 D=state/global/curia/q
 
 A() { CLAUDE_STATE_REPO="$S/a" sh "$SL" "$@"; }
@@ -45,6 +46,15 @@ has 'and names the holder' 'held: sid-one' "$out"
 out=$(B take "$D" sid-three x); rc=$?
 eq 'a session on another machine refuses' 1 "$rc"
 has 'and names the holder' 'held: sid-one' "$out"
+
+# A lost race: C syncs from a copy older than A's lock, then its push is
+# rejected. C must refuse and leave no unpushed lock commit behind, which
+# would wedge every later push from that clone.
+git -C "$S/c" remote set-url --push origin "$S/origin.git"
+pre=$(git -C "$S/c" rev-parse HEAD)
+out=$(CLAUDE_STATE_REPO="$S/c" sh "$SL" take "$D" sid-race x 2>&1); rc=$?
+eq 'a lost race fails closed' 2 "$rc"
+eq '... and drops its unpushed lock commit' "$pre" "$(git -C "$S/c" rev-parse HEAD)"
 
 out=$(A take "$D" sid-one "$read_at"); rc=$?
 eq "the holder's own re-take refreshes" 0 "$rc"
