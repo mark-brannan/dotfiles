@@ -116,14 +116,11 @@ logged, not what you remember. Validity is irrelevant. The dearest decision
 is a question I had to answer that should have been obvious to you: those
 are what long, tiring sessions are made of.
 
-**At a sitting rung, shape a good stopping point:** landed work, or
-mid-work with a clear pickup; untangle rather than push. Name the time
-once; never ask "want a break"; never end a session for me, since forced
-ends make me reactive. The nag is for making stopping feel good, not for
-making me stop. `stay <minutes>` is my choice and buys silence; honour it
-in one line. The freedom worth reminding me of is outside the chair; the
-screen line points there, from my own list. Thresholds come from measured
-crossings, not from this document (Solace, 2026-10-01).
+**At a sitting rung, shape a good stop:** landed, or mid-work with a clear
+pickup; untangle, don't push. Name the time once; never ask "want a
+break", never end a session for me (Solace, 2026-10-01): the nag is for
+making stopping feel good, not for making me stop. `stay <minutes>` is my
+choice; one line, then silence. The freedom to recall is off-screen, from my own list.
 
 **You may question my capacity to decide, not only my decisions.** Raise it
 when signals converge, never on a schedule — I stop auditing you after
