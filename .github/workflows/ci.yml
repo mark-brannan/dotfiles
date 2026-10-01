@@ -122,8 +122,30 @@ jobs:
             exit 1
           fi
           echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
+      # The rm, git-footgun and stacked-base guards come from the languette
+      # plugin, not $HOME. Install it the way cloud-session-setup.sh does and
+      # run its own hooks.json entry: a plugin that installs but no longer
+      # gates is the failure this proves against.
+      - name: languette installs and gates rm
+        run: |
+          set -euo pipefail
+          npm install -g -q @anthropic-ai/claude-code
+          claude plugin marketplace add mark-brannan/languette
+          claude plugin install languette@languette
+          root=$(jq -er '.plugins["languette@languette"][0].installPath' "$HOME/.claude/plugins/installed_plugins.json")
+          cmd=$(jq -er '.hooks.PreToolUse[].hooks[] | select(.command | test("no-rm-tree")) | .command' "$root/hooks/hooks.json")
+          # Under $HOME, not /tmp: /tmp is an agent-owned root the guard allows wholesale.
+          proj=$(mktemp -d "$HOME/languette-proof.XXXXXX"); mkdir "$proj/build" "$proj/node_modules"
+          decide() {
+            out=$(jq -n --arg c "$1" --arg d "$proj" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+              | (cd "$proj" && CLAUDE_PLUGIN_ROOT="$root" sh -c "$cmd"))
+            if [ -n "$out" ]; then printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision'; else echo allow; fi
+          }
+          b=$(decide 'rm -rf build'); n=$(decide 'rm -rf node_modules')
+          echo "rm -rf build -> $b; rm -rf node_modules -> $n (plugin at $root)"
+          [ "$b" = deny ] && [ "$n" = allow ] || { echo "::error::the installed languette plugin did not gate rm as expected"; exit 1; }
 
-  # Only these 7 guards share the awk tokenizer (lib-shell-words.awk) where
+  # Only these 4 guards share the awk tokenizer (lib-shell-words.awk) where
   # the three-implementation contract is real (#94 names them): a gawk-ism
   # that passes locally is a hook that fails closed on every Bash call on the
   # Mac (mawk), or -- worse -- parses differently under original-awk. All
@@ -158,12 +180,9 @@ jobs:
           for impl in mawk gawk original-awk; do
             d=$(mktemp -d)
             ln -s "$(command -v "$impl")" "$d/awk"
-            for t in .claude/hooks/no-delete-stacked-base.test.sh \
-                     .claude/hooks/no-git-footguns.test.sh \
-                     .claude/hooks/no-foreign-worktree.test.sh \
+            for t in .claude/hooks/no-foreign-worktree.test.sh \
                      .claude/hooks/no-checkout-home.test.sh \
                      .claude/hooks/prose-budget-commit.test.sh \
-                     .claude/hooks/no-rm-tree.test.sh \
                      .claude/hooks/public-issue-guard.test.sh; do
               echo "::group::$t under $impl"
               if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
@@ -191,12 +210,9 @@ jobs:
           set -euo pipefail
           printf '%s\n' .claude/hooks/*.test.sh .local/bin/*.test.sh \
             | grep -vFf <(printf '%s\n' \
-                .claude/hooks/no-delete-stacked-base.test.sh \
-                .claude/hooks/no-git-footguns.test.sh \
                 .claude/hooks/no-foreign-worktree.test.sh \
                 .claude/hooks/no-checkout-home.test.sh \
                 .claude/hooks/prose-budget-commit.test.sh \
-                .claude/hooks/no-rm-tree.test.sh \
                 .claude/hooks/public-issue-guard.test.sh) \
             | xargs -P 4 -I{} bash -c '
                 t="$1"

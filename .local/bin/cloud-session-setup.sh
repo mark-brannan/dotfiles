@@ -75,11 +75,8 @@ INSTALL="
 .claude/hooks/pr-threads-gate.sh
 .claude/hooks/no-unsigned-push.sh
 .claude/hooks/no-update-branch.sh
-.claude/hooks/no-git-footguns.sh
 .claude/hooks/no-checkout-home.sh
-.claude/hooks/no-rm-tree.sh
 .claude/hooks/no-foreign-worktree.sh
-.claude/hooks/no-delete-stacked-base.sh
 .claude/hooks/lib-shell-words.awk
 .claude/hooks/session-start-seed-refresh.sh
 .claude/hooks/local-config-push.sh
@@ -471,6 +468,28 @@ for dir in $OWNED_DIRS; do
     continue
   fi
   link_path "$dir"
+done
+
+# =========================================================================
+# Plugins — settings.json enables them, but nothing installs them: user
+# settings do not auto-install in `claude -p` or a cloud session. The rm,
+# git-footgun and stacked-base guards live in the languette plugin now, and
+# a plugin that never installed is a guard that silently isn't there, so a
+# failure here marks the install incomplete for the SessionStart brief.
+# =========================================================================
+PLUGINS="languette@languette=mark-brannan/languette"
+for spec in $PLUGINS; do
+  plugin=${spec%%=*} repo=${spec#*=}
+  if [ "$DRY_RUN" = yes ]; then
+    say "would install plugin $plugin from $repo"
+  elif ! command -v claude >/dev/null 2>&1; then
+    warn "  FAILED plugin $plugin — no claude on PATH"; failed=$((failed + 1))
+  elif claude plugin marketplace add "$repo" >/dev/null 2>&1 &&
+       claude plugin install "$plugin" >/dev/null 2>&1; then
+    say "plugin $plugin installed"
+  else
+    warn "  FAILED plugin $plugin from $repo"; failed=$((failed + 1))
+  fi
 done
 
 # =========================================================================
