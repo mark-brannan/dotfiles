@@ -154,6 +154,9 @@ if grep -q '"permissionDecision":"deny"' <<<"$out"; then pass=$((pass + 1)); els
 out=$(jq -n --arg d "$CWD_A" '{tool_name:"Bash",tool_input:{command:"rm -rf examples \"a b\""},cwd:$d}' | sh "$HOOK" 2>&1)
 if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then pass=$((pass + 1)); else
   fail=$((fail + 1)); printf 'FAIL: deny output is not valid JSON\n  hook output: %s\n' "$out"; fi
+# The tag that tells this copy's denial from the languette plugin's in the metrics.
+if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecisionReason | startswith("[dotfiles copy] ")' >/dev/null 2>&1; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: deny reason lacks the [dotfiles copy] tag\n  hook output: %s\n' "$out"; fi
 
 printf '%d passed, %d failed (awk: %s)\n' "$pass" "$fail" "$(command -v awk)"
 [ "$fail" -eq 0 ]
