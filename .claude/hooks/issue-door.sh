@@ -12,7 +12,7 @@ door="${TMPDIR:-/tmp}/claude-issue-door.$(printf '%s' "$p" | jq -r '.session_id 
 [ "${1:-}" = prompt ] && { : > "$door"; exit 0; }
 tool=$(printf '%s' "$p" | jq -r '.tool_name // ""')
 cmd=$(printf '%s' "$p" | jq -r '.tool_input.command // ""'); cl=$(printf '%s\n' "$cmd" | tr ';&|(`' '\n')
-gh='^[[:space:]]*((do|then|else|time|command|exec|xargs.*|parallel.*)[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*gh[[:space:]]+'
+gh='^[[:space:]]*((do|then|else|time|command|exec|\{|xargs.*|parallel.*)[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*([^[:space:]]*/)?gh[[:space:]]+'
 case $tool in
   Bash)
     n=$(printf '%s\n' "$cl" | grep -cE "${gh}issue[[:space:]]+(create|new|transfer|delete)([[:space:]]|\$)")
