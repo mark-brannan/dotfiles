@@ -360,17 +360,21 @@ Dates are as found on 2026-09-29.
   [github.com](https://github.com/gastownhall/gastown)
   - Maps to: orchestrate and grind, at smaller scale: one worker per issue, a
     review band, and the human as the only mayor.
-- **The Agentic Coding Flywheel.** Emanuel, J., agent-flywheel.com; introduced
-  on X January 2026, announced March 2026, page last reviewed 17 July 2026. A
-  ten-part method in execution order, stated as "85% planning" before any tool
-  is named; each tool gets a problem statement, a design stance and usage, with
-  no install line and no origin story. The loop, in its words: "Every completed
-  cycle upgrades the artifacts feeding the next one."
+- **The Agentic Coding Flywheel.** Emanuel, J., agent-flywheel.com. The guide
+  gives no origin date; its setup repository is dated 20 December 2025 and the
+  page says "Last reviewed July 17, 2026". A ten-part method in execution
+  order, "85% of your time on planning" before any tool is named; each tool
+  gets a problem statement, a design stance and usage, with no install line
+  and no origin story. The loop, in its words: "every completed cycle upgrades
+  the artifacts feeding into the next one."
   [agent-flywheel.com](https://agent-flywheel.com/complete-guide)
+  - Idea: Collins's word and Boyd's tempo, one loop run fast and often. It
+    names neither, nor Argyris, and nowhere questions or revises its own
+    method (checked against the page, 2026-09-30).
   - Maps to: the standing orders, the agora and the curia, grind and the board
     are the same kind of thing, a method the tools serve, unnamed and
-    unpublished here. The difference in kind: his measures throughput, this
-    one guards judgment.
+    unpublished here. The difference in kind: his has no second loop; this
+    one is built around it.
 - **Agent Mail.** Emanuel, J., 23 October 2025. "A mail-like coordination
   layer for coding agents, exposed as an HTTP-only FastMCP server", built to
   sit on Beads.
@@ -384,15 +388,16 @@ Dates are as found on 2026-09-29.
   [medium.com](https://steve-yegge.medium.com/beads-best-practices-2db636b9760c)
   - Maps to: how a tool borrows standing from a bigger one; see the dcg entry.
 - **destructive_command_guard (dcg).** Emanuel, J., created 7 January 2026;
-  about 6.1k stars across sixteen-plus agent hosts by 30 September 2026.
+  6,071 stars across sixteen-plus agent hosts by 30 September 2026 (GitHub
+  API).
   Regex-first with a tree-sitter pass for inline scripts; fails open by
   default. Its origin was the author's own agent running destructive git
   commands on 17 December 2025.
   [github.com](https://github.com/Dicklesworthstone/destructive_command_guard)
   - Maps to: the guards, now Languette. Same origin, a private incident; the
     differences are fail-closed and a structural scanner. Its reach came from
-    an installer bundle and host breadth on a following one essay had built,
-    not from rigour or a launch: the Show HN got 3 points.
+    an installer bundle and host breadth, riding a following that one essay
+    had built, not from rigour or a launch: the Show HN got 3 points.
 - **The Ralph Wiggum loop.** Huntley, G., 14 July 2025. Rerun the agent on the
   same prompt until the work is done; later an official Claude Code plugin
   (plugin date unverified).
