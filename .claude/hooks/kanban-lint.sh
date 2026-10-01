@@ -52,6 +52,10 @@
 #       default/undo/until/risk; the decision itself is the card's own
 #       sentence, and judgment: gates it exactly as L8 does
 #
+# model: and effort: (any card) and until: (a date, an event or a PR/issue link;
+# required only on a ruling card, by L8) are never checked for any card -- the
+# rules above read the card's text, not these fields.
+#
 # Modes:
 #   --file <path>             whole file; L3 only for headings absent from
 #                             HEAD, so a legacy "## Solace's" still in HEAD
