@@ -831,6 +831,8 @@ if [ "$run_engine" -eq 1 ]; then
   # The sitting rung carries the fact, the mechanics the orders don't hold,
   # and a pointer: the orders say how to stop, and a procedure here would
   # displace them. The test checks the lead still exists in .claude/CLAUDE.md.
+  # Landing first is the one rule held in both places on purpose (Solace,
+  # 2026-10-01): durable enough to duplicate. Don't fold it into the pointer.
   sit_orders='Standing orders: "At a sitting rung".'
 
   # Model side of the sitting clock. Reads the same thresholds the screen
