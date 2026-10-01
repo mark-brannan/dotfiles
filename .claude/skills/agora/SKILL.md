@@ -27,6 +27,42 @@ list is the **agora-docket**. Count it before the first question, and show
 the count on every question. <!-- When worklist awake/asleep lands, filter
 to awake only. -->
 
+**Admission.** Before the count, each candidate passes one test: could the
+user rule on it from the card alone, with no prior context? If not, a
+subagent writes a brief onto the card and only then admits it, so the
+context has one home and the next sitting reuses it. A card whose question
+events have overtaken never reaches the user: restate the live question
+under it, or route it to `/sweep`. "May I delete this?" is never the item.
+
+**The brief** is framed on the user's hand on the thing, not the card or
+the code, in plain words, defining any term the user wouldn't use:
+
+- **What you do or see** — the moment this touches the user.
+- **What happened** — verified from primary sources, not a subagent's
+  summary.
+- **What you decide** — a judgment about that moment, never housekeeping.
+- **Each mechanism named** — what it is, and what it means for the user.
+- **Each answer's cost** — in the user's time and experience.
+
+It is held in tension with the user's time, and that cost is measured, not
+estimated: prose stays under ~120 words, about 30 seconds of reading. A
+table, chart or graph the user can scan without reading all of it doesn't
+count against the cap and beats prose; the decision still leads in one
+sentence. A brief that won't fit is a confer, not a longer brief.
+
+Where the item touches the user depends on its kind:
+
+| Kind | Touches the user at | The brief carries |
+|---|---|---|
+| Risk appetite | an action they take | the moment, the incident, each answer's cost |
+| Technical design | what they live with later | the crux in one line; failures, upkeep, CI, agent reach |
+| Values and voice | how it reads | rendered examples |
+| Money, law, people | outside the screen | numbers measured or guessed; who sees it; one-way door? |
+| A family of items | one context, many rulings | the shared brief once, each item a one-line delta |
+| A default in force | it is already happening | "object or let stand", with what it has done |
+
+A fold also carries the curia's question in one line.
+
 ## Per item: the contract
 
 Every item this skill touches gets, and keeps:
@@ -48,6 +84,8 @@ Every item this skill touches gets, and keeps:
     rating of its difficulty and possibly of the question's quality.
     Not a curia: the agora is the second of the curia skill's gates, and
     the sitting never passes the later ones.
+    Confer keeps the card open and works it further; never offer it
+    paired with closing or deleting.
   - **Folded** — the item is a sub-question of an open curia; a yes writes
     it under that curia's `## Open questions` with its provenance, and
     the card closes. No folder is touched beyond that line.
@@ -64,8 +102,9 @@ Every item this skill touches gets, and keeps:
    to the user, so it never asks; it only prepares. <!-- Context budget and
    return format: open (design doc, open question on the agora
    procedure). -->
-2. The sitting asks that question, as returned, in one `AskUserQuestion`
-   dialog: the agent's pick first and why, then the alternatives. Every
+2. The sitting checks the brief is still true, shows it, then asks the
+   question in one `AskUserQuestion` dialog — `multiSelect` when outcomes
+   combine (fold and rule): the agent's pick first and why, then the alternatives. Every
    question carries **X of Y** and the total. Nothing else from the
    subagent enters the sitting's context.
 3. The user rules: yes / no / a value / **confer** / other.
