@@ -81,6 +81,11 @@ check deny  'for loop'                 "$(bash_in 'for t in a b c; do gh issue c
 check deny  'while loop'               "$(bash_in 'while read t; do gh issue create -t "$t" -b x; done < list')"
 check deny  'xargs'                    "$(bash_in 'cat list | xargs -I{} gh issue create -t {} -b x')"
 check allow 'door survived the denials' "$(bash_in 'gh issue create -t one -b b')"
+open_door
+check allow 'loop word in the title'   "$(bash_in 'gh issue create --title "Retry for uploads while offline" -b b')"
+open_door
+check deny  'until loop'               "$(bash_in 'until false; do gh issue create -t t -b x; done')"
+check deny  'parallel'                 "$(bash_in 'parallel gh issue create -t {} -b x ::: a b')"
 
 # Another session's turn does not open this one's door.
 shut_door
