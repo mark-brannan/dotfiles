@@ -87,7 +87,7 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/public-issue-guard.XXXXXX") || deny 'cannot create a scratch directory'
 trap 'rm -rf "$WORK"' EXIT
 TEXT="$WORK/text"      # everything that will be posted, one candidate per line
-META="$WORK/meta"      # R repo | F file | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
+META="$WORK/meta"      # R repo | F file | CDTO dir | CDPUSH/CDPOP ( ) | HFED written here | STDIN | OPAQUE | HEREDOC | CD | L label | UNSEEN flag
 : > "$TEXT"; : > "$META"; : > "$WORK/text-cmd"; : > "$WORK/text-file"
 
 # owner/name in lower case from any of the spellings gh and git accept.
@@ -103,7 +103,7 @@ case "$tool" in
     printf '%s\n' "$cmd" | awk "$(cat "$LIB")"'
       function wv(i) { return (k[i] == "q") ? q[i] : w[i] }
       function flat(t) { gsub(/\n/, " ", t); return t }
-      function file(p) { if (p == "-") print "STDIN"; else print "F\t" flat(p) }
+      function file(p) { if (p == "-") print "STDIN"; else print (SEG_NESTED ? "FX\t" : "F\t") flat(p) }
       # Opaque = built at run time. Allowed only when the heredoc feeding it is
       # on the value itself: `$(cat <<EOF ...)` inline, or `$VAR` whose
       # assignment carries `<<`. The heredoc body is in TEXT and gets scanned.
@@ -157,17 +157,42 @@ case "$tool" in
         for (x = 1; x <= ntexts; x++) {
           n = scan(texts[x], w, k, q)
           for (i = 1; i <= n; i++) {
-            if (k[i] == "w" && w[i] ~ /^(cd|pushd)$/) print "CD"
+            if (k[i] == "w" && w[i] ~ /^(cd|pushd|popd)$/) print "CD"
           }
           a0 = 1
           for (i = 1; i <= n + 1; i++) {
             if (i <= n && k[i] != ";") continue
             if (a0 < i) segment(a0, i - 1, nested[x])
+            # A ( ) subshell inherits the cwd and its cd dies at the ): push the
+            # virtual cwd at each ( and pop it at each ), in the order written.
+            if (!nested[x] && i <= n) for (j = 1; j <= length(SW_sepc[i]); j++) { sc = substr(SW_sepc[i], j, 1); if (sc == "(") print "CDPUSH"; else if (sc == ")") print "CDPOP" }
             a0 = i + 1
           }
         }
       }
-      function segment(lo, hi, nested,   g, i, t, v, repo, sub_, act) {
+      # CDTO <dir>: where a top-level cd/pushd goes. `cd -`, popd and a bare pushd land somewhere unseen: `-` = unknown.
+      # A cd in a pipeline, in backticks or backgrounded by a trailing lone `&` runs in a subshell, and one under CDPATH lands wherever the
+      # variable says: `-` too. (`&&`, `||` and a `&` ending the previous command are sequence, not background.) `( )` is CDPUSH/CDPOP below.
+      function subshelled(lo, hi,   b, a) { b = SW_sepc[lo - 1]; a = SW_sepc[hi + 1]; gsub(/&&|\|\|/, "", b); gsub(/&&|\|\|/, "", a); return b ~ /[|`]/ || a ~ /[|&`]/ }
+      function cdto(c, lo, hi,   i, t) {
+        t = (w[c] == "cd") ? "~" : "-"
+        if (subshelled(lo, hi) || orig ~ /CDPATH=/) { print "CDTO\t-"; return }
+        for (i = c + 1; i <= hi && w[c] != "popd"; i++) {
+          if (w[i] == "--") { if (i < hi) t = wv(i + 1); break }
+          if (w[i] !~ /^[-+]./) { t = wv(i); break }
+        }
+        print "CDTO\t" flat(t)
+      }
+      # A NAME VALUE: a standalone or exported assignment (a prefix on the gh itself expands too late to count). FX: a path in nested text, which runs in a shell of its own: read as spelled, literal and absolute, or denied.
+      function assign(a, live,   name) { name = a; sub(/=.*$/, "", name); if ((!live && a ~ /\$/) || orig ~ ("(^|[;&|[:space:]])" name "=[\"\047]~")) sub(/=.*$/, "=$", a); print "A\t" flat(a) }   # a single-quoted $, or a quoted ~, is literal: poison it, so the path stays unresolvable
+      function segment(lo, hi, nested,   g, i, t, v, repo, sub_, act, c) {
+        SEG_NESTED = nested
+        if (!nested) {
+          c = seg_cmd(w, k, lo, hi); ok = !c   # seg_cmd is also 0 when a quoted word leads: only a segment of nothing but assignments counts
+          for (i = lo; ok && i <= hi; i++) if (k[i] != "w" || w[i] !~ /^[A-Za-z_][A-Za-z0-9_]*=/) ok = 0
+          if (ok || (c && w[c] ~ /^(export|local|readonly|declare|typeset)$/)) { for (i = lo; i <= hi; i++) if (k[i] == "w" && w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w[i], SW_live[i]) }
+          else if (w[c] ~ /^(cd|pushd|popd)$/) cdto(c, lo, hi)
+        }
         g = cmd_index(w, k, lo, hi, "(^|/)gh$", nested, "")
         if (!g || g + 1 > hi) return
         repo = ""
@@ -309,21 +334,41 @@ normpath() {
   done
   IFS=$np_ifs; printf '%s' "${np_out:-/}"
 }
-# resolve <path>: absolute and normalised, as the shell will read it.
-resolve() { case "$1" in '~'/*) normpath "$HOME${1#\~}" ;; /*) normpath "$1" ;; *) normpath "$cwd/$1" ;; esac; }
+# resolve <path>: absolute and normalised, as the shell will read it, against
+# vcwd, where the command stands at that point (empty = unknown: relative fails).
+vcwd=$cwd
+cdstack=""; cddepth=0; NL=$(printf '\nx'); NL=${NL%x}   # the virtual cwd outside each open ( subshell, innermost first
+# expand <path>: $VAR/${VAR} from the assignments replayed so far, $HOME and a leading ~. An unknown $VAR stays, and resolve refuses it.
+expand() {
+  cat "$WORK/vars" 2>/dev/null | P="$1" HOMEV="${HOME:-}" awk 'BEGIN { FS = "\t"; v["HOME"] = ENVIRON["HOMEV"] } { v[$1] = $2 } END {
+      s = ENVIRON["P"]; if (s ~ /^~(\/|$)/) s = v["HOME"] substr(s, 2)   # ~ expands only where it is written, never where a $VAR puts it
+      while ((j = index(s, "$")) > 0) {
+        out = out substr(s, 1, j - 1); s = substr(s, j + 1)
+        if (!match(s, /^\{[A-Za-z_][A-Za-z0-9_]*\}/) && !match(s, /^[A-Za-z_][A-Za-z0-9_]*/)) { out = out "$"; continue }
+        name = substr(s, 1, RLENGTH); gsub(/[{}]/, "", name); if (name in v) { out = out v[name]; s = substr(s, RLENGTH + 1) } else out = out "$"
+      }
+      print out s }'
+}
+resolve() { rs_p=$(expand "$1"); case "$rs_p" in *'$'*|*'`'*) return 1 ;; /*) normpath "$rs_p" ;; *) [ -n "$vcwd" ] || return 1; normpath "$vcwd/$rs_p" ;; esac; }
 sed -n 's/^HFED	//p' "$META" | grep -v '^$' > "$WORK/hfed"
 hfed_has() { while IFS= read -r h; do [ "$(resolve "$h")" = "$1" ] && return 0; done < "$WORK/hfed"; return 1; }
 # META is replayed in command order, so what stands before a path is read
 # (a cd, an assignment) can be applied to it.
 while IFS="$(printf '\t')" read -r kind a <&3; do
-  [ "$kind" = F ] || continue
-  f=$(resolve "$a")
+  case "$kind" in
+    CDTO) if [ "$a" = - ]; then vcwd=""; else vcwd=$(resolve "$a") || vcwd=""; fi; continue ;;
+    CDPUSH) cdstack="$vcwd$NL$cdstack"; cddepth=$((cddepth + 1)); continue ;;
+    CDPOP) if [ "$cddepth" -gt 0 ]; then vcwd=${cdstack%%"$NL"*}; cdstack=${cdstack#*"$NL"}; cddepth=$((cddepth - 1)); else vcwd=""; fi; continue ;;   # a ) whose ( was never seen: the shell is somewhere unseen
+    A) printf '%s\t%s\n' "${a%%=*}" "$(expand "${a#*=}")" >> "$WORK/vars"; continue ;;
+    F) ;; FX) case "$a" in *'$'*|[!/]*) printf '%s\n' "$a" > "$WORK/badfile"; continue ;; esac ;; *) continue ;;
+  esac
+  f=$(resolve "$a") || { printf '%s\n' "$a" > "$WORK/badfile"; continue; }
   # A file this command writes from a heredoc need not exist yet: its text is
   # already in the scanned command, so the gate has read what it will hold.
   [ -r "$f" ] || { hfed_has "$f" || printf '%s\n' "$f" > "$WORK/badfile"; continue; }
   cat "$f" >> "$WORK/text-file"; printf '\n' >> "$WORK/text-file"
 done 3< "$META"
-[ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Write it to that same path from a heredoc in this same command (cat > PATH <<EOF ... EOF, or tee PATH <<EOF) -- the gate reads the heredoc body directly, so the file need not exist yet. Otherwise create the file in an earlier command and retry."
+[ -f "$WORK/badfile" ] && deny "--body-file $(cat "$WORK/badfile") cannot be read, so the text about to be posted cannot be checked. Write it to that same path from a heredoc in this same command (cat > PATH <<EOF ... EOF, or tee PATH <<EOF) -- the gate reads the heredoc body directly, so the file need not exist yet. Otherwise create the file in an earlier command and retry. The path is resolved with the \$VARs this same command assigns before it, after any cd in it, with . and .. collapsed; a variable set in an earlier command is invisible here, so spell the path out."
 cat "$WORK/text-cmd" "$WORK/text-file" > "$TEXT"
 
 grep -q -i -F -f "$WORK/terms" "$TEXT" || exit 0

@@ -255,6 +255,122 @@ check allow '.. in the path a heredoc writes and posts' \
 all public
 EOF
 gh pr create -t x --body-file ./new.md")"
+# Slice 2: a cd or pushd before the gh moves where a relative path is read
+# from. popd, cd -, a bare pushd and a cd to somewhere the hook cannot
+# resolve make that place unknown, and a relative path after it is denied.
+check allow 'cd then a relative --body-file' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj && gh pr comment 3 --body-file ./clean.md")"
+check deny  'cd then a relative --body-file, file still scanned' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj/sub && gh pr comment 3 --body-file ../body.md")"
+reason 'names the term'              'Wanderlust'
+check allow 'bare cd is $HOME' \
+  "$(cp "$SCRATCH/clean.md" "$HOME/b.md"; bash_in "$PUB" 'cd; gh pr comment 3 -F b.md')"
+check allow 'cd ~ is $HOME' \
+  "$(bash_in "$PUB" 'cd ~ && gh pr comment 3 -F ./b.md')"
+check allow 'cd ~ then .. collapses' \
+  "$(mkdir -p "$HOME/d"; cp "$SCRATCH/clean.md" "$HOME/b.md"; bash_in "$PUB" 'cd ~/d; gh pr comment 3 -F ../b.md')"
+check allow 'two cds, the second relative' \
+  "$(bash_in "$PUB" "cd $SCRATCH; cd proj; gh pr comment 3 -F clean.md")"
+check allow 'pushd then a relative --body-file' \
+  "$(bash_in "$PUB" "pushd $SCRATCH/proj >/dev/null; gh pr comment 3 -F clean.md")"
+check deny  'pushd, popd, then a relative --body-file is unknowable' \
+  "$(bash_in "$SCRATCH" "pushd $SCRATCH/proj >/dev/null; popd >/dev/null; gh pr comment 3 -F clean.md")"
+reason 'names the path as spelled'   'clean.md cannot be read'
+# A directory literally named $X with a clean decoy in it must not let the
+# literal text stand in for the value the shell will use.
+mkdir -p "$SCRATCH/\$X"; cp "$SCRATCH/clean.md" "$SCRATCH/\$X/"
+check deny  'cd to an unassigned $VAR makes a relative path unknowable, even past a literal $X decoy' \
+  "$(bash_in "$SCRATCH" 'cd "$X" && gh pr comment 3 --body-file clean.md')"
+mkdir -p "$SCRATCH/\`id\`"; cp "$SCRATCH/clean.md" "$SCRATCH/\`id\`/"
+check deny  'cd to a backtick substitution is unknowable, even past a literal `id` decoy' \
+  "$(bash_in "$SCRATCH" 'cd "`id`" && gh pr comment 3 --body-file clean.md')"
+reason 'names the path as spelled'   'clean.md cannot be read'
+check deny  'pushd +1 rotates to somewhere unseen' \
+  "$(bash_in "$SCRATCH" 'pushd +1 >/dev/null; gh pr comment 3 --body-file clean.md')"
+check deny  'cd - makes a relative path unknowable' \
+  "$(bash_in "$SCRATCH" 'cd - && gh pr comment 3 --body-file clean.md')"
+check allow 'cd - then an absolute path is still fine' \
+  "$(bash_in "$PUB" "cd - && gh pr comment 3 --body-file $SCRATCH/clean.md")"
+check allow 'cd inside sh -c does not move the outer command' \
+  "$(bash_in "$SCRATCH" "sh -c 'cd /nowhere'; gh pr comment 3 --body-file clean.md")"
+# A cd that runs in a pipeline, a subshell or the background does not move
+# the shell that runs the gh: its place is unknown, so a relative path denies.
+check deny  'cd in a pipeline does not move the later gh' \
+  "$(bash_in "$SCRATCH" "cd $SCRATCH/proj | cat; gh pr comment 3 -F clean.md")"
+check deny  'cd in a background job does not move the later gh' \
+  "$(bash_in "$SCRATCH" "cd $SCRATCH/proj & gh pr comment 3 -F clean.md")"
+check deny  'cd in a ( ) subshell, then a relative path' \
+  "$(bash_in "$SCRATCH" "(cd $SCRATCH/proj); gh pr comment 3 -F clean.md")"
+check deny  'a CDPATH prefix on the cd sends it somewhere unseen' \
+  "$(bash_in "$SCRATCH" "CDPATH=/elsewhere cd proj && gh pr comment 3 -F clean.md")"
+check allow 'cd after && still moves the shell' \
+  "$(bash_in "$PUB" "true && cd $SCRATCH/proj && gh pr comment 3 -F clean.md")"
+check allow 'a cd in a pipeline is fine when the path is absolute' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj | cat; gh pr comment 3 -F $SCRATCH/clean.md")"
+# A ( ) subshell inherits the cwd and its cd dies at the ): a paren that
+# belongs to a neighbouring statement, or encloses both the cd and the gh,
+# moves nothing. Only an unmatched ) means the shell is somewhere unseen.
+check allow 'a ( ) statement before the cd does not touch it' \
+  "$(bash_in "$PUB" "(true); cd $SCRATCH/proj; gh pr comment 3 -F clean.md")"
+check allow 'a & ending the previous command does not background the cd' \
+  "$(bash_in "$PUB" "true & cd $SCRATCH/proj && gh pr comment 3 -F clean.md")"
+check allow 'the gh in a ( ) subshell inherits the cd before it' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj; (gh pr comment 3 -F clean.md)")"
+check allow 'cd and gh inside the same ( ) subshell' \
+  "$(bash_in "$PUB" "true; (cd $SCRATCH/proj && gh pr comment 3 -F clean.md)")"
+check allow 'a cd inside ( ) dies at the ), restoring the cwd before it' \
+  "$(bash_in "$PUB" "cd $SCRATCH/proj; (cd /); gh pr comment 3 -F clean.md")"
+check deny  'nested ( ): the inner ) restores, the outer ) loses the cd' \
+  "$(bash_in "$PUB" "(cd $SCRATCH/proj; (cd /)); gh pr comment 3 -F clean.md")"
+# Slice 3: a variable this same command assigns before the gh is expanded
+# in the path (88 of the measured denials). One it never assigned, or a
+# prefix assignment on the gh itself, stays a $ and is denied. A path
+# inside sh -c is read as spelled: literal and absolute, or denied.
+mkdir -p "$SCRATCH/sp"; cp "$SCRATCH/clean.md" "$SCRATCH/body.md" "$SCRATCH/sp/"
+check allow '$VAR assigned in the same command, clean file' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; gh pr create -t x --body-file \"\$SP/clean.md\"")"
+check deny  '$VAR assigned in the same command, file still scanned' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; gh pr create -t x --body-file \"\$SP/body.md\"")"
+reason 'names the term'              'Wanderlust'
+check allow '${VAR} via $HOME, chained through a second assignment' \
+  "$(bash_in "$PUB" 'export SP="$HOME"; S=$SP; gh issue create -t x --body-file ${S}/b.md')"
+check allow '$VAR assigned, heredoc writes the file in the same command' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp
+cat > \"\$SP/new.md\" <<'EOF'
+all public
+EOF
+gh pr create -t x --body-file \"\$SP/new.md\"")"
+check allow 'cd to a $VAR, then a relative path' \
+  "$(bash_in "$PUB" "D=$SCRATCH; cd \$D/sp && gh pr comment 3 -F clean.md")"
+check allow 'a later assignment wins' \
+  "$(bash_in "$PUB" "SP=/nowhere; SP=$SCRATCH/sp; gh pr comment 3 -F \$SP/clean.md")"
+check deny  '$VAR not assigned in this command' \
+  "$(bash_in "$PUB" 'gh pr create -t x --body-file "$SP/clean.md"')"
+reason 'names the path as spelled'   '$SP/clean.md'
+reason 'says earlier commands are invisible' 'earlier command is invisible'
+check deny  'prefix assignment on the gh does not feed its own path' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp gh pr create -t x --body-file \"\$SP/clean.md\"")"
+check deny  'a quoted word leading a segment is not an assignment list' \
+  "$(mkdir -p "$SCRATCH/decoy"; cp "$SCRATCH/clean.md" "$SCRATCH/decoy/notes.md"; cp "$SCRATCH/body.md" "$SCRATCH/sp/notes.md"; bash_in "$PUB" "SP=$SCRATCH/sp
+\"touch x\" SP=$SCRATCH/decoy
+gh pr create -t x --body-file \"\$SP/notes.md\"")"
+reason 'reads the real path, not the decoy' 'Wanderlust'
+check deny  'a single-quoted $ in a value is literal, so the path is unknowable' \
+  "$(bash_in "$PUB" "SP='\$HOME'; gh pr create -t x --body-file \"\$SP/b.md\"")"
+check deny  'a quoted ~ in a value is literal, so the path is unknowable' \
+  "$(mkdir -p "$PUB/~"; cp "$SCRATCH/body.md" "$PUB/~/b.md"; bash_in "$PUB" "X='~'; gh pr create -t x --body-file \"\$X/b.md\"")"
+check deny  'a double-quoted ~ is literal too' \
+  "$(bash_in "$PUB" 'X="~/d"; gh pr create -t x --body-file "$X/../b.md"')"
+check allow 'SP=~ unquoted expands at assignment' \
+  "$(bash_in "$PUB" 'SP=~; gh pr comment 3 -F $SP/b.md')"
+check deny  '$VAR from $(...) stays unknowable' \
+  "$(bash_in "$PUB" 'SP=$(mktemp -d); gh pr create -t x --body-file "$SP/clean.md"')"
+check deny  'a $VAR inside sh -c is not fed by the outer assignment' \
+  "$(bash_in "$PUB" "SP=$SCRATCH/sp; sh -c 'gh pr create -t x --body-file \$SP/clean.md'")"
+check deny  'a ~ path inside sh -c is not expanded' \
+  "$(bash_in "$PUB" "sh -c 'gh pr create -t x --body-file ~/b.md'")"
+check allow 'an absolute path inside sh -c is read as spelled' \
+  "$(bash_in "$PUB" "sh -c 'gh pr create -t x --body-file $SCRATCH/sp/clean.md'")"
 
 # The exemption is the gate's weakest point: it says "that file will hold the
 # heredoc body I read". Two ways that stops being true, both denied.
