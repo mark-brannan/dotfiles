@@ -337,6 +337,9 @@ check_claim 'stamps could not be fetched -> unknown, never stale' \
 check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
   'no card' \
   'git merge --ff-only <branch>'
+check_claim 'unknown-state message gives the cross-repo recipe' \
+  'no card' \
+  'worktree add -b <branch> <scratchpad>/<name> && cd <scratchpad>/<name>'
 
 # The stub counts its invocations: the state and the attributed line must
 # come from one read, not a second call that can disagree with the first.

@@ -198,6 +198,7 @@ To read that branch meanwhile, stay here: \`git log/diff/show $branch\`, \`git s
       deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. A hand-off carries a branch, an issue and a PR -- never a directory; another session may still be running in there, and it may be archived out from under you mid-turn (that is how PR #162 lost its worktree).
 To read that branch, stay here: \`git log/diff/show <branch>\`, \`git show <branch>:<path>\` -- worktrees of a repo share objects and refs.
 To work on it, take your own worktree: EnterWorktree(name=<name>), then \`git merge --ff-only <branch>\` inside it. If --ff-only fails, the histories have diverged: report that and stop.
+If you made this worktree yourself in an earlier call, that is why: one is yours only if the command that creates it also \`cd\`s into it. For another repo, make a fresh one under your scratchpad dir in one command: \`git -C <repo> worktree add -b <branch> <scratchpad>/<name> && cd <scratchpad>/<name>\`.
 Worktree hygiene is the user's call, not a session's."
       ;;
   esac
