@@ -31,7 +31,7 @@
 #
 # FROZEN -- THAW CAREFULLY. Every block below tagged with that phrase (the
 # ⛁ context (» below the first rung; ¢ and ○ were the other candidates),
-# ⚖ gate, ⚡ friction and ⏱ sitting-clock crossings, and any glyph
+# ⚡ friction and ⏱ sitting-clock crossings, and any glyph
 # family added alongside them) is frozen: do not modify without direct,
 # explicit interaction with Solace.
 #
@@ -86,12 +86,11 @@ SHOW="${3:-}"               # "show" -> also print a systemMessage block
 #   friction  corrections and rebukes inside a window of human turns; the one
 #             line that goes to the model rather than to the screen, since the
 #             standing orders' capacity rule is what it is asking for
-#   gate      gate decisions pushed to the user, every GATE_EVERY
-#   day       decisions pushed to Solace machine-wide, across every session
-#             since the last break past DECISION_GAP_MIN (#301) -- the day
-#             total is the number the standing orders' capacity rule is
-#             about, not any one chat's. junk (a decision followed by a
-#             correction) rides beside the total and counts toward the rung
+#
+# There is no decision-count line here, on screen or to the model: the count
+# is measured, never alarmed (one-entry-point §5, 2026-09-30). Friction is the
+# one alarm. The decisions-per-session-hour ratio is shown at session start and
+# in the Stop summary only, never here.
 NAG_CONTEXT_LINES="${METRICS_CONTEXT_LINES:-60000 90000 120000 150000 185000}"
 NAG_CONTEXT_STOP_AT="${METRICS_CONTEXT_STOP_AT:-150000}"
 NAG_CONTEXT_STEP="${METRICS_CONTEXT_STEP:-35000}"
@@ -101,7 +100,6 @@ NAG_SIT_GAP_MIN="${METRICS_SIT_GAP_MIN:-15}"
 NAG_SIT_HOT_RUNG="${METRICS_SIT_HOT_RUNG:-3}"
 NAG_FRICTION_N="${METRICS_FRICTION_N:-3}"
 NAG_FRICTION_TURNS="${METRICS_FRICTION_TURNS:-20}"
-NAG_GATE_EVERY="${METRICS_GATE_EVERY:-5}"
 # Model-facing ladders. Separate from the screen ladders above: the screen
 # line is a glance, the injection is an instruction, and they escalate on
 # different numbers. Edge-triggered, the same as the screen lines: one
@@ -114,14 +112,9 @@ NAG_MODEL_CONTEXT_STEP="${METRICS_MODEL_CONTEXT_STEP:-50000}"
 # between prompts, so a rung crossed mid-turn would otherwise go unsaid until
 # the next prompt -- which may be thousands of tokens later. 0 disables it.
 NAG_MODEL_CONTEXT_REPEAT="${METRICS_MODEL_CONTEXT_REPEAT:-20}"
-NAG_MODEL_DECISION_LINES="${METRICS_MODEL_DECISION_LINES:-3 5 8 13 21}"
-NAG_MODEL_DECISION_STEP="${METRICS_MODEL_DECISION_STEP:-21}"
-# Machine-wide, across every session since the last break (#301), not this
-# session alone -- day_decisions() in lib-state.sh holds the store. The gap
-# that starts a fresh day is deliberately its own knob, distinct from the
-# 15-minute sitting gap: a late night at the keyboard keeps one counter.
-NAG_DAY_DECISION_LINES="${METRICS_DAY_DECISION_LINES:-20 40 60}"
-NAG_DAY_DECISION_STEP="${METRICS_DAY_DECISION_STEP:-20}"
+# The day counter below keeps counting across sessions since the last break
+# (#301); nothing reads it for a nudge. The gap that starts a fresh day is its
+# own knob, distinct from the 15-minute sitting gap.
 NAG_DECISION_GAP_MIN="${METRICS_DECISION_GAP_MIN:-180}"
 # Local hour from which a Stop on an archivable session is worth interrupting,
 # and the hour night ends. The block's night glyph reads the same two, so
@@ -680,64 +673,10 @@ if [ "$run_engine" -eq 1 ]; then
     fi
   fi
 
-  # FROZEN -- THAW CAREFULLY.
-  # gate decisions
-  if [ "$NAG_GATE_EVERY" -gt 0 ]; then
-    n=$(( gates / NAG_GATE_EVERY * NAG_GATE_EVERY ))
-    if [ "$n" -ge "$NAG_GATE_EVERY" ] && [ "$n" -gt "$gate_line" ]; then
-      t="⚖ $gates gate decisions this session — front-load or card the rest."
-      add_line "$t"; record_crossing gate "$n" "$t"
-      gate_line=$n
-    fi
-  fi
-
-  # Model side of the decision load, counting every decision pushed to the
-  # user this session -- scoping, inline and gate -- not gate alone: the
-  # capacity that runs out is the capacity to decide, whatever kind.
+  # Keep the machine-wide day counter counting (#301). Measurement only: no
+  # line, no injection reads it (one-entry-point §5, 2026-09-30).
   if [ "$is_prompt" -eq 1 ]; then
-    r=$(rung_of "$NAG_MODEL_DECISION_LINES" "$NAG_MODEL_DECISION_STEP" "$decisions")
-    if [ "$r" -gt "$m_dec_at" ]; then
-      if [ "$m_dec_at" -eq 0 ]; then
-        add_model "$decisions decisions pushed to Solace this session ($gates of them gates), past $r. Front-load or card the rest."
-      else
-        add_model "$decisions decisions pushed to Solace this session ($gates of them gates), past $r (last noted at $m_dec_at)."
-      fi
-      m_dec_at=$r
-    fi
-  fi
-
-  # Machine-wide decision count across every session since the last break
-  # (#301) -- folds this session's own total into day_decisions()'s store
-  # (lib-state.sh) and reads back the day's sum. Gated on is_prompt like the
-  # sitting clock: decision load is wound by the user's own rhythm, not by a
-  # tool call, and the gap that starts a fresh day is measured between
-  # prompts anywhere on the machine.
-  #
-  # junk rides beside the total and is never subtracted here -- the default
-  # is "junk still counts" (a decision that landed badly still spent the
-  # capacity to make it), per #364's open question for this PR. Excluding it
-  # from the rung is a one-line flip: compare $((dtotal - djunk)) instead.
-  dtotal=0; djunk=0
-  if [ "$is_prompt" -eq 1 ]; then
-    IFS=$'\t' read -r dtotal djunk \
-      <<<"$(day_decisions "$sid" "$decisions" 0 "$now_ts" $((NAG_DECISION_GAP_MIN * 60)))"
-    [ -n "${dtotal:-}" ] || dtotal=0
-    [ -n "${djunk:-}" ] || djunk=0
-
-    r=$(rung_of "$NAG_DAY_DECISION_LINES" "$NAG_DAY_DECISION_STEP" "$dtotal")
-    if [ "$r" -gt 0 ] && [ "$r" -gt "$day_dec_line" ]; then
-      t="☀ $dtotal decisions today ($djunk junk), past $r — land it, or offer a break."
-      add_line "$t"; record_crossing day_decision "$r" "$t"
-      day_dec_line=$r
-    fi
-    if [ "$r" -gt "$m_day_dec_at" ]; then
-      if [ "$m_day_dec_at" -eq 0 ]; then
-        add_model "$dtotal decisions today across sessions ($djunk junk), past $r. Offer to land and stop, once."
-      else
-        add_model "$dtotal decisions today across sessions ($djunk junk), past $r (last offered at $m_day_dec_at)."
-      fi
-      m_day_dec_at=$r
-    fi
+    day_decisions "$sid" "$decisions" 0 "$now_ts" $((NAG_DECISION_GAP_MIN * 60)) >/dev/null
   fi
 
   # FROZEN -- THAW CAREFULLY.
