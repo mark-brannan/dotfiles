@@ -53,7 +53,7 @@
 #       sentence, and judgment: gates it exactly as L8 does
 #   L11 a card with no "id: <epoch seconds><8 hex>" field -- the work
 #       item's identifier (Solace, 2026-10-01, one-entry-point curia, pen),
-#       minted by `card-id mint` under the board lock; a hand-off that says
+#       minted by `card-id mint`, fire and forget; a hand-off that says
 #       "card <id>" must resolve to exactly one line
 #
 # Modes:

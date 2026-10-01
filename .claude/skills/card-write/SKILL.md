@@ -103,9 +103,8 @@ Every card: one line, a link, the action in the imperative, a short name
 distinctive enough for a later session to find, and last, its id. **Mint the
 id with `~/.local/bin/card-id mint`** just before writing the line, and paste
 it as the card's final field, `id: <id>`: epoch seconds then this session's
-eight hex, no separator (Solace, 2026-10-01). The script takes the board's
-one-writer lock and bumps the second on a collision. Never type, edit or
-reuse one; a card that moves sections keeps its id. Name a card by it in a
+eight hex, no separator (Solace, 2026-10-01). Fire and forget: the script
+consults nothing, the odds carry uniqueness. Never type, edit or reuse one; a card that moves sections keeps its id. Name a card by it in a
 hand-off — "card 1790836842077c62eb" is enough for the next session. **The link is never
 optional** — a card nobody but its author can resolve is not a card; neither
 is an action that cannot be stated without private paths, hosts or ports.

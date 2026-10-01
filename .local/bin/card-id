@@ -3,25 +3,18 @@
 #
 # Ruled by Solace, 2026-10-01 (one-entry-point curia, §1v, pen): the work
 # item's identifier is epoch seconds then the minting session's eight hex, no
-# separator -- 1790836842077c62eb -- minted at write time under the board's
-# one-writer lock, which bumps the second on a collision; never edited, never
-# reused. Every card carries it as its last field, `id: <id>`, and
-# kanban-lint's L11 refuses a card without one.
+# separator -- 1790836842077c62eb -- never edited, never reused. Every card
+# carries it as its last field, `id: <id>`, and kanban-lint's L11 refuses a
+# card without one.
 #
 #   card-id mint [<session-id>]   print a fresh id (session from
 #                                 $CLAUDE_CODE_SESSION_ID when not given)
 #   card-id show <id>             the card: `<section>\t<group>\t<card>`
 #
-# The lock is a directory, $TMPDIR/claude-board.lock.d, holding
-# `pid=<pid>` and `hostname=<host>` (lib-state.sh's state_lock). Inside it an
-# id is taken only when neither the board nor the ledger holds it; the ledger,
-# $XDG_STATE_HOME/card-id/minted, is one id per line, every id this machine
-# has minted, so an id whose card was deleted is still never handed out again.
-# Two machines cannot collide: the hex is the session's, and a session runs on
-# one machine.
-#
-# A GATE: exit 2 when the lock, the board or the ledger cannot be read or
-# written -- an id that may be a duplicate is worse than none.
+# Fire and forget (Solace, 2026-10-01): no lock, no ledger, no check against
+# the board. Two sessions never share a hex, and one session minting twice in
+# the same second is the only collision left; the odds carry it, the way a
+# UUID's do.
 set -u
 
 self=$0
@@ -36,8 +29,6 @@ done
 . "$lib"
 
 BOARD=${CARD_ID_BOARD:-$(state_dir)/kanban.md}
-LEDGER=${XDG_STATE_HOME:-$HOME/.local/state}/card-id/minted
-LOCK=${TMPDIR:-/tmp}/claude-board.lock.d
 
 die() { printf 'card-id: %s\n' "$*" >&2; exit 2; }
 
@@ -47,18 +38,9 @@ case "${1:-}" in
     hex=$(printf '%s' "$sid" | tr -d '-' | cut -c1-8 | tr 'A-F' 'a-f')
     case $hex in ????????) ;; *) die "no session id (pass one, or run inside a session)" ;; esac
     case $hex in *[!0-9a-f]*) die "session id $sid does not start with eight hex" ;; esac
-    [ -r "$BOARD" ] || die "no readable board at $BOARD"
-    mkdir -p "${LEDGER%/*}" 2>/dev/null && touch "$LEDGER" 2>/dev/null || die "cannot write the ledger $LEDGER"
-    state_lock_wait "$LOCK" 30 || die "the board lock $LOCK has been held for 30 s"
-    trap 'state_unlock' EXIT
-    trap 'exit 2' INT TERM
-    taken=$(grep -oE 'id: [0-9]{10}[0-9a-f]{8}' "$BOARD" | cut -c5-; cat "$LEDGER") || die "cannot read the board or the ledger"
-    e=$(date -u +%s)
-    while printf '%s\n' "$taken" | grep -qx "$e$hex"; do e=$((e + 1)); done
-    printf '%s%s\n' "$e" "$hex" >> "$LEDGER" || die "cannot write the ledger $LEDGER"
-    printf '%s%s\n' "$e" "$hex" ;;
+    printf '%s%s\n' "$(date -u +%s)" "$hex" ;;
   show)
     is_card_id "${2:-}" || die "not a card id: ${2:-<id>}"
     board_card "$BOARD" "$2" || { printf 'card-id: no card %s on %s\n' "$2" "$BOARD" >&2; exit 1; } ;;
-  *) sed -n '11,13p' "$0" | sed 's/^#   //' >&2; exit 2 ;;
+  *) sed -n '10,12p' "$0" | sed 's/^#   //' >&2; exit 2 ;;
 esac
