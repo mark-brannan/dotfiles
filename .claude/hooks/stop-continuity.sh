@@ -16,7 +16,7 @@
 #   metrics/blocked/<id>.jsonl    each tool call the permission layer refused
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
 #   pickup/<start>-<id>.md        this session's pickup item, which /pickup reads
-#   curia/<id>/digest.md          a floor stamped on any curia document the
+#   curia/<id>/digest.md          a floor stamped on any curia digest the
 #                                  session touched, plus the user's last words
 #
 # One file per session, not one shared append-only log: parallel sessions are
@@ -590,7 +590,7 @@ pickup_item
 # and, on the first thread the transcript touched, the user's last words
 # verbatim under "Human's words", one dated sub-heading per session,
 # overwritten only while it still reads exactly as the hook wrote it.
-curia_floor() {  # curia_floor <roll.md>
+curia_floor() {  # curia_floor <digest.md>
   local t tmp
   t=$1; tmp="$t.$$"
   awk -v now="$now" -v sid8="${sid:0:8}" -v model="$cu_model" \
@@ -619,7 +619,7 @@ curia_floor() {  # curia_floor <roll.md>
     }
   ' "$t" > "$tmp" 2>/dev/null && mv -f "$tmp" "$t" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 }
-curia_said() {  # curia_said <roll.md>; $cu_words carries the text
+curia_said() {  # curia_said <digest.md>; $cu_words carries the text
   local t tmp
   t=$1; tmp="$t.$$"
   CS_WORDS="$cu_words" awk -v sid8="${sid:0:8}" -v date="${now%%T*}" '
@@ -679,11 +679,9 @@ cu_words=$(printf '%s' "$metrics" | jq -r '.session.last_words // empty')
 cu_model=$(printf '%s' "$metrics" | jq -r '.session.model // "?"')
 cu_first=1
 for cu_ref in $(printf '%s' "$metrics" | jq -r '.session.curia_refs[]? // empty'); do
-  # The curated document is digest.md once a curia is moved to the roll/digest
-  # layout, and roll.md is then curia-roll.py's append-only words: never
-  # rewrite it here. Before the move it is roll.md, and before that thread.md.
   cu_thread="$SD/curia/$cu_ref/digest.md"
-  [ -f "$cu_thread" ] || cu_thread="$SD/curia/$cu_ref/roll.md"
+  # thread.md is the name before digest.md; read it until every curia is moved.
+  # roll.md is the words log, written only by its hook: never touched here.
   [ -f "$cu_thread" ] || cu_thread="$SD/curia/$cu_ref/thread.md"
   [ -f "$cu_thread" ] || continue
   curia_floor "$cu_thread"
