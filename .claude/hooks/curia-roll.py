@@ -64,6 +64,7 @@ HARNESS = re.compile(
 
 
 # What the harness puts in place of an answer when the user dismisses a dialog.
+# Keep in step with DISMISSED in state/global/transcript-archive/extract.py.
 DISMISSED = "[User dismissed — do not proceed, wait for next instruction]"
 
 
