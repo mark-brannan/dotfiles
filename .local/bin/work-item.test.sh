@@ -37,6 +37,8 @@ CLAUDE_CODE_SESSION_ID='' sh "$WI" create 'No session' >/dev/null 2>&1; ok 'no s
 as "$A" claim "$id" >/dev/null 2>&1; ok 'an open item cannot be claimed' 1 $?
 as "$A" log "$id" status=done >/dev/null 2>&1; ok 'open -> done is not a transition' 1 $?
 as "$A" log "$id" status=ready; ok 'open -> ready' ready "$(fact "$id" status)"
+n=$(wc -l < "$f"); CLAUDE_CODE_SESSION_ID='' sh "$WI" claim "$id" >/dev/null 2>&1; ok 'a claim with no session id refuses' 2 $?
+ok 'the refused claim wrote no line' "$n" "$(wc -l < "$f")"
 
 as "$B" claim "$id"; ok 'a ready item is claimed' claimed "$(fact "$id" status)"
 ok 'the claimer holds it' 9a1b2c3d "$(fact "$id" holder)"

@@ -159,7 +159,7 @@ case $cmd in
     for v in "repo:$repo" "parent:$parent" "model:$model" "effort:$effort"; do word "${v%%:*}" "${v#*:}"; done
     [ "$parent" = - ] || is_card_id "$parent" || die "parent is an item id, got [$parent]"
     [ -z "$points" ] || points_ok "$points"
-    sid=$(me)
+    sid=$(me) || exit $?
     [ -n "$id" ] || id=$(printf '%s%s' "$(date -u +%s)" "$sid")
     file_of "$id"
     mkdir -p "$ITEMS" || refuse "could not create $ITEMS"
@@ -175,7 +175,7 @@ case $cmd in
     need "${1:-}"; id=$1; shift; points=""
     [ "${1:-}" = --points ] && { points=${2:-}; points_ok "$points"; shift 2; }
     [ $# -eq 1 ] || die "brief takes the text, or - for stdin"
-    read_brief "$1"; sid=$(me)
+    read_brief "$1"; sid=$(me) || exit $?
     lock "$id"
     [ -n "$points" ] || points=$(work_item_fold "$f" | sed -n 's/^points=//p')
     write_brief; append briefed ;;
@@ -184,7 +184,7 @@ case $cmd in
     [ $# -gt 0 ] || die "log takes one or more words"
     line="$*"
     case $line in *"$nl"*) die "a log line is one line" ;; esac
-    sid=$(me); to=""
+    sid=$(me) || exit $?; to=""
     for w in "$@"; do
       case $w in
         status=*) to=${w#status=} ;;
@@ -195,12 +195,12 @@ case $cmd in
     [ -z "$to" ] || move "$to"
     append "$line" ;;
   claim)
-    need "${1:-}"; id=$1; sid=$(me)
+    need "${1:-}"; id=$1; sid=$(me) || exit $?
     lock "$id"
     move claimed
     append status=claimed ;;
   release)
-    need "${1:-}"; id=$1; sid=$(me)
+    need "${1:-}"; id=$1; sid=$(me) || exit $?
     lock "$id"
     folded=$(fold_item) || refuse "could not read $f"
     [ "$(fact holder)" = "$sid" ] || refuse "$id is not held by this session ($sid)"
