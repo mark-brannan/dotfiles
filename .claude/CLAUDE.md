@@ -241,6 +241,10 @@ Hooks handle the mechanics unprompted.
 - **A judgment call has three exits,** preferred in this order: **omit**
   (it gates nothing, so say nothing and leave the question visibly open),
   **card** (it gates later work), **ask** (it gates this turn).
+- **Closing an option is a ruling.** In anything read later as settled,
+  "rejected", "ruled out" or "we will not" stands only if I made that
+  call; otherwise it goes. Provenance is a line in the repo's decisions
+  file, never a stamp in the prose.
 - **A public issue is a publish; drafting it is yours.** Check the draft
   against the private line, show it to me once, file on my yes.
 - **The private line** (Solace, 2026-10-01, in pencil): privacy is about
