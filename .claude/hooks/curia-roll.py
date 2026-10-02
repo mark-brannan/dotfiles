@@ -60,12 +60,11 @@ def dialog_words(questions, answers, annotations=None):
     words = []
     for q in questions or []:
         labels = {o.get("label") for o in q.get("options") or []}
-        a = (answers or {}).get(q.get("question"))
-        if isinstance(a, str) and a.strip() and a not in labels and not (q.get("multiSelect") and set(a.split(", ")) <= labels):
-            words.append(a)
-        note = ((annotations or {}).get(q.get("question")) or {}).get("notes")
-        if isinstance(note, str) and note.strip():
-            words.append(note)
+        a, ann = ((d or {}).get(q.get("question")) for d in (answers, annotations))
+        if isinstance(a, str):  # a multi-select keeps only its typed parts
+            a = ", ".join(p for p in a.split(", ") if p not in labels) if q.get("multiSelect") else "" if a in labels else a
+        note = ann.get("notes") if isinstance(ann, dict) else None
+        words += [w for w in (a, note) if isinstance(w, str) and w.strip()]
     return "\n\n".join(words)
 
 

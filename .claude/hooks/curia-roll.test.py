@@ -171,6 +171,16 @@ class CuriaRollTest(unittest.TestCase):
                     {"Which sizes?": {"notes": "small for now", "preview": "agent text"}})
         self.assertEqual([e[2] for e in self.entries("c")], ["small for now"])
 
+    def test_a_multi_select_keeps_its_typed_part_and_drops_picked_labels(self):
+        self.sitting("c", f"{SID} t\n")
+        self.dialog({"Which colour?": "Red", "Which sizes?": "Small, huge, please", "Anything else?": "No"})
+        self.assertEqual([e[2] for e in self.entries("c")], ["huge, please"])
+
+    def test_a_malformed_annotation_keeps_the_other_answers(self):
+        self.sitting("c", f"{SID} t\n")
+        self.dialog({"Which colour?": "teal"}, {"Which colour?": "not a dict"})
+        self.assertEqual([e[2] for e in self.entries("c")], ["teal"])
+
     def test_answers_carried_on_the_tool_input_are_read_too(self):
         self.sitting("c", f"{SID} t\n")
         self.dialog({"Which colour?": "teal"}, where="tool_input")
