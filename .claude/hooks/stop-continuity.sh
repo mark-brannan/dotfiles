@@ -16,7 +16,7 @@
 #   metrics/blocked/<id>.jsonl    each tool call the permission layer refused
 #   log/auto/<date>-<repo>-<id>.md  a resumable checkpoint the next session reads
 #   pickup/<start>-<id>.md        this session's pickup item, which /pickup reads
-#   curia/<id>/roll.md            a floor stamped on any curia roll the
+#   curia/<id>/digest.md          a floor stamped on any curia document the
 #                                  session touched, plus the user's last words
 #
 # One file per session, not one shared append-only log: parallel sessions are
@@ -679,8 +679,11 @@ cu_words=$(printf '%s' "$metrics" | jq -r '.session.last_words // empty')
 cu_model=$(printf '%s' "$metrics" | jq -r '.session.model // "?"')
 cu_first=1
 for cu_ref in $(printf '%s' "$metrics" | jq -r '.session.curia_refs[]? // empty'); do
-  cu_thread="$SD/curia/$cu_ref/roll.md"
-  # thread.md is the name before roll.md; read it until the state repo is moved.
+  # The curated document is digest.md once a curia is moved to the roll/digest
+  # layout, and roll.md is then curia-roll.py's append-only words: never
+  # rewrite it here. Before the move it is roll.md, and before that thread.md.
+  cu_thread="$SD/curia/$cu_ref/digest.md"
+  [ -f "$cu_thread" ] || cu_thread="$SD/curia/$cu_ref/roll.md"
   [ -f "$cu_thread" ] || cu_thread="$SD/curia/$cu_ref/thread.md"
   [ -f "$cu_thread" ] || continue
   curia_floor "$cu_thread"

@@ -210,6 +210,8 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y -q jq
       - name: prose-budget engine tests
         run: python3 .local/bin/prose-budget.test.py
+      - name: curia-roll hook tests
+        run: python3 .claude/hooks/curia-roll.test.py
       - name: Run every other test suite in parallel
         run: |
           set -euo pipefail
