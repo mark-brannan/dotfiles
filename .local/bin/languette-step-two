@@ -72,6 +72,8 @@ def edit(tree):
 
     sp = tree / ".claude/settings.json"
     d = json.loads(sp.read_text())
+    if json.dumps(d, indent=2, ensure_ascii=False) + "\n" != sp.read_text():
+        raise RuntimeError(".claude/settings.json no longer round-trips byte for byte; its shape changed, edit by hand")
     for m in d["hooks"]["PreToolUse"]:
         m["hooks"] = [h for h in m["hooks"] if not re.search(rf"/\.claude/hooks/({names})\.sh", h.get("command", ""))]
     d["hooks"]["PreToolUse"] = [m for m in d["hooks"]["PreToolUse"] if m["hooks"]]
@@ -135,7 +137,7 @@ def worktree(repo, base, keep_out):
     return d
 
 
-def body(ready_out, base, refs, flaky):
+def body(ready_out, base, head, refs, flaky):
     refs_md = "\n".join(f"- `{r}`" for r in refs[:80]) + (f"\n- ... and {len(refs) - 80} more" if len(refs) > 80 else "")
     pre = f"\n\nThese suites also fail on origin/main, so they are not this change's: {', '.join(flaky)}." if flaky else ""
     return f"""Step two of the languette move. The plugin carries no-rm-tree, no-git-footguns and no-delete-stacked-base; this deletes the dotfiles copies: the six hook and suite files, their PreToolUse entries in `.claude/settings.json`, their INSTALL lines in `.local/bin/cloud-session-setup.sh`, and their lines in CI's guard-tests and tool-tests lists. `lib-shell-words.awk` stays; other hooks use it.
@@ -154,7 +156,7 @@ Built from origin/main at {base[:12]}. Every `.claude/hooks` and `.local/bin` su
 
 **Churn:** this needs Solace's `churn-ok` label. The job never merges.
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Head: {head}
 """
 
 
@@ -209,15 +211,16 @@ def main(argv):
             return 0
         run(["git", "commit", "-S", "-q", "-m", "languette step two: delete the dotfiles copies of the three guards\n\n"
              "The languette plugin carries no-rm-tree, no-git-footguns and no-delete-stacked-base;\n"
-             "the readiness measurement says it has been gating on real machines.\n\n"
-             "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"], cwd=tree)
+             "the readiness measurement says it has been gating on real machines.\n"
+             "Opened by languette-step-two on its hourly timer."], cwd=tree)
+        head = run(["git", "rev-parse", "HEAD"], cwd=tree).stdout.strip()
         # Detached HEAD on purpose: mergify's pre-push hook refuses a branch whose
         # commits carry Change-Id trailers. A stale branch with no PR is this
         # job's own leftover, so it is overwritten.
         run(["git", "push", "-q", "--force", "origin", f"HEAD:refs/heads/{BRANCH}"], cwd=tree)
         args = ["gh", "pr", "create", "--base", "main", "--head", BRANCH,
                 "--title", "languette step two: delete the dotfiles copies of the three guards",
-                "--body", body(r.stdout, base, refs, flaky)]
+                "--body", body(r.stdout, base, head, refs, flaky)]
         pr = run(args + ["--label", "awaiting-human"], cwd=tree, check=False)
         if pr.returncode != 0:
             pr = run(args, cwd=tree)

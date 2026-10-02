@@ -65,6 +65,12 @@ class EditTest(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_settings_reformatted_refuses(self):
+        sp = self.tree / ".claude/settings.json"
+        sp.write_text(json.dumps(json.loads(sp.read_text()), indent=4) + "\n")
+        with self.assertRaisesRegex(RuntimeError, "round-trips"):
+            st.edit(self.tree)
+
     def test_a_shape_it_cannot_edit_refuses(self):
         ci = self.tree / ".github/workflows/ci.yml"
         ci.write_text(ci.read_text() + "      # see .claude/hooks/no-rm-tree.test.sh; done\n")
