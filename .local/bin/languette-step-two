@@ -61,7 +61,7 @@ def run(args, cwd=None, check=True, timeout=600):
 def refresh_plugin():
     for args in (["claude", "plugin", "marketplace", "update", "languette"],
                  ["claude", "plugin", "update", "languette@languette", "-y"]):
-        r = run(args, check=False, timeout=300)
+        r = run(args, check=False, timeout=60)
         log(("" if r.returncode == 0 else "WARN ") + f"{' '.join(args)}: {(r.stdout + r.stderr).strip()[-200:]}")
 
 

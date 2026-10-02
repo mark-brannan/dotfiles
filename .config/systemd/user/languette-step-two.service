@@ -25,4 +25,7 @@ ExecStart=%h/.local/bin/languette-step-two --since 2026-10-01T17:30:32Z
 StandardOutput=append:%S/languette/step-two.log
 StandardError=append:%S/languette/step-two.log
 
-TimeoutStartSec=30min
+# Measured 2026-10-02: plugin refresh 5s, every suite 68s on four workers.
+# A suite failing on the change reruns them all on main, so twice that, plus
+# the push: about 2.5 minutes at worst.
+TimeoutStartSec=5min
