@@ -239,11 +239,9 @@ the counts and READY or NOT READY.
 Hourly, on the user's main machine only: refresh the plugin to the tip of its
 main, run `languette-step-two-ready`, and on READY open the PR deleting the
 three guard copies. It never merges. A step-two PR in any state ends the run,
-so closing it unmerged keeps the job quiet; once it is merged, the next run
-disables the timer.
-
-Rehearse first. This builds and tests the change from origin/main and pushes
-nothing:
+so closing it unmerged keeps the job quiet; once it merges, the next run
+disables the timer. Rehearse first; this builds and tests from origin/main and
+pushes nothing:
 
 ```bash
 languette-step-two --since 2026-10-01T17:30:32Z --dry-run
@@ -251,8 +249,8 @@ languette-step-two --since 2026-10-01T17:30:32Z --dry-run
 
 It ends `dry run: nothing pushed` after a nine-file diffstat. `the step-two
 change breaks:` names a suite that fails only with the copies gone; `still
-names a guard copy` means main changed shape and the edit in the script needs
-updating.
+names a guard copy` means main changed shape and the script's edit needs
+updating. Then enable it:
 
 ```bash
 systemctl --user daemon-reload
@@ -260,17 +258,11 @@ systemctl --user enable --now languette-step-two.timer
 systemctl --user start languette-step-two.service
 ```
 
-**Verify**, from the log rather than the timer:
-
-```bash
-systemctl --user list-timers languette-step-two.timer
-tail -20 ~/.local/state/languette/step-two.log
-```
-
-The last run ends `not ready; nothing to do`, `a step-two PR exists` or
-`opened <url>`, stamped within the hour. `WARN claude plugin` means the refresh
-failed and the measurement used the plugin already installed; an `ERROR` line
-names the step that failed.
+**Verify** from the log, not the timer: `tail -20
+~/.local/state/languette/step-two.log`. The last run ends `not ready; nothing
+to do`, `a step-two PR exists` or `opened <url>`, stamped within the hour.
+`WARN claude plugin` means the refresh failed and the measurement used the
+plugin already installed; an `ERROR` line names the step that failed.
 
 ## Change what the metrics readouts show
 
