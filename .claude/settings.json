@@ -19,7 +19,9 @@
       "Bash(yadm log *)",
       "Bash(resign-branch.sh *)",
       "Bash(/home/solace/.local/bin/resign-branch.sh *)",
-      "mcp__Claude_Code_Remote__add_repo"
+      "mcp__Claude_Code_Remote__add_repo",
+      "Bash(systemctl --user list-timers *)",
+      "Bash(systemctl --user show *)"
     ],
     "deny": [
       "Bash(git reset --hard:*)"
