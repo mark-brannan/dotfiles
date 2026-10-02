@@ -90,19 +90,23 @@ def append(roll, prompt, now):
     # same curia on this machine interleave whole entries, never bytes. When
     # the last entry has this stamp, it is rewritten with both words and a
     # fence fitted to them. Its words hold no line of its fence, so a stamp
-    # quoted inside them is never taken for its heading.
+    # quoted inside them is never taken for its heading. The rewrite is
+    # longer than the entry it overwrites and starts with the same bytes
+    # unless the fence widens, so a kill mid-write keeps the earlier words.
     text = entry(prompt, now)
-    fd = os.open(roll, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
+    fd = os.open(roll, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         old = os.pread(fd, os.fstat(fd).st_size, 0)
+        at = len(old)
         m = re.search(rb"\n### (\d{8}t\d{6}z)\n(`{3,})\n((?:(?!\n\2\n).)*)\n\2\n\Z", old, re.S)
         if m and text.startswith(f"\n### {m.group(1).decode()}\n"):
             text = entry(m.group(3).decode("utf-8", "surrogatepass") + "\n\n" + prompt, now)
-            os.ftruncate(fd, m.start())
+            at = m.start()
         data = text.encode("utf-8", "surrogatepass")
         while data:
-            data = data[os.write(fd, data):]
+            n = os.pwrite(fd, data, at)
+            data, at = data[n:], at + n
     finally:
         os.close(fd)
 

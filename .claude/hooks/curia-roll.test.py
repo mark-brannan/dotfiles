@@ -240,6 +240,9 @@ class FoldTest(unittest.TestCase):
         self.hook.append(str(self.roll), "first", T1)
         self.hook.append(str(self.roll), "second", T1_LATER)
         self.assertEqual(self.roll.read_text(), self.hook.entry("first\n\nsecond", T1))
+        # Same fence, so the rewrite opens with the earlier entry's bytes up to
+        # its words: a kill mid-write cannot lose them.
+        self.assertTrue(self.roll.read_text().startswith(self.hook.entry("first", T1)[: -len("\n```\n")]))
 
     def test_three_in_one_second_fold_in_time_order_after_older_entries(self):
         before = "# roll\n" + self.hook.entry("old", T1 - datetime.timedelta(seconds=5))
