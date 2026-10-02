@@ -66,17 +66,21 @@ state/global/curia/<id>/
 
 Two files, two grains. **`roll.md` is append-only.** While a `LIVE` file
 naming the session is in the folder, a hook appends each of the user's
-prompts verbatim under a stamped heading, `### <ISO UTC> <session8>`;
+prompts verbatim under a stamp heading, `### 20261002t054107z` (UTC date and
+time to the second, no separators, lower-case `t` and `z`, nothing else);
 nothing edits an entry after. No agent writes `roll.md`. **`digest.md` is
 derived**: rewritten in place, and it carries the user's words only as
-references, `<curia>/roll.md:<stamp>`, never re-typed quotes. Which
+references, `<curia>/roll.md#<stamp>`, never re-typed quotes. The stamp is
+the heading, so the reference is the GitHub anchor and stays a link. Which
 references it carries is lint's call, made with an editor's discretion; a
 reference a later ruling contradicts is removed and shown, since a reversal
 is a finding, not an error. A reference into another curia's roll takes
 the same form.
 
 <!-- pen (Solace, 2026-10-02): roll.md for the words, digest.md for the
-     document, the reference form `<curia>/roll.md:<stamp>`. pencil: the
+     document, the reference form `<curia>/roll.md#<stamp>` (amended by
+     Solace the same day from `:<stamp>`, with the session id dropped from
+     the heading: the anchor must be the bare stamp). pencil: the
      rest of the layout and private-deliberation/public-produce are
      assumed, not ruled (design doc, open question on /curia <id>
      mechanics). The pin, a passage moved to the top of the words section
@@ -203,7 +207,7 @@ curia for it. It becomes a line under `## Open questions` here, or a
 ## Closing (the user says when)
 
 1. Land every edit; rewrite **Where this stands** — the last words by
-   reference, `<id>/roll.md:<stamp>`, what is unsettled, the X of Y
+   reference, `<id>/roll.md#<stamp>`, what is unsettled, the X of Y
    position for next time. If the user has ruled the question itself
    settled, set `status: settled` in the header too — bare `/curia` lists
    open curiae, and nothing else retires one.

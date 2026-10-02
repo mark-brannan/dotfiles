@@ -2,8 +2,8 @@
 
 <!-- This is digest.md. The user's words are in roll.md beside it, written
      by a hook. This file never quotes them: it refers to one entry as
-     `<curia>/roll.md:<stamp>`, the stamp being the entry's heading, e.g.
-     `one-entry-point/roll.md:2026-10-02T05:41:07Z 3554281d`. -->
+     `<curia>/roll.md#<stamp>`, the stamp being the entry's heading and so
+     its GitHub anchor, e.g. `one-entry-point/roll.md#20261002t054107z`. -->
 
 - id: `<id>`
 - opened: <date>, on the user's order: <reference to the words that ordered it>
@@ -21,7 +21,7 @@
 Not yet sat. The first sitting reads the origin and opens the dialogue at
 1 of Y.
 
-- **The user's last words:** (none yet; then a reference, `<id>/roll.md:<stamp>`)
+- **The user's last words:** (none yet; then a reference, `<id>/roll.md#<stamp>`)
 - **Unsettled:** the question as posed above
 - **Next:** first question
 
