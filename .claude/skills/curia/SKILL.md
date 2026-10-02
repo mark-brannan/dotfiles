@@ -187,8 +187,8 @@ call. The three early placeholders (`andon-rubric`,
    sub-agents of its own) checks the derived sections for contradictions,
    stale claims and orphan terms, and reports overlap with the other open
    curiae from step 0 — a question this one shares with another — from
-   which `related:` is rewritten. It proposes quotes to pull and prune
-   under the rule above. Only its list enters this
+   which this session rewrites `related:`. It proposes quotes to pull and
+   prune under the rule above. Only its list enters this
    context. Lint is toil: apply the mechanical fixes and show the diff
    for the record; only a finding that touches a ruling or a name becomes
    a question in the dialogue. <!-- pencil: lint-is-toil is assumed
