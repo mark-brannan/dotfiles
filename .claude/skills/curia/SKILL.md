@@ -158,12 +158,13 @@ call. The three early placeholders (`andon-rubric`,
 0. **List the open curiae** first, whatever the argument, exactly as bare
    `/curia` does — a deterministic pre-step, one line each, count in view:
    each open curia's id, timestamp and working title.
-1. **Resolve the id.** Read `state/global/curia/<id>/digest.md`. A
-   one-line redirect points at a document elsewhere (a grandfathered
-   curia); follow it — that document's own loop section then governs read
-   order and replaces step 4's reading, while the LIVE check, the lint
-   and every dialogue rule still apply, with the LIVE file in the
-   redirect's folder. **No folder at all → say the id didn't resolve,
+1. **Resolve the id.** Read `state/global/curia/<id>/digest.md`; a
+   folder with `thread.md` and no `digest.md` is from before the split,
+   so read `thread.md` there instead. A one-line redirect points at a
+   document elsewhere (a grandfathered curia); follow it — that
+   document's own loop section then governs read order and replaces
+   step 4's reading, while the LIVE check, the lint and every dialogue
+   rule still apply, with the LIVE file in the redirect's folder. **No folder at all → say the id didn't resolve,
    then guess.** From the step 0 list, pick the curia the argument most
    likely meant — closest fuzzy match on id and question first, most
    recently touched to break a tie — and recommend it in one line, as
@@ -219,7 +220,9 @@ curia for it. It becomes a line under `## Open questions` here, or a
 4. Leave the `LIVE` file in place: the hook records only while it names
    this session, and the final word is still to come.
 5. The user has the final word; the hook records it, and nothing else
-   does. Then remove the `LIVE` file, and open nothing new.
+   does. Then point **Where this stands** at that entry, the last `###`
+   heading in `roll.md`, since the reference written at step 1 predates
+   it; remove the `LIVE` file; open nothing new.
 
 ## Bare `/curia`
 
