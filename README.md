@@ -65,7 +65,9 @@ its own runbook at [.claude/RUNBOOK.md](.claude/RUNBOOK.md).
   Ciphertext sits tracked at `secrets/<name>.sops.env`; bootstrap decrypts each
   into `~/.config/secrets/<name>.env`, which is gitignored *and* outside the git
   worktree, so a later `yadm add` cannot sweep it up. Shells source
-  `~/.config/secrets/*.env` at startup.
+  `~/.config/secrets/*.env` at startup. A secret no shell should carry, like a
+  signing key, lives in `secrets/on-demand/` instead: bootstrap never decrypts
+  it, and the one script that needs it runs `sops -d` in memory.
 * **Tool config that a tool rewrites lives outside git.** `~/.npmrc` is the case
   in point: npm overwrites it with an auth token on every login, so the settings
   live in `.profile`/`.zshenv` as `NPM_CONFIG_*` and the file itself is ignored.
