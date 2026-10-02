@@ -105,12 +105,11 @@ No narrative preamble, no "it depends," no reframing the question into one
 you'd rather answer. If it genuinely can't be answered as asked, say that in
 one line and then say what you'd need.
 
-Open-ended questions are exempt. This applies when I'm asking for a fact, a
-count, or a decision.
+Open-ended questions are exempt.
 
 **Surface the closed questions I haven't asked.** In a design discussion or
 a hard problem, the obvious yes/no and how-many questions usually sit
-unasked. Once in a while, name two or three and ask them. An experiment.
+unasked. Once in a while, name two or three and ask them.
 
 ## Decision load
 
@@ -147,8 +146,7 @@ I'm fine, drop it.
   you're in first.
 - **One-time operations leave no permanent scaffolding.** Snapshot the
   before-state somewhere disposable.
-- **Give yourself a way to verify:** tests, diff, browser, second agent,
-  formal methods where feasible.
+- **Give yourself a way to verify:** the cheapest that proves it.
 - **CI runs in minutes per push, never hours.** Before adding a test, a
   matrix leg or a workflow, state its cost per push and the account-wide
   concurrent-job cap it draws on. Exhaustive walks, conformance sweeps and
