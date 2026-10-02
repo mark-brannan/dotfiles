@@ -10,7 +10,8 @@
 #      plugin update), so the plugin being measured is the one sessions load;
 #   2. runs languette-step-two-ready; NOT READY ends the run, exit 0;
 #   3. stops if a PR from claude/languette-step-two already exists in any
-#      state: open is waiting on the user, merged is done, closed is her no;
+#      state: open is waiting on the user, merged is done (the job then
+#      disables its own timer), closed is her no;
 #   4. builds the change fresh from origin/main in a throwaway worktree:
 #      deletes the three guards and their suites, their PreToolUse entries in
 #      .claude/settings.json, their cloud-session-setup.sh INSTALL lines and
@@ -20,7 +21,8 @@
 #      the run, exit 1;
 #   6. commits (signed), pushes the branch, opens the PR with the readiness
 #      output and every remaining prose mention of the three guards listed
-#      for review, labelled awaiting-human. It never merges.
+#      for review. Not labelled: Mergify computes awaiting-human, and a hand
+#      label comes off at its first evaluation. It never merges.
 #
 # Usage: languette-step-two --since DATE [--repo DIR] [--dry-run]
 #   --since is passed to languette-step-two-ready. --repo is a git clone of
@@ -184,6 +186,10 @@ def main(argv):
     if prs:
         log("a step-two PR exists, nothing to do: " + ", ".join(f"{x['url']} ({x['state'].lower()})" for x in prs))
         if not a.dry_run:
+            if any(x["state"] == "MERGED" for x in prs):
+                # Step two is done; a one-time job leaves no timer behind.
+                r = run(["systemctl", "--user", "disable", "--now", "languette-step-two.timer"], check=False)
+                log(("" if r.returncode == 0 else "WARN ") + "disabled languette-step-two.timer: step two merged")
             return 0
 
     trees = []
@@ -218,12 +224,9 @@ def main(argv):
         # commits carry Change-Id trailers. A stale branch with no PR is this
         # job's own leftover, so it is overwritten.
         run(["git", "push", "-q", "--force", "origin", f"HEAD:refs/heads/{BRANCH}"], cwd=tree)
-        args = ["gh", "pr", "create", "--base", "main", "--head", BRANCH,
-                "--title", "languette step two: delete the dotfiles copies of the three guards",
-                "--body", body(r.stdout, base, head, refs, flaky)]
-        pr = run(args + ["--label", "awaiting-human"], cwd=tree, check=False)
-        if pr.returncode != 0:
-            pr = run(args, cwd=tree)
+        pr = run(["gh", "pr", "create", "--base", "main", "--head", BRANCH,
+                  "--title", "languette step two: delete the dotfiles copies of the three guards",
+                  "--body", body(r.stdout, base, head, refs, flaky)], cwd=tree)
         log("opened " + pr.stdout.strip())
         return 0
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:

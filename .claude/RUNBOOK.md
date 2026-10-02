@@ -238,7 +238,8 @@ the counts and READY or NOT READY.
 Hourly, on the user's main machine only: refresh the plugin to the tip of its
 main, run `languette-step-two-ready`, and on READY open the PR deleting the
 three guard copies. It never merges. A step-two PR in any state ends the run,
-so closing it unmerged keeps the job quiet.
+so closing it unmerged keeps the job quiet; once it is merged, the next run
+disables the timer.
 
 Rehearse first. This builds and tests the change from origin/main and pushes
 nothing:
