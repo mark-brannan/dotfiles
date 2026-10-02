@@ -151,6 +151,12 @@ class ReplayTest(Base):
         self.f.deny("r", "[dotfiles copy] `git reset --hard` is blocked at user scope", "git reset --hard # DENYME", i=0)
         self.check(0, "1 of them on replay", "--since", SINCE, "--min-sessions", "1")
 
+    def test_ambiguous_fallback_is_not_replayed(self):
+        # Two denials share the reason; the index matches neither, so the right command cannot be told apart.
+        self.f.deny("r", "[dotfiles copy] `rm -r a` is blocked", "rm -rf a # DENYME", i=0)
+        self.f.deny("r", "[dotfiles copy] `rm -r a` is blocked", "rm -rf a", i=0)
+        self.check(1, "(2 call not found in transcript)", "--since", SINCE, "--min-sessions", "1")
+
     def test_crashed_replay_is_not_a_plugin_denial(self):
         self.f.deny("r", "[dotfiles copy] `rm -r x` is blocked", "rm -rf x # CRASH DENYME")
         self.check(1, "(1 plugin replay crashed)", "--since", SINCE, "--min-sessions", "1")

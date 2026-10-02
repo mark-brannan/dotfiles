@@ -156,33 +156,35 @@ def recover_call(transcript, i, reason):
 
     `i` is the denial's index in the transcript (session-metrics.jq slurps it,
     one record per line); the reason is checked against it so a transcript
-    that has moved under us is never misread. Failing that, the first denial
-    whose text starts with the recorded reason (it was truncated) is taken.
+    that has moved under us is never misread. Failing that, a denial whose
+    text starts with the recorded reason (it was truncated) is taken only when
+    it is the one such denial: guard reasons share prefixes, and replaying the
+    wrong command could count a denial for the plugin that it never made.
     """
     entries = read_jsonl(transcript)
     # The recorded reason is redacted and truncated; its first 60 characters
     # are a safe prefix of the text the transcript holds.
     head = reason[:60]
-    candidates = []
-    if isinstance(i, int) and 0 <= i < len(entries) and entries[i]:
-        candidates.append(entries[i])
-    candidates += [e for e in entries if e and e.get("toolDenialKind")]
-    for e in candidates:
-        if not e.get("toolDenialKind"):
+
+    def matches(e):
+        tid, text = denial_text(e) if e and e.get("toolDenialKind") else (None, "")
+        return tid if tid and text.startswith(head) else None
+
+    if isinstance(i, int) and 0 <= i < len(entries) and matches(entries[i]):
+        hits = [entries[i]]
+    else:
+        hits = [e for e in entries if matches(e)]
+    if len(hits) != 1:
+        return None
+    denial, tid = hits[0], matches(hits[0])
+    for a in entries:
+        if not a or a.get("type") != "assistant":
             continue
-        tid, text = denial_text(e)
-        if not tid or not text.startswith(head):
-            continue
-        for a in entries:
-            if not a or a.get("type") != "assistant":
-                continue
-            for c in (a.get("message") or {}).get("content") or []:
-                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("id") == tid:
-                    cmd = (c.get("input") or {}).get("command")
-                    cwd = a.get("cwd") or e.get("cwd")
-                    if isinstance(cmd, str) and cwd:
-                        return cmd, cwd
-                    return None
+        for c in (a.get("message") or {}).get("content") or []:
+            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("id") == tid:
+                cmd = (c.get("input") or {}).get("command")
+                cwd = a.get("cwd") or denial.get("cwd")
+                return (cmd, cwd) if isinstance(cmd, str) and cwd else None
     return None
 
 
