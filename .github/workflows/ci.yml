@@ -208,8 +208,8 @@ jobs:
         with:
           persist-credentials: false
       - run: sudo apt-get update -q && sudo apt-get install -y -q jq
-      - name: prose-budget engine tests
-        run: python3 .local/bin/prose-budget.test.py
+      - name: Python test suites
+        run: for t in .local/bin/*.test.py; do echo "::group::$t"; python3 "$t"; echo "::endgroup::"; done
       - name: Run every other test suite in parallel
         run: |
           set -euo pipefail
