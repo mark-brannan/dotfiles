@@ -26,8 +26,13 @@ writes LIVE, so it is matched by the id it names instead. Task notifications
 and agent messages also fire UserPromptSubmit and stay out. A dialog's
 free-text answers and notes are one entry; a picked label stays out.
 
-The roll is append-only (one-entry-point curia, 2026-10-02, the words log):
-nothing here reads, edits or reorders what is already in it. Until a curia's
+The roll is append-only (one-entry-point curia, 2026-10-02, the words log),
+with one exception: words that share a stamp are one entry, their texts in
+time order joined by a blank line (Solace, 2026-10-02), as build-roll.py
+merges them. So when the last entry already carries this second's stamp, it
+is re-rendered with the new words after a blank line, its fence widened if
+they need it; nothing before it is read for meaning, edited or reordered.
+Until a curia's
 folder is moved to the roll/digest layout, roll.md is still the curated
 document, so a folder without digest.md is skipped.
 
@@ -49,11 +54,14 @@ import lib_state  # noqa: E402
 AGENT_TEXT = ("<task-notification>", "<agent-message", "Another Claude session sent a message:")
 
 
+def stamp(now):
+    return now.strftime("%Y%m%dt%H%M%Sz")
+
+
 def entry(prompt, now):
     longest = max((len(r) for r in re.findall(r"`+", prompt)), default=0)
     fence = "`" * max(3, longest + 1)
-    stamp = now.strftime("%Y%m%dt%H%M%Sz")
-    return f"\n### {stamp}\n{fence}\n{prompt}\n{fence}\n"
+    return f"\n### {stamp(now)}\n{fence}\n{prompt}\n{fence}\n"
 
 
 def dialog_words(questions, answers, annotations=None):
@@ -84,12 +92,37 @@ def sittings(state_dir, session_id, prompt):
             yield os.path.dirname(live)
 
 
-def append(roll, text):
+def last_entry(data, stamp_):
+    """(offset, words) of the roll's last entry when its heading is stamp_,
+    else None. Read from the end: the closing fence is the last line, and no
+    shorter or longer run of backticks inside the words can match it."""
+    m = re.search(rb"\n(`{3,})\n\Z", data)
+    if not m:
+        return None
+    fence = m.group(1)
+    opening = data.rfind(b"\n" + fence + b"\n", 0, m.start())
+    head = b"\n### " + stamp_.encode() + b"\n" + fence + b"\n"
+    if opening < 0 or not data[: opening + len(fence) + 2].endswith(head):
+        return None
+    try:
+        words = data[opening + len(fence) + 2 : m.start()].decode("utf-8", "surrogatepass")
+    except UnicodeDecodeError:
+        return None
+    return opening + len(fence) + 2 - len(head), words
+
+
+def record(roll, prompt, now):
     # The whole entry under an exclusive lock: two sessions sitting in the
-    # same curia on this machine interleave whole entries, never bytes.
-    fd = os.open(roll, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    # same curia on this machine interleave whole entries, never bytes, and
+    # a fold sees the last entry no other writer is changing.
+    fd = os.open(roll, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
+        text = entry(prompt, now)
+        last = last_entry(os.pread(fd, os.fstat(fd).st_size, 0), stamp(now))
+        if last:
+            os.ftruncate(fd, last[0])
+            text = entry(last[1] + "\n\n" + prompt, now)
         data = text.encode("utf-8", "surrogatepass")
         while data:
             data = data[os.write(fd, data):]
@@ -118,7 +151,7 @@ def main():
     opener = "" if ev.get("tool_name") else prompt
     for folder in set(sittings(state_dir, session_id, opener)):
         if os.path.isfile(os.path.join(folder, "digest.md")):
-            append(os.path.join(folder, "roll.md"), entry(prompt, now))
+            record(os.path.join(folder, "roll.md"), prompt, now)
 
 
 if __name__ == "__main__":
