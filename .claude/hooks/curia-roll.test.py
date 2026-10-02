@@ -277,12 +277,11 @@ class FoldTest(unittest.TestCase):
         self.hook.append(str(self.roll), "a", T1)
         self.assertEqual(self.roll.read_text(), "# curated\n" + self.hook.entry("a", T1))
 
-    def test_an_undecodable_last_entry_is_left_as_it_was(self):
+    def test_an_undecodable_last_entry_is_kept_and_appended_after(self):
         bad = self.hook.entry("x", T1).encode().replace(b"x", b"\xff")
         self.roll.write_bytes(bad)
-        with self.assertRaises(UnicodeDecodeError):  # main() swallows it and exits 0
-            self.hook.append(str(self.roll), "b", T1)
-        self.assertEqual(self.roll.read_bytes(), bad)
+        self.hook.append(str(self.roll), "b", T1)
+        self.assertEqual(self.roll.read_bytes(), bad + self.hook.entry("b", T1).encode())
 
 
 if __name__ == "__main__":
