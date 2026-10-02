@@ -7,7 +7,9 @@ description: Loop-one sync, scoping only — what has a governing source settled
 
 The touch point where a governing source's rulings become claimable work
 items: the seam between judgment and toil. The design lives in
-`curia/one-entry-point/digest.md`.
+`curia/one-entry-point/digest.md` and is a work in progress: where this file
+and the digest disagree, the digest is the newer word, and either may be the
+one that reads wrong.
 
 **Words.** Use the record's words. A word or idea the record does not
 hold is a new one, and step 5 counts it. Agent-drafted words are avoided.
