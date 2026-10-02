@@ -180,12 +180,9 @@ jobs:
           for impl in mawk gawk original-awk; do
             d=$(mktemp -d)
             ln -s "$(command -v "$impl")" "$d/awk"
-            for t in .claude/hooks/no-delete-stacked-base.test.sh \
-                     .claude/hooks/no-git-footguns.test.sh \
-                     .claude/hooks/no-foreign-worktree.test.sh \
+            for t in .claude/hooks/no-foreign-worktree.test.sh \
                      .claude/hooks/no-checkout-home.test.sh \
                      .claude/hooks/prose-budget-commit.test.sh \
-                     .claude/hooks/no-rm-tree.test.sh \
                      .claude/hooks/public-issue-guard.test.sh \
                      .claude/hooks/issue-door.test.sh \
                      .claude/hooks/pr-ownership-context.test.sh; do
@@ -215,12 +212,9 @@ jobs:
           set -euo pipefail
           printf '%s\n' .claude/hooks/*.test.sh .local/bin/*.test.sh \
             | grep -vFf <(printf '%s\n' \
-                .claude/hooks/no-delete-stacked-base.test.sh \
-                .claude/hooks/no-git-footguns.test.sh \
                 .claude/hooks/no-foreign-worktree.test.sh \
                 .claude/hooks/no-checkout-home.test.sh \
                 .claude/hooks/prose-budget-commit.test.sh \
-                .claude/hooks/no-rm-tree.test.sh \
                 .claude/hooks/public-issue-guard.test.sh \
                 .claude/hooks/issue-door.test.sh \
                 .claude/hooks/pr-ownership-context.test.sh) \
