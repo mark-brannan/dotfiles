@@ -13,23 +13,26 @@ import sys
 HOOK_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def state_repo():
-    """The private state repo's working tree, or None if it isn't here."""
+def _lib(fn):
+    """Run one lib-state.sh function and return what it printed, or None."""
     try:
         out = subprocess.run(
-            ["bash", "-c", '. "$1" && state_repo', "_", os.path.join(HOOK_DIR, "lib-state.sh")],
+            ["bash", "-c", '. "$1" && ' + fn, "_", os.path.join(HOOK_DIR, "lib-state.sh")],
             capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout if out.returncode == 0 and out.stdout else None
 
 
+def state_repo():
+    """The private state repo's working tree, or None if it isn't here."""
+    return _lib("state_repo")
+
+
 def state_dir():
-    """Where state files go: the repo's state/global, else the local fallback."""
-    repo = state_repo()
-    if repo:
-        return os.path.join(repo, "state", "global")
-    return os.path.join(os.path.expanduser("~"), ".claude", "state", "global")
+    """Where state files go: the repo's state/global, else lib-state.sh's
+    local fallback. None only if bash itself could not run."""
+    return _lib("state_dir")
 
 
 def event():

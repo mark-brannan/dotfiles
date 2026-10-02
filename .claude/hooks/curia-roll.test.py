@@ -93,6 +93,20 @@ class CuriaRollTest(unittest.TestCase):
         self.prompt("hi")
         self.assertEqual((d / "roll.md").read_text(), "# curated\n")
 
+    def test_the_opening_curia_prompt_is_recorded_before_live_exists(self):
+        self.sitting("c", "")
+        self.sitting("unmoved", "", moved=False)
+        self.prompt("/curia c and my opening words")
+        self.prompt("/curia unmoved")
+        self.prompt("/curia no-such-curia")
+        self.assertEqual([e[2] for e in self.entries("c")], ["/curia c and my opening words"])
+        self.assertEqual([p.parent.name for p in self.curia.glob("*/roll.md")], ["c"])
+
+    def test_a_resumed_sitting_records_its_opening_prompt_once(self):
+        self.sitting("c", f"{SID} t\n")
+        self.prompt("/curia c")
+        self.assertEqual(len(self.entries("c")), 1)
+
     def test_user_input_field_is_read_too(self):
         self.sitting("c", f"{SID} t\n")
         self.prompt("from the docs' field name", field="user_input")
