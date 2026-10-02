@@ -209,7 +209,7 @@ jobs:
           persist-credentials: false
       - run: sudo apt-get update -q && sudo apt-get install -y -q jq
       - name: Python test suites
-        run: for t in .local/bin/*.test.py; do echo "== $t"; python3 "$t"; done
+        run: for t in .local/bin/*.test.py .claude/hooks/*.test.py; do echo "== $t"; python3 "$t"; done
       - name: Run every other test suite in parallel
         run: |
           set -euo pipefail

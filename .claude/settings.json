@@ -1,7 +1,8 @@
 {
   "env": {
     "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
-    "showThinkingSummaries": true
+    "showThinkingSummaries": true,
+    "FORCE_AUTOUPDATE_PLUGINS": "1"
   },
   "permissions": {
     "allow": [
@@ -408,6 +409,10 @@
           {
             "type": "command",
             "command": "h=\"$HOME/.claude/hooks/issue-door.sh\"; [ -f \"$h\" ] && sh \"$h\" prompt; true"
+          },
+          {
+            "type": "command",
+            "command": "h=\"$HOME/.claude/hooks/curia-roll.py\"; [ -f \"$h\" ] && python3 \"$h\" 2>/dev/null; true"
           }
         ]
       }
@@ -436,7 +441,8 @@
       "source": {
         "source": "github",
         "repo": "mark-brannan/languette"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "autoMode": {
