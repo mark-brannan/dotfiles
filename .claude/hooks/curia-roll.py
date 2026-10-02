@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit and PostToolUse(AskUserQuestion): append the user's
-words, verbatim, to the roll of the curia this session is sitting in.
+"""UserPromptSubmit, PostToolUse(AskUserQuestion): append the user's words, verbatim, to the roll of the
+curia this session is sitting in.
 
 The curia skill writes state/global/curia/<id>/LIVE at the start of a sitting,
 holding the session id and a timestamp. A session named in some LIVE file is
@@ -22,28 +22,17 @@ day). A newline is always added after the prompt before the closing fence:
 strip exactly one to get the prompt back.
 
 The prompt that opens a sitting, `/curia <id> ...`, arrives before the skill
-writes LIVE, so it is matched by the id it names instead.
-
-Not everything UserPromptSubmit carries was typed. Claude Code fires it for a
-background task's `<task-notification>` and for another session's
-`<agent-message>` too (seen in 2.1.284 transcripts, one fire per record), so a
-prompt that opens with one of those is agent text and stays out. A prompt the
-user queued while a turn was running fires it like any other and is kept.
-
-A dialog's answers never pass through UserPromptSubmit. PostToolUse on
-AskUserQuestion carries them as `answers`, keyed by question text. An answer
-equal to an offered option label (for a multi-select, every comma-separated
-part one) is the agent's text and stays out. The rest, free-text answers and
-any notes typed on a picked option, form one entry in question order,
-separated by a blank line: see dialog_words().
+writes LIVE, so it is matched by the id it names instead. Task notifications
+and agent messages also fire UserPromptSubmit and stay out. A dialog's
+free-text answers and notes are one entry; a picked label stays out.
 
 The roll is append-only (one-entry-point curia, 2026-10-02, the words log):
 nothing here reads, edits or reorders what is already in it. Until a curia's
 folder is moved to the roll/digest layout, roll.md is still the curated
 document, so a folder without digest.md is skipped.
 
-Always exits 0 and prints nothing: a roll failure must never block a prompt
-or a tool, and UserPromptSubmit stdout would land in the model's context.
+Always exits 0 and prints nothing: a roll failure must never block a prompt,
+and UserPromptSubmit stdout would land in the model's context.
 """
 import datetime
 import fcntl
@@ -57,6 +46,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_state  # noqa: E402
 
 
+AGENT_TEXT = ("<task-notification>", "<agent-message", "Another Claude session sent a message:")
+
+
 def entry(prompt, now):
     longest = max((len(r) for r in re.findall(r"`+", prompt)), default=0)
     fence = "`" * max(3, longest + 1)
@@ -64,55 +56,17 @@ def entry(prompt, now):
     return f"\n### {stamp}\n{fence}\n{prompt}\n{fence}\n"
 
 
-AGENT_TEXT = ("<task-notification>", "<agent-message", "Another Claude session sent a message:")
-
-
-def typed(prompt):
-    return not prompt.lstrip().startswith(AGENT_TEXT)
-
-
-def picked(answer, question):
-    labels = {o.get("label") for o in question.get("options") or [] if isinstance(o, dict)}
-    if answer in labels:
-        return True
-    return bool(question.get("multiSelect")) and all(p in labels for p in answer.split(", "))
-
-
 def dialog_words(questions, answers, annotations=None):
-    """The user's own words in one AskUserQuestion result, in question order:
-    each free-text answer, then any note typed beside a picked option. The
-    migration's build imports this, so a rebuilt entry matches a hooked one."""
     words = []
     for q in questions or []:
-        if not isinstance(q, dict) or not isinstance(q.get("question"), str):
-            continue
-        text = q["question"]
-        answer = (answers or {}).get(text)
-        if isinstance(answer, str) and answer.strip() and not picked(answer, q):
-            words.append(answer)
-        note = ((annotations or {}).get(text) or {}).get("notes")
+        labels = {o.get("label") for o in q.get("options") or []}
+        a = (answers or {}).get(q.get("question"))
+        if isinstance(a, str) and a.strip() and a not in labels and not (q.get("multiSelect") and set(a.split(", ")) <= labels):
+            words.append(a)
+        note = ((annotations or {}).get(q.get("question")) or {}).get("notes")
         if isinstance(note, str) and note.strip():
             words.append(note)
     return "\n\n".join(words)
-
-
-def words(ev):
-    """The user's typed words in this event, or None."""
-    if ev.get("hook_event_name") == "PostToolUse":
-        if ev.get("tool_name") != "AskUserQuestion":
-            return None
-        # The answers ride on the tool result; the input carries them too
-        # once the dialog fills them in. Read both rather than bet on one.
-        got = {}
-        for part in (ev.get("tool_input"), ev.get("tool_response")):
-            if isinstance(part, dict):
-                got.update({k: v for k, v in part.items() if v})
-        text = dialog_words(got.get("questions"), got.get("answers"), got.get("annotations"))
-        return text or None
-    # The live 2.1.x payload names it `prompt`; the hooks reference page
-    # names it `user_input`. Read both rather than bet on one.
-    prompt = ev.get("prompt", ev.get("user_input"))
-    return prompt if isinstance(prompt, str) and typed(prompt) else None
 
 
 def sittings(state_dir, session_id, prompt):
@@ -147,21 +101,25 @@ def append(roll, text):
 def main():
     ev = lib_state.event()
     session_id = ev.get("session_id")
-    if not isinstance(session_id, str) or not session_id:
+    # The live 2.1.x payload names it `prompt`; the hooks reference page
+    # names it `user_input`. Read both rather than bet on one.
+    prompt = ev.get("prompt", ev.get("user_input"))
+    if ev.get("tool_name") == "AskUserQuestion":  # answers on input or result
+        got = {k: v for p in (ev.get("tool_input"), ev.get("tool_response")) if isinstance(p, dict) for k, v in p.items() if v}
+        prompt = dialog_words(got.get("questions"), got.get("answers"), got.get("annotations")) or None
+    elif isinstance(prompt, str) and prompt.lstrip().startswith(AGENT_TEXT):
         return
-    text = words(ev)
-    if text is None:
+    if not isinstance(session_id, str) or not session_id or not isinstance(prompt, str):
         return
     state_dir = lib_state.state_dir()
     if not state_dir:
         return
     now = datetime.datetime.now(datetime.timezone.utc)
     # A set: a resumed session can both type `/curia <id>` and be in its LIVE.
-    # Only a prompt can open a sitting; a dialog answer counts under LIVE.
-    opener = text if ev.get("hook_event_name") != "PostToolUse" else ""
+    opener = "" if ev.get("tool_name") else prompt
     for folder in set(sittings(state_dir, session_id, opener)):
         if os.path.isfile(os.path.join(folder, "digest.md")):
-            append(os.path.join(folder, "roll.md"), entry(text, now))
+            append(os.path.join(folder, "roll.md"), entry(prompt, now))
 
 
 if __name__ == "__main__":
