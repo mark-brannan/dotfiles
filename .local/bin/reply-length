@@ -10,7 +10,9 @@
 #   (header) the reply-length quartiles
 #
 # Usage: reply-length [--days N] [--key prose|total|table|code] [--dump FILE]
-# Env:   CLAUDE_PROJECTS  transcripts glob root   (default ~/.claude/projects)
+#        --key sets the count the buckets report sorts by; slope always uses prose.
+# Env:   DAYS             default for --days
+#        CLAUDE_PROJECTS  transcripts glob root   (default ~/.claude/projects)
 #        FRICTION_DIR     friction *.jsonl dir    (optional; friction column
 #                                                 is 0 when absent)
 # --dump writes one row per pair (with 300/200-char reply/prompt excerpts) to
@@ -84,14 +86,15 @@ def prompt_text(rec):
 def load_friction(d):
     f = {}
     for p in glob.glob(os.path.join(d, "*.jsonl")) if d else []:
-        for line in open(p, errors="replace"):
-            try:
-                r = json.loads(line)
-            except Exception:
-                continue
-            if r.get("retracted"):
-                continue
-            f.setdefault(r["session_id"], []).append(r.get("excerpt", "")[:40].strip())
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("retracted") or not r.get("session_id"):
+                    continue
+                f.setdefault(r["session_id"], []).append((r.get("excerpt") or "")[:40].strip())
     return f
 
 
@@ -103,14 +106,15 @@ def collect(days, root, fric_dir):
     for p in files:
         sid = os.path.basename(p)[:-6]
         recs, human = [], False
-        for line in open(p, errors="replace"):
-            try:
-                r = json.loads(line)
-            except Exception:
-                continue
-            if r.get("entrypoint") in HUMAN_EP and r.get("type") == "user":
-                human = True
-            recs.append(r)
+        with open(p, errors="replace") as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("entrypoint") in HUMAN_EP and r.get("type") == "user":
+                    human = True
+                recs.append(r)
         if not human:
             continue
         last_text, last_ts, turn_text, after_tool = None, None, [], False
@@ -147,11 +151,16 @@ def collect(days, root, fric_dir):
                 last_text = held + ("\n" + last_text if last_text and not after_tool else "")
                 last_ts = last_ts if (last_ts and not after_tool) else held_ts
                 after_tool = False
-            if last_text and last_ts and r.get("timestamp") and not after_tool:
+            try:  # one malformed timestamp skips its pair, not the report
+                now = ts(r["timestamp"]) if last_text and last_ts and not after_tool else None
+                first = ts(held_ts or last_ts) if now is not None else None
+            except (KeyError, TypeError, ValueError):
+                now = None
+            if now is not None:
                 pw, tw, cw = split_text(last_text)
                 slash = pt.startswith("SLASH")
                 pairs.append({
-                    "gap": ts(r["timestamp"]) - ts(last_ts),
+                    "gap": now - ts(last_ts),
                     "prose": pw, "table": tw, "code": cw, "total": pw + tw + cw,
                     "slash": slash,
                     "clar": bool(CLAR.search(pt)) and not slash,
@@ -159,7 +168,7 @@ def collect(days, root, fric_dir):
                     "slop": bool(SLOP.search(pt)),
                     "fric": any(e and e[:30] in pt for e in fric.get(sid, [])),
                     "plen": words(pt), "hooked": bool(held),
-                    "gap_from_first": ts(r["timestamp"]) - ts(held_ts or last_ts),
+                    "gap_from_first": now - first,
                     "ts": last_ts, "reply": last_text[:300], "prompt": pt[:200]})
             last_text, last_ts, turn_text, after_tool = None, None, [], False
             held, held_ts = None, None
@@ -247,7 +256,7 @@ def main():
     fric = os.path.expanduser(os.environ.get("FRICTION_DIR", ""))
     nfiles, pairs = collect(a.days, root, fric)
     if a.dump:
-        with open(a.dump, "w") as f:
+        with os.fdopen(os.open(a.dump, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
             for p in pairs:
                 f.write(json.dumps(p) + "\n")
     P = [p for p in pairs if not p["slash"] and p["gap"] >= 0]
