@@ -217,12 +217,9 @@ curia for it. It becomes a line under `## Open questions` here, or a
    from the document's header. Nothing else to paste, nothing to hold in
    memory. A hand-off prompt names `/curia <id>` only for a folder that
    exists; it never proposes a new one.
-4. Leave the `LIVE` file in place: the hook records only while it names
-   this session, and the final word is still to come.
-5. The user has the final word; the hook records it, and nothing else
-   does. Then point **Where this stands** at that entry, the last `###`
-   heading in `roll.md`, since the reference written at step 1 predates
-   it; remove the `LIVE` file; open nothing new.
+4. Remove the `LIVE` file.
+5. The user has the final word; record it verbatim. Open nothing new after
+   it.
 
 ## Bare `/curia`
 
