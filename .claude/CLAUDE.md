@@ -148,7 +148,7 @@ I'm fine, drop it.
 - **One-time operations leave no permanent scaffolding.** Snapshot the
   before-state somewhere disposable.
 - **Give yourself a way to verify:** tests, diff, browser, second agent,
-  formal methods where feasible.
+  formal methods where feasible, the cheapest that proves it.
 - **Compute runs in minutes, never hours, in CI or on my machine.** Before
   adding a test, a matrix leg or a workflow, state its cost per push and the
   account-wide concurrent-job cap it draws on; before a local run, its wall
