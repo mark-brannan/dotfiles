@@ -13,6 +13,7 @@
 set -eu
 
 need() { command -v "$1" >/dev/null 2>&1; }
+failed=0
 
 echo "==> checking tooling"
 
@@ -43,13 +44,22 @@ else
   else
     echo "==> age key present, decrypting sops-managed secrets"
     export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+    umask 077
     mkdir -p "$HOME/.config/secrets"
     chmod 700 "$HOME/.config/secrets"
-    find "$HOME/secrets" -maxdepth 1 -name '*.sops.env' -type f 2>/dev/null | while IFS= read -r f; do
+    # A for loop, not find | while: a pipe's subshell would lose `failed`.
+    for f in "$HOME"/secrets/*.sops.env; do
+      [ -f "$f" ] || continue
       base=$(basename "$f" .sops.env)
       out="$HOME/.config/secrets/$base.env"
-      sops -d "$f" > "$out.tmp" && mv "$out.tmp" "$out" && chmod 600 "$out"
-      echo "    decrypted $f -> $out"
+      if sops -d "$f" > "$out.tmp"; then
+        mv "$out.tmp" "$out"
+        echo "    decrypted $f -> $out"
+      else
+        rm -f "$out.tmp"
+        echo "    FAILED to decrypt $f (run: sops -d $f)" >&2
+        failed=1
+      fi
     done
   fi
 fi
@@ -57,4 +67,8 @@ fi
 # Unattended ff-only sync, every five minutes. Idempotent; see README.
 [ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
 
+if [ "$failed" -ne 0 ]; then
+  echo "==> bootstrap FAILED: a secret above did not decrypt" >&2
+  exit 1
+fi
 echo "==> bootstrap done"
