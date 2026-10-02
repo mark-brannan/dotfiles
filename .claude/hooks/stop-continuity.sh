@@ -590,7 +590,7 @@ pickup_item
 # and, on the first thread the transcript touched, the user's last words
 # verbatim under "Human's words", one dated sub-heading per session,
 # overwritten only while it still reads exactly as the hook wrote it.
-curia_floor() {  # curia_floor <roll.md>
+curia_floor() {  # curia_floor <digest.md>
   local t tmp
   t=$1; tmp="$t.$$"
   awk -v now="$now" -v sid8="${sid:0:8}" -v model="$cu_model" \
@@ -619,7 +619,7 @@ curia_floor() {  # curia_floor <roll.md>
     }
   ' "$t" > "$tmp" 2>/dev/null && mv -f "$tmp" "$t" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 }
-curia_said() {  # curia_said <roll.md>; $cu_words carries the text
+curia_said() {  # curia_said <digest.md>; $cu_words carries the text
   local t tmp
   t=$1; tmp="$t.$$"
   CS_WORDS="$cu_words" awk -v sid8="${sid:0:8}" -v date="${now%%T*}" '
