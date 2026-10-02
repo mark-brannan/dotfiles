@@ -7,14 +7,17 @@ holding the session id and a timestamp. A session named in some LIVE file is
 sitting in that curia, and every prompt it receives is appended to that
 folder's roll.md as one entry:
 
-    ### 2026-10-02T05:41:07Z 3554281d
+    ### 20261002t054107z
     ````
     <the prompt, byte for byte>
     ````
 
 The fence is one backtick longer than the longest run of backticks in the
 prompt (three at least), so a heading or a ``` inside the prompt stays inside
-the entry. A newline is always added after the prompt before the closing
+the entry. The heading is the bare stamp: UTC date and time to the second with
+no separators and a lower-case `t` and `z`, so GitHub's anchor for the entry is
+`#20261002t054107z` and a reference to it is `<curia>/roll.md#<stamp>` (Solace,
+2026-10-02; the session id was dropped from the heading the same day). A newline is always added after the prompt before the closing
 fence: strip exactly one to get the prompt back.
 
 The roll is append-only (one-entry-point curia, 2026-10-02, the words log):
@@ -37,11 +40,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib_state  # noqa: E402
 
 
-def entry(prompt, session_id, now):
+def entry(prompt, now):
     longest = max((len(r) for r in re.findall(r"`+", prompt)), default=0)
     fence = "`" * max(3, longest + 1)
-    stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return f"\n### {stamp} {session_id[:8]}\n{fence}\n{prompt}\n{fence}\n"
+    stamp = now.strftime("%Y%m%dt%H%M%Sz")
+    return f"\n### {stamp}\n{fence}\n{prompt}\n{fence}\n"
 
 
 def sittings(state_dir, session_id):
@@ -78,7 +81,7 @@ def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     for folder in sittings(lib_state.state_dir(), session_id):
         if os.path.isfile(os.path.join(folder, "digest.md")):
-            append(os.path.join(folder, "roll.md"), entry(prompt, session_id, now))
+            append(os.path.join(folder, "roll.md"), entry(prompt, now))
 
 
 if __name__ == "__main__":

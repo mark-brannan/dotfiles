@@ -374,7 +374,7 @@ ahead/dirty state.
 
 `curia-roll.py` runs on every prompt. When the session is named in a
 curia's `LIVE` file, it appends the prompt verbatim to that curia's
-`roll.md`, stamped with the time and the session. It skips a curia folder
+`roll.md` under a stamp heading. It skips a curia folder
 with no `digest.md`. In those folders `roll.md` is still the curated
 document, and appending prompts would corrupt it. The hook prints nothing
 and always exits 0, so a roll that silently stopped looks the same as one
@@ -386,9 +386,10 @@ cat "$d/LIVE"; ls "$d/digest.md"
 tail -n 8 "$d/roll.md"
 ```
 
-Verify: the last `### <time> <8 hex>` heading carries this session's first
-eight characters and the time of the prompt just sent, and the fenced text
-beneath it is that prompt. No entry means one of three things: the session
+Verify: the last `### <stamp>` heading is the time of the prompt just sent
+(`20261002t054107z`: UTC date and time, no separators, lower-case `t` and
+`z`; GitHub anchors it as `#20261002t054107z`), and the fenced text beneath
+it is that prompt. No entry means one of three things: the session
 id in `LIVE` is not this one, `digest.md` is missing, or
 `~/.claude/hooks/curia-roll.py` is absent (`dotsync`).
 

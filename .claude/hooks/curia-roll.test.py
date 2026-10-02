@@ -18,7 +18,7 @@ sys.dont_write_bytecode = True
 HOOK = Path(__file__).resolve().parent / "curia-roll.py"
 SID = "3554281d-fda5-4810-9e67-8117eb8e7006"
 OTHER = "29ff522d-c4ec-4b34-bf83-e7a010fb6c1e"
-ENTRY = re.compile(r"\n### (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) ([0-9a-f]{8})\n(`{3,})\n(.*?)\n\3\n", re.S)
+ENTRY = re.compile(r"\n### (\d{8}t\d{6}z)\n(`{3,})\n(.*?)\n\2\n", re.S)
 
 
 class CuriaRollTest(unittest.TestCase):
@@ -54,8 +54,9 @@ class CuriaRollTest(unittest.TestCase):
     def test_appends_one_stamped_entry_for_the_live_session(self):
         self.sitting("one-entry-point", f"{SID} 2026-10-02T05:00:00Z\n")
         self.prompt("yes, make it so")
-        [(stamp, sid8, _, body)] = self.entries("one-entry-point")
-        self.assertEqual((sid8, body), (SID[:8], "yes, make it so"))
+        [(stamp, _, body)] = self.entries("one-entry-point")
+        self.assertEqual(body, "yes, make it so")
+        self.assertRegex(stamp, r"\A\d{8}t\d{6}z\Z")
 
     def test_live_with_a_session_prefix_still_matches(self):
         self.sitting("hook-guards", f"session {SID} 2026-10-02T03:17:35Z\n")
@@ -66,18 +67,18 @@ class CuriaRollTest(unittest.TestCase):
         self.sitting("c", f"{SID} t\n")
         text = '### not a stamp\n```sh\nrun ````x````\n```\n<pasted_content id="353c">\n## h\n</pasted_content>\n\n'
         self.prompt(text)
-        [(_, _, fence, body)] = self.entries("c")
+        [(_, fence, body)] = self.entries("c")
         self.assertEqual((fence, body), ("`````", text))
 
     def test_never_touches_what_is_there(self):
         d = self.sitting("c", f"{SID} t\n")
-        before = "# roll\n\n### 2026-10-01T00:00:00Z deadbeef\n```\nold words\n```\n"
+        before = "# roll\n\n### 20261001t000000z\n```\nold words\n```\n"
         (d / "roll.md").write_text(before)
         self.prompt("first")
         self.prompt("second")
         after = (d / "roll.md").read_text()
         self.assertTrue(after.startswith(before))
-        self.assertEqual([e[3] for e in self.entries("c")], ["old words", "first", "second"])
+        self.assertEqual([e[2] for e in self.entries("c")], ["old words", "first", "second"])
 
     def test_other_session_and_no_live_are_silent(self):
         self.sitting("c", f"{OTHER} t\n")
@@ -95,13 +96,13 @@ class CuriaRollTest(unittest.TestCase):
     def test_user_input_field_is_read_too(self):
         self.sitting("c", f"{SID} t\n")
         self.prompt("from the docs' field name", field="user_input")
-        self.assertEqual(self.entries("c")[0][3], "from the docs' field name")
+        self.assertEqual(self.entries("c")[0][2], "from the docs' field name")
 
     def test_two_sessions_both_named_in_live_interleave_whole_entries(self):
         self.sitting("c", f"{SID} t\n{OTHER} t\n")
         self.prompt("from one")
         self.prompt("from two", sid=OTHER)
-        self.assertEqual([(e[1], e[3]) for e in self.entries("c")], [(SID[:8], "from one"), (OTHER[:8], "from two")])
+        self.assertEqual([e[2] for e in self.entries("c")], ["from one", "from two"])
 
     def test_bad_input_and_unwritable_roll_exit_zero_silently(self):
         for payload in ("", "not json", "[]", {"session_id": SID}, {"prompt": "x"}):
