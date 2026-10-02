@@ -5,6 +5,8 @@
   },
   "permissions": {
     "allow": [
+      "Bash(systemctl --user list-timers *)",
+      "Bash(systemctl --user show *)",
       "Bash(git add :*)",
       "Bash(git branch -D claude/*)",
       "Bash(git branch -d claude/*)",
