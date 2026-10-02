@@ -8,7 +8,7 @@ description: Loop-one sync, scoping only — what has a governing source settled
 The touch point where a governing source's rulings become claimable work
 items: the seam between judgment and toil (Solace, 2026-10-01). The id
 `scoping` is pencil ("maybe /scoping"). Source: the one-entry-point curia,
-§1t, §1u and §5's entries of 2026-10-01; its first run is
+one-entry-point/roll.md#20261001t021650z, #20261001t031843z and §5's entries of 2026-10-01; its first run is
 `curia/one-entry-point/inputs/2026-10-01-scoping-proposal.md`, the shape
 kept below.
 

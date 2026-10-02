@@ -1,7 +1,7 @@
 #!/bin/sh
 # card-id -- mint a work item's identifier, and look one up.
 #
-# Ruled by Solace, 2026-10-01 (one-entry-point curia, §1v, pen): the work
+# Ruled by Solace, 2026-10-01 (one-entry-point/roll.md#20261001t064716z, pen): the work
 # item's identifier is epoch seconds then the minting session's eight hex, no
 # separator -- 1790836842077c62eb -- never edited, never reused. Every card
 # carries it as its last field, `id: <id>`, and kanban-lint's L11 refuses a

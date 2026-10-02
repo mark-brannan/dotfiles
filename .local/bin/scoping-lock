@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The scoping lock: one writer per scoping target, at a time.
 
-Ruled by Solace, 2026-10-01 (one-entry-point curia, §1t and §1u, pen): the
+Ruled by Solace, 2026-10-01 (one-entry-point/roll.md#20261001t014929z and #20261001t031843z, pen): the
 scoping touch point runs one session per target at a time; a held scoping
 refuses rather than warns; the lock is a second, hard file beside the
 curia's LIVE, which stays the soft sitting marker it is. The file and its
