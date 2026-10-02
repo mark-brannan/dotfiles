@@ -5,6 +5,10 @@
   },
   "permissions": {
     "allow": [
+      "Bash(systemctl --user list-timers *)",
+      "Bash(systemctl --user show *)",
+      "Bash(git rev-list *)",
+      "Bash(git config core.hooksPath)",
       "Bash(git add :*)",
       "Bash(git branch -D claude/*)",
       "Bash(git branch -d claude/*)",
@@ -13,12 +17,16 @@
       "Bash(git merge-base *)",
       "Bash(gh-resolve-thread:*)",
       "Bash(git push origin HEAD:main)",
+      "Bash(languette-step-two-ready *)",
       "Bash(npm run generate:check)",
       "Bash(npm run typecheck)",
       "Bash(npm test)",
+      "Bash(pickup-list find *)",
+      "Bash(shellcheck *)",
       "Bash(yadm log *)",
       "Bash(resign-branch.sh *)",
-      "Bash(/home/solace/.local/bin/resign-branch.sh *)",
+      "Bash(~/.local/bin/card-id *)",
+      "Bash(~/.local/bin/resign-branch.sh *)",
       "mcp__Claude_Code_Remote__add_repo"
     ],
     "deny": [
