@@ -55,5 +55,10 @@ absent "$HOME/CLAUDE.md"
 
 [ "$(git --git-dir="$R" config --get core.sparseCheckout)" = true ] && ok || bad "$HOME no longer sparse"
 
+# --- and the next pull that changes CLAUDE.md still keeps it out -------------
+echo conv3 > "$O/CLAUDE.md"; git -C "$O" commit -q -am three
+(cd "$HOME" && yadm fetch -q && yadm merge -q --ff-only origin/main) || bad "ff merge after worktree adds failed"
+absent "$HOME/CLAUDE.md"
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
