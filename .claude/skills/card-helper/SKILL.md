@@ -81,7 +81,8 @@ same step. Losing their position is the one thing worse than a wrong step.
 When the card is done, retire it as `/sweep` does, its Retire steps and
 [the lifecycle](../../../docs/work-item-lifecycle.md): `work-item claim <id>`
 (an `open` card gets `log <id> status=ready` first), then `log <id> status=done
-'evidence=<the user's words or the link that shows it>'`, and stop. No skill
+'evidence=<link>'` (the link that shows it; with none, one clause of the
+user's words with no `=` or `'` in it), and stop. No skill
 writes `closed`. The Stop hook commits the item files. A card owned
 `human-ruling` stays until the ruling has landed somewhere durable — the PR,
 the ADR, the doc it settles — then it is retired the same way. Say in one

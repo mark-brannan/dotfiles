@@ -62,7 +62,8 @@ that's a `/agora` card.
 ## Output
 
 Under 15 lines: what was checked (counts, not a list), what was corrected
-and its proof link, what's left as a `/agora` candidate. A refused `work-item`
-write (exit 1: a live session holds the item) is reported, not worked around. Board corrections are item files the Stop
+and its proof link, what's left as a `/agora` candidate. A card a live session
+holds (the holder column of `work-item list --all`) is reported, not edited:
+`brief` does not check the holder, so you do. Board corrections are item files the Stop
 hook commits, so their proof is the link in the brief; commit memo corrections in
 the state repo with the `gh` evidence in the commit message.

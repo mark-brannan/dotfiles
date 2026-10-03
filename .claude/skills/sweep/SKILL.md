@@ -59,8 +59,8 @@ Every ticked card gets exactly one explicit action, chosen at tick time —
 the user has caught wrong deletions before; nothing leaves the board, or
 changes, on a bare tick with no action attached:
 
-- **Deleted** — the card is retired (see After the tick). A proposed deletion (rank step 3) defaults
-  to this.
+- **Retired** — the card leaves the board: it ends at `done`, and stays on disk
+  (see After the tick). A proposed deletion (rank step 3) defaults to this.
 - **Answered** — the question is settled now; goes to `docs/decisions.md`
   (see After the tick).
 - **Deferred** — not now. Push `until:` out to a date or event the user names.
@@ -77,7 +77,7 @@ the user says they have it.
 
 ## After the tick
 
-- **Deleted:** retire the item (below); the proof is its `evidence=`.
+- **Retired:** retire the item (below); the proof is its `evidence=`.
 - **Answered:** append `- YYYY-MM-DD — <short name>: <the answer> ([link])`
   to `docs/decisions.md` in the project's primary repo — the repo whose name
   the `project-<name>` topic shares, else the repo the card links — newest
@@ -91,7 +91,7 @@ the user says they have it.
   change or add the `until:` field, and send it back with `work-item brief
   <id> -` on stdin. The card is not shown again before then.
 - **Dig:** hold the conversation for that one card, then apply whichever of
-  Deleted / Answered / Deferred it settles on.
+  Retired / Answered / Deferred it settles on.
 
 **Retire** is how a card leaves the board, per
 [the lifecycle](../../../docs/work-item-lifecycle.md): it ends at `done`, with
