@@ -53,9 +53,6 @@ ALLOWED = {
     ("blocked", "ready"), ("done", "claimed"), ("done", "ready"),
     ("done", "closed"), ("closed", "claimed"),
 }
-STATE_REPOS = ("/home/user/claude_prompts_scratch", "/workspace/claude_prompts_scratch",
-               "~/claude_prompts_scratch", "~/src/claude_prompts_scratch",
-               "~/Projects/claude_prompts_scratch", "~/code/claude_prompts_scratch")
 
 
 class Exit(Exception):
@@ -73,11 +70,20 @@ def refuse(msg):
 
 
 def state_dir():
-    """lib-state.sh's state_dir: the state repo's state/global, else a local copy."""
-    for d in (os.environ.get("CLAUDE_STATE_REPO", ""), *STATE_REPOS):
-        if d and (Path(d).expanduser() / ".git").is_dir():
-            return Path(d).expanduser() / "state" / "global"
-    return Path.home() / ".claude" / "state" / "global"
+    """lib_state.py's state_dir, so the search path for the state repo has
+    one home: in this checkout beside the tool, else the seeded copy."""
+    here = Path(__file__).resolve().parent
+    for d in (here.parent.parent / ".claude" / "hooks", Path.home() / ".claude" / "hooks"):
+        if (d / "lib_state.py").is_file():
+            sys.path.insert(0, str(d))
+            break
+    else:
+        die("lib_state.py not found")
+    import lib_state
+    d = lib_state.state_dir()
+    if not d:
+        die("lib_state.py could not name the state dir")
+    return Path(d)
 
 
 def items_dir():
@@ -211,7 +217,10 @@ class Item:
     def lock(self):
         """Hold the item's write lock for the rest of the process, waiting up to 10s."""
         p = Path(os.environ.get("TMPDIR") or "/tmp") / f"work-item.{self.id}.lock"
-        self.lockf = open(p, "a")
+        try:
+            self.lockf = open(p, "a")
+        except OSError:
+            refuse(f"could not open the lock {p}")
         for _ in range(11):
             try:
                 fcntl.flock(self.lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
