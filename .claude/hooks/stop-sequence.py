@@ -14,6 +14,7 @@ Only metrics-live.sh's stdout is passed through; it is the one that emits
 the notice and the block.
 """
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -21,17 +22,30 @@ import time
 HOOK_DIR = os.path.dirname(os.path.abspath(__file__))
 # Inside settings.json's 330s for the entry, so the readout always gets its turn.
 CONTINUITY_SECS = int(os.environ.get("STOP_CONTINUITY_SECS", "290"))
-READOUT_SECS = 30
+READOUT_SECS = int(os.environ.get("STOP_READOUT_SECS", "30"))
 
 
 def run(argv, payload, timeout, env=None, keep_stdout=False):
+    # Its own process group, killed whole on timeout: subprocess.run kills only
+    # bash, and a git push under it would outlive this hook holding the state
+    # lock while the readout reports on a Stop still in flight.
     try:
-        return subprocess.run(
-            argv, input=payload, timeout=timeout, env=env,
+        proc = subprocess.Popen(
+            argv, stdin=subprocess.PIPE, env=env, start_new_session=True,
             stdout=subprocess.PIPE if keep_stdout else subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-        ).stdout
-    except (subprocess.TimeoutExpired, OSError):
+        )
+    except OSError:
+        return b""
+    try:
+        out, _ = proc.communicate(payload, timeout=timeout)
+        return out or b""
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
         return b""
 
 

@@ -220,6 +220,8 @@ archivable_reasons() {
 # with no line here is still printed in the verdict itself.
 verdict_explain() {
   local v="$1"
+  case "$v" in *"not a git repo"*)
+    echo "→ not a git repo: the session ran outside any repo, so there was no branch to check." ;; esac
   case "$v" in *"worktree dirty"*)
     echo "→ worktree dirty: edits in this worktree are not on the branch. Commit them, or discard them." ;; esac
   case "$v" in *" commit(s) unpushed"*)

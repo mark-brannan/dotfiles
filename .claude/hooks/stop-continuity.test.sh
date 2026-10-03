@@ -95,6 +95,16 @@ assert "the metrics record stamps verdict_at in epoch seconds, got [$at]" \
   test "${at:-0}" -ge $(( $(date -u +%s) - 60 ))
 has 'the worktree is recorded for resume-list' "^- worktree .$WORK.$" "$CKPT"
 
+# --- outside any repo ---------------------------------------------------------------
+# The 📦 notice now shows this verdict, so its reason has to read as one: there
+# is no branch to name.
+NOGIT="$S/nogit"; mkdir -p "$NOGIT"
+NGSID=nogit000-1111-2222-3333
+printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$NGSID" "$NOGIT" \
+  | bash "$HOOK" >/dev/null 2>&1
+eq 'not a git repo: the verdict says so' 'not archivable: not a git repo' \
+  "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/$NGSID.json")"
+
 # --- one gh round trip per Stop ---------------------------------------------------
 # The verdict's home check and the pickup item's `pr:` lookup ask the same
 # question. The answer travels through ARCHIVABLE_HOME_FILE (lib-state.sh);

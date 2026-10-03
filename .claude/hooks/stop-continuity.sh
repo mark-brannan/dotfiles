@@ -248,7 +248,9 @@ set_verdict() {
     if [ -n "$work_root" ]; then
       _archivable_reasons=$(archivable_reasons "$work_root" "$work_branch" "$sid")
     else
-      _archivable_reasons="no PR and no pointer for \`$work_branch\`"
+      # The label metrics-live.sh's notice used before it read this verdict
+      # back; "no PR and no pointer for \`\`" named a branch that isn't there.
+      _archivable_reasons="not a git repo"
     fi
     _archivable_reasons_cached=1
   fi
