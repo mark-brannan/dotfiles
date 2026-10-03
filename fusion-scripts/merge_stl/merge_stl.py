@@ -58,7 +58,10 @@ BOOLEAN_OP = "Join"
 #
 # "plane" accepts either:
 #   - a fixed datum: 'XY' | 'XZ' | 'YZ'
-#   - a face-selection rule, as a dict:
+#   - a face-selection rule, as a dict. These assume
+#     MESH_CONVERT_METHOD = "Prismatic": under "Faceted" every triangle
+#     is its own face, so a rule picks one triangle, whose plane is
+#     arbitrary on a curved or chamfered area.
 #       {"select_face": "largest_planar"}
 #       {"select_face": "top"}       # planar face with highest centroid Z
 #       {"select_face": "bottom"}    # planar face with lowest centroid Z
@@ -68,7 +71,7 @@ BOOLEAN_OP = "Join"
 # projects it onto the sketch plane, so it means the same thing whichever
 # plane or face is chosen.
 SKETCH = {
-    "plane": {"select_face": "top"},
+    "plane": "XY",
     "circle_center": (0, 0, 0),
     "circle_radius_cm": 0.5,
     "extrude_distance_cm": 1.0,
