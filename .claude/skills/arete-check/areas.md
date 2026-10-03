@@ -51,7 +51,7 @@ its reasons. The user rules. Grades: `good`, `concern`, `harm`, `n/a`.
 | cost            | concern | read-set has no ceiling                  | §4, "every repo"             | the user     |
 | truth           | good    | each count cites its query               | §2 table                     | the reader   |
 | elegance        | concern | two sections say the skip rule twice     | §3, §5                       | the reader   |
-| well-formedness | harm    | §3 and §5 disagree on the default        | §3:12, §5:40                 | maintainers  |
+| well-formedness | concern | §3 and §5 disagree on the default        | §3:12, §5:40                 | maintainers  |
 
 Recommendation: not yet — §3 and §5 contradict each other on the default;
 fix that and name a merge owner, the rest can follow.

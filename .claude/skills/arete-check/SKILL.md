@@ -62,8 +62,9 @@ may overrule it; the decision is theirs.
 
 4. **Write the report.** Header: target, kind, revision (the PR head,
    the file's last commit, or the state repo's `HEAD`), date, model,
-   "a recommendation; the user rules". Then the brief, then a blank
-   `Ruling:` line for the user. Filename `arete-<slug>-<date>.md`.
+   "a recommendation; the user rules". Then the brief as returned; its
+   last line is the blank `Ruling:` for the user, and the report adds
+   no second one. Filename `arete-<slug>-<date>.md`.
    - kind `curia`: `state/global/curia/<id>/inputs/` in the state repo;
      commit it there by path.
    - otherwise: the session scratchpad.
