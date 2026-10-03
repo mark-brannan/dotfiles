@@ -145,92 +145,48 @@ carries its undo. `prune-branches --help` has the rules.
 
 ## Move ~/.claude to its own clone
 
-Paste the whole block, `sh` to `EOF`, on each machine once the dotfiles PR that
-stops tracking `.claude/` has merged, or on a new one after [step 3](#set-up-a-new-machine).
-It pulls dotfiles, snapshots what it overwrites to `~/claude-snapshot-<time>`,
-never pushes, and is safe to re-run. No SSH key yet: start it
-`CLAUDE_REPO=https://github.com/mark-brannan/claude.git sh`.
-
-**That PR deletes every file yadm put in `~/.claude`, clone or no clone, on each
-machine it reaches; cron pulls it within five minutes, and Claude Code there denies
-every tool call until this block runs.** Verify: [Check ~/.claude](#check-claude).
+Run once per machine after the dotfiles PR that stops tracking `.claude/` has
+merged, or on a new machine after [step 3](#set-up-a-new-machine). The PR
+deletes every file yadm put in `~/.claude` on each machine it reaches, clone or
+no clone, within five minutes (cron), and Claude Code there denies every tool
+call until this runs. Safe to re-run; it never pushes.
 
 ```sh
-sh <<'EOF'
-set -eu
-REPO=${CLAUDE_REPO:-git@github.com:mark-brannan/claude.git}
-SNAP="$HOME/claude-snapshot-$(date +%Y%m%d-%H%M%S)"
-yadm pull -q --ff-only || echo "WARN: yadm pull failed; run dotsync, then this block again"
-mkdir -p "$HOME/.claude" "$SNAP" && cd "$HOME/.claude"
-git init -q
-git remote add origin "$REPO" 2>/dev/null || git remote set-url origin "$REPO"
-git fetch -q origin main
-git ls-tree --name-only origin/main | while IFS= read -r f; do if [ -e "$f" ]; then cp -a "$f" "$SNAP/"; fi; done
-{ echo '/*'; git ls-tree --name-only origin/main | sed 's|^|!/|'; } > .git/info/exclude
-if git rev-parse -q --verify HEAD >/dev/null; then
-  git ls-files -d | while IFS= read -r f; do git checkout -q -- "$f"; done
-else
-  git checkout -q -f -B main --track origin/main
-fi
-echo "done; snapshot in $SNAP"
-EOF
+dotfiles-claude-clone.sh move
 ```
+
+Verify: `dotfiles-claude-clone.sh check` exits 0 with `source: clone of
+...claude.git` and `hooks: ok`. A non-zero local-change count is uncommitted
+edits in `~/.claude`. Undo: [roll back](#roll-claude-back-to-yadm). Before an
+SSH key is set up: `CLAUDE_REPO=https://github.com/mark-brannan/claude.git`.
 
 ## Check ~/.claude
 
 ```sh
-sh <<'EOF'
-cd "$HOME" || exit 1
-if [ -d .claude/.git ]; then
-  echo "source: clone of $(git -C .claude remote get-url origin), $(git -C .claude status --porcelain | wc -l) local change(s)"
-else
-  echo "source: yadm, $(yadm ls-files .claude | wc -l) file(s)"
-fi
-python3 - <<'PY'
-import json, os, re
-t = open(os.path.expanduser("~/.claude/settings.json")).read(); json.loads(t)
-gone = sorted({f for f in re.findall(r"\$HOME/(\.claude/[\w./-]+)", t) if not os.path.exists(os.path.expanduser("~/" + f))})
-print("FAIL: missing " + " ".join(gone) if gone else "hooks: ok, every file settings.json names is present")
-PY
-EOF
+dotfiles-claude-clone.sh check
 ```
 
-| Output | Means |
-|---|---|
-| `source: clone of ...claude.git, 0 local change(s)` and `hooks: ok` | moved, working; N not 0 is uncommitted edits |
-| `source: yadm, <N> file(s)` and `hooks: ok` | yadm delivers it: not moved yet, or rolled back |
-| `FAIL: missing ...` or a Python traceback | Claude Code is locked out: rerun the move, or roll back |
+Verify: exit 0. `source: yadm` means yadm still delivers it (not moved, or
+rolled back). `FAIL: missing ...` means Claude Code is locked out on this
+machine: run the move again, or roll back.
 
 ## Roll ~/.claude back to yadm
 
 **Once, on github.com:** open the dotfiles PR that stopped tracking `.claude/`
-(the block prints its commit, which links the PR), press **Revert**, merge.
-**On every machine,** before or after: the block. It moves the clone's history
-to `~/claude-rollback-<time>/dot-git` (undo: `mv` it back), snapshots the files
-there, and restores `.claude/` from dotfiles, which `yadm status` shows as added
-(`A`) until the revert arrives. A machine still holding the clone refuses the
-revert's pull (`untracked working tree files would be overwritten`) until it
-runs. Verify: [Check ~/.claude](#check-claude) says `source: yadm`, `hooks: ok`.
+(the command prints its commit, which links the PR), press **Revert**, merge.
+**On every machine,** before or after that:
 
 ```sh
-sh <<'EOF'
-set -eu
-SNAP="$HOME/claude-rollback-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$SNAP" && cd "$HOME"
-if yadm ls-files --error-unmatch .claude/settings.json >/dev/null 2>&1; then
-  SRC=HEAD
-else
-  U=$(yadm log --diff-filter=D --format=%H -1 -- .claude/settings.json)
-  [ -n "$U" ] || { echo "FAIL: no dotfiles commit removes .claude/settings.json"; exit 1; }
-  echo "untrack commit: https://github.com/mark-brannan/dotfiles/commit/$U"
-  SRC="$U^"
-fi
-yadm ls-tree --name-only "$SRC" .claude/ | while IFS= read -r f; do if [ -e "$f" ]; then cp -a "$f" "$SNAP/"; fi; done
-if [ -d .claude/.git ]; then mv .claude/.git "$SNAP/dot-git"; fi
-yadm checkout "$SRC" -- .claude
-echo "done; restored from dotfiles $(yadm rev-parse --short "$SRC"); snapshot in $SNAP"
-EOF
+dotfiles-claude-clone.sh rollback
 ```
+
+It moves the clone's history to `~/claude-snapshot-<time>/dot-git` (undo: `mv`
+it back) and restores `.claude/` from dotfiles; `yadm status` shows it as added
+(`A`) until the revert arrives. A machine still holding the clone refuses the
+revert's pull until this runs.
+
+Verify: `dotfiles-claude-clone.sh check` exits 0 with `source: yadm` and
+`hooks: ok`. Delete `~/claude-snapshot-*` once it does.
 
 ## Add a secret
 
