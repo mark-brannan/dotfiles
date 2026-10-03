@@ -41,10 +41,10 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 
 * **Why the cron sync is ff-only.** `dotsync` rebases with `--autostash`,
   which is right with a person watching and wrong unattended: Claude Code
-  rewrote the tracked `.claude/settings.json` in its own key order, so a three-way merge
-  sees a whole-file conflict, the autostash re-apply fails, `yadm pull` still
-  exits 0, and `$HOME` is left with invalid JSON and a stash nobody sees. That
-  happened on the boat. `dotfiles-sync.sh` therefore never rebases, stashes or
+  rewrote the tracked `.claude/settings.json` in its own key order, so a
+  three-way merge sees a whole-file conflict, the autostash re-apply fails,
+  `yadm pull` still exits 0, and `$HOME` is left with invalid JSON and a stash
+  nobody sees. That happened on the boat. `dotfiles-sync.sh` therefore never rebases, stashes or
   merges: git refuses a fast-forward that would overwrite a dirty tracked file,
   atomically, so the only outcomes are "fast-forwarded", "level", or "skipped"
   with the blocking files named in the log. A skip is the machine asking for a
@@ -78,14 +78,15 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 
 ## Session continuity hooks
 
-[`hooks/`](https://github.com/mark-brannan/claude/blob/main/hooks) in mark-brannan/claude carries the machinery that makes
-one session pick up where the last left off without being asked. State lives
-in the private `claude_prompts_scratch` repo; `lib-state.sh` locates it and
-every hook degrades to `~/.claude/state/global` if it isn't checked out.
+[`hooks/`](https://github.com/mark-brannan/claude/blob/main/hooks) in
+mark-brannan/claude carries the machinery that makes one session pick up where
+the last left off without being asked. State lives in the private
+`claude_prompts_scratch` repo; `lib-state.sh` locates it and every hook
+degrades to `~/.claude/state/global` if it isn't checked out.
 
 | hook | event | what it does |
 | --- | --- | --- |
-| `session-start-seed-refresh.sh` | SessionStart | re-runs the cloud seed so a reused container tracks this repo, not the commit it was provisioned from |
+| `session-start-seed-refresh.sh` | SessionStart | re-runs the cloud seed so a reused container tracks mark-brannan/claude, not the commit it was provisioned from |
 | `session-start-continuity.sh` | SessionStart | injects the live `worklist --brief` (PRs ready, rulings pending, agent-ready issues, the agent's board), where the last three sessions left off, and the week's decision load |
 | `stop-continuity.sh` | Stop | writes the session record, the decision log and an auto-checkpoint, then commits and pushes the state repo |
 | `stop-sequence.py` | Stop | runs `stop-continuity.sh`, then `metrics-live.sh`'s 📦 notice, in that order, so the notice shows the verdict the checkpoint holds instead of computing a second one |
