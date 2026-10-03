@@ -171,8 +171,12 @@ sections to `digest.md` from its file under [forms/](forms/):
 | mvp-and-narrative | lean startup's MVP, plus its story | the user wants to test by using |
 | success-metric | OKR / North Star metric | the measure is the hard part |
 
-A curia may mix forms; the user says which. Record the choice as a
-Decided line with its reference.
+A curia may mix forms, and may change them; the user says which. Each
+choice is a dated Decided line with its reference, and a change is a new
+line naming the one it replaces. A dropped form's sections leave
+`digest.md` with it; what they held that still earns its place moves to
+**Decided** or **Open questions**, and lint shows the move: a reversal is
+a finding, not an error.
 
 A section's `<!-- -->` comment is a rule or a prompt. A rule says how the
 section is kept (*Derived; rewritten in place…*) and stays. A prompt says

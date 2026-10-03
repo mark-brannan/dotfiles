@@ -41,7 +41,8 @@ Not yet sat. The first sitting reads the origin and opens the dialogue at
 1. **What form does this curia need to take?** Open-ended until the user
    says, or the dialogue takes a shape the agent is confident matches one
    (SKILL.md, Form): working-backwards, problem-then-solution, bdd,
-   mvp-and-narrative, success-metric, or a mix.
+   mvp-and-narrative, success-metric, or a mix. The user may change it
+   later.
 
 ## Notes and inputs
 
