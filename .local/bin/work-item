@@ -31,11 +31,10 @@
 # is valid when the folded status is ready or closed and no other session
 # holds it. A GitHub-homed item carries `home=`, with no link back.
 #
-# Refused at write: a create whose brief carries no link (kanban-lint's L6); a
-# human-ruling brief, at create, rewrite or hand to that owner, missing default:,
-# undo:, until:, risk: or judgment: (L8: a `judgment:` of values, risk,
-# direction, legal or people; an `until:` a date or words; `kind: tentative
-# ADR` swaps in gates:, settle:, repos:); a
+# Refused at write, as kanban-lint's L6 and L8 were: a brief with no link; a
+# human-ruling brief missing default:, undo:, until:, risk: or judgment: (a
+# `judgment:` of values, risk, direction, legal or people; an `until:` a date
+# or words; `kind: tentative ADR` swaps in gates:, settle:, repos:); a
 # `status=done` line with no `evidence=`; any `status=closed`, which only the
 # future whole-tree sweep writes (docs/work-item-lifecycle.md).
 #
@@ -160,9 +159,13 @@ def until_problem(v):
     return ""
 
 
-def check_ruling(owner, brief, until_fact=""):
-    """Refuse a human-ruling brief that breaks L8: it carries the agent's
-    evaluation, so the ruling is one word."""
+def check_card(owner, brief, until_fact=""):
+    """Refuse a brief that breaks L6 (every card carries a link) or, for a
+    human-ruling card, L8 (it carries the agent's evaluation, so the ruling
+    is one word)."""
+    if not LINK.search(brief):
+        refuse("the brief carries no link: an http link or owner/repo#n, "
+               "so a loop with no home gets a log entry first")
     if owner != "human-ruling":
         return
     t = " " + brief.lower()
@@ -444,10 +447,7 @@ def create(args):
     if opt["points"]:
         points_ok(opt["points"])
     sid = me()
-    if not LINK.search(brief):
-        refuse("the brief carries no link: an http link or owner/repo#n, "
-               "so a loop with no home gets a log entry first")
-    check_ruling(opt["owner"], brief)
+    check_card(opt["owner"], brief)
     it = Item(opt["id"] or f"{int(time.time())}{sid}")
     try:
         items_dir().mkdir(parents=True, exist_ok=True)
@@ -499,7 +499,7 @@ def main(argv):
         sid = me()
         it.lock()
         f = it.facts()
-        check_ruling(f["owner"], brief, f["until"])
+        check_card(f["owner"] or "agent", brief, f["until"])
         it.write_brief(brief, points or f["points"])
         it.append(sid, "briefed")
     elif cmd == "log":
@@ -527,8 +527,8 @@ def main(argv):
                    "decisions line that shows it")
         it.lock()
         if owner == "human-ruling":
-            check_ruling(owner, brief_text(it.path),
-                         next((w[6:] for w in args if w.startswith("until=")), it.facts()["until"]))
+            check_card(owner, brief_text(it.path),
+                       next((w[6:] for w in args if w.startswith("until=")), it.facts()["until"]))
         if to:
             it.move(sid, to)
         it.append(sid, line)
