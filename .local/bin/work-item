@@ -132,12 +132,12 @@ def points_ok(p):
 
 LINK = re.compile(r"https?://|(^|[^\w./-])[\w.-]+/[\w.-]+#\d+|\]\((\.\./)*log/")
 JUDGMENTS = ("values", "risk", "direction", "legal", "people")
-NEXT_FIELD = r"[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|id):"
+NEXT_FIELD = r"[ (;,.*](default|undo|until|risk|judgment|gates|settle|repos|repo|kind|id):"
 
 
 def field(t, name):
     """The value of `name:` in a brief, folded to lower case: cut at the next
-    field, trimmed; None when the brief lacks the field."""
+    field, trimmed; None when the brief lacks the field, "" when it is empty."""
     m = re.search(rf"(^|[ (]){name}:", t)
     if not m:
         return None
@@ -172,7 +172,7 @@ def check_card(owner, brief, until_fact=""):
     need = (("gates", "settle", "repos") if re.search(r"[ (]kind:[ \t]*tentative[ \t]+adr", t)
             else ("default", "undo", "until", "risk")) + ("judgment",)
     have_until = until_fact not in ("", "-")
-    miss = [k for k in need if field(t, k) is None and not (k == "until" and have_until)]
+    miss = [k for k in need if not field(t, k) and not (k == "until" and have_until)]
     if miss:
         refuse("a ruling card is missing " + ", ".join(k + ":" for k in miss)
                + " (default: what you would do, undo: the reversal and its cost, until: a date, "

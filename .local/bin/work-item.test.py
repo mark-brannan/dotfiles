@@ -189,6 +189,9 @@ class WorkItemTest(unittest.TestCase):
             p = self.ruling(brief)
             self.assertEqual(p.returncode, 1, f"a ruling without {gone}: is refused")
             self.assertIn(f"{gone}:", p.stderr, f"and the refusal names {gone}:")
+        for empty in ("do X", "revert, cheap", "a day lost"):
+            p = self.ruling(self.RULING.replace(empty, ""))
+            self.assertEqual(p.returncode, 1, f"a ruling with an empty field where [{empty}] was is refused")
         self.assertEqual(self.ruling(self.RULING.replace("direction", "toil")).returncode, 1,
                          "judgment: outside the five kinds is refused")
         self.assertEqual(self.ruling(self.RULING.replace("2026-11-01", "2026-02-30")).returncode, 1,
