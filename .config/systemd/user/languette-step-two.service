@@ -16,7 +16,7 @@ StateDirectory=languette
 # A user unit does not inherit a login shell's PATH; this needs git, gh, jq,
 # sh and claude. Override the whole line in ~/.config/languette-step-two.env
 # when claude lives somewhere else.
-Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.claude/bin:%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/languette-step-two.env
 
 # --since is when step one landed: every denial after it carries the copy tag.
