@@ -34,10 +34,11 @@ curia's §6, "The agora petition"; not ruled). Each candidate passes one
 test: could the user rule on it from the card alone, with no prior
 context? If not, a subagent writes a brief and only then admits it. The
 brief is a file, `state/global/agora/briefs/<card-id>.md`, and the card
-gains its link (`work-item show <id>` for the brief as it stands, then
-`work-item brief <id> -` with that text and the link), so the card stays
-one line, the context has one home, and the next sitting reuses it. A card whose question events have overtaken
-never reaches the user: restate the live question under it, or route it
+gains its link (`work-item brief <id> -`, fed the text under `## Brief` in
+`work-item show <id>`, less its `points:` line, plus the link), so the
+card stays one line, the context has one home, and the next sitting
+reuses it. A card whose question events have overtaken never reaches the
+user: restate the live question under it, or route it
 to `/sweep`. "May I delete this?" is never the item. The docket is counted
 after admission; a card routed away leaves the count.
 
@@ -66,16 +67,17 @@ Every item this skill touches gets, and keeps:
   `until`, `risk`. Not "figure out X"; that is unscoped work, sent back
   to be scoped.
 - **Output** — exactly one of:
-  - **Ruling** — the user answers; the card retires
-    (`work-item claim <id>`, then `work-item log <id> status=done`) and the
-    ruling is written at once to `docs/decisions.md`
-    in the primary repo, or the state repo's log if it fails the
-    private-terms check.
+  - **Ruling** — the user answers; the ruling is written at once to
+    `docs/decisions.md` in the primary repo, or the state repo's log if it
+    fails the private-terms check, and the card retires: `work-item claim
+    <id>`, then `work-item log <id> status=done <link>`, the link its
+    evidence (the ruling's line, the spawned work, the curia). `closed`
+    waits for acceptance; never write it here.
   - **Spawned work item** — the answer was "build X to find out"; open
-    the issue or card, link it, this item closes (`work-item claim <id>`,
-    then `work-item log <id> status=done`).
+    the issue or card, link it, this item retires as a ruling does.
   - **Item (partly) unblocked** — the ruling removes one dependency; say
-    which, and what still blocks (`work-item log <id>` with a line saying so).
+    which, and what still blocks (`work-item log <id> unblocked: <which>,
+    still blocked by <what>`; `log` takes free words).
   - **Confer** — the user's one word; the item leaves the sitting for a
     one-off confer session (see below). Not a failure of the item; a
     rating of its difficulty and possibly of the question's quality.
@@ -85,8 +87,8 @@ Every item this skill touches gets, and keeps:
     paired with closing or deleting.
   - **Folded** — the item is a sub-question of an open curia; a yes writes
     it under that curia's `## Open questions` with its provenance, and
-    the card closes (`work-item claim <id>`, then `work-item log <id>
-    status=done`). No folder is touched beyond that line.
+    the card retires as a ruling does. No folder is touched beyond that
+    line.
 
 ## Per item: the steps
 
@@ -114,8 +116,8 @@ Every item this skill touches gets, and keeps:
 ## Confer: handing a hard item to a confer session
 
 On the word *confer*: record it on the card (<!-- format open -->
-`work-item log <id> confer=<YYYY-MM-DD>`), leave the card where it is, and move on. **Create
-nothing under `state/global/curia/`.** A curia question
+`work-item log <id> confer=<YYYY-MM-DD>`), leave the card where it is,
+and move on. **Create nothing under `state/global/curia/`.** A curia question
 petitions the agora first; no lower-level session creates a curia. The
 agora is one gate of several; a curia opens only when
 the user says so inside the confer session, at the curia skill's gates.
