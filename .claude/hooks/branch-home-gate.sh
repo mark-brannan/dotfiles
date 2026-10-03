@@ -150,8 +150,8 @@ else
 fi
 
 # ------------------------------------------------------------ find a home
-# 0 found, 1 none, 2 could not verify. The board is a local file, so it is
-# read before anything costs a network call.
+# 0 found, 1 none, 2 could not verify. The board is local files (items/), so
+# it is read before anything costs a network call.
 found=
 unverified=
 card=

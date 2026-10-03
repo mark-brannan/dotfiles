@@ -680,10 +680,10 @@ board_card() {
 # claude_cards -- the pickup candidates: every agent-owned item that is ready
 # or claimed. One `<updated>\t<card text>` per card, <updated> the item's
 # newest log line. Only the agent's items: a ruling waits for the user and
-# click work is theirs, so neither is work a session can pick up. Only a
-# ready item can be claimed (work-item's transitions), so an open or blocked
-# one is left out; a claimed one is listed and reads taken through
-# work_claims_load.
+# click work is theirs, so neither is work a session can pick up. An open
+# item cannot be claimed until it is ready (work-item's transitions) and a
+# blocked one waits on something, so both are left out; a claimed one is
+# listed and reads taken through work_claims_load.
 claude_cards() {
   local rows
   item_rows >/dev/null; rows=$ITEM_ROWS
