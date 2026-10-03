@@ -8,9 +8,9 @@ more.
 
 | Rule | Standing |
 |---|---|
-| A claim needs `ready` or `closed`, so an `open` item gets a `status=ready` line first | pen: "Transitions"; `work-item` refuses `open -> claimed` |
+| `claimed` comes from `ready`, `blocked`, `done` or `closed`, never `open`: an `open` item gets a `status=ready` line first | pen: "Transitions"; `work-item` refuses `open -> claimed` |
 | `done` comes only from `claimed`, written by the claim's holder | pen: "Transitions"; `work-item` refuses another session while the claim is live |
-| `closed` comes only from `done`, by the user's acceptance: never on a clock, on silence, or on an agent's judgment alone | pen: "Transitions", "Done-done is acceptance, never silence" |
+| `closed` comes only from `done`, by the user's acceptance: never on a clock or on silence | pen: "Transitions", "Done-done is acceptance, never silence" |
 | The archive window counts from `closed`, never from `done`; an item left at `done` is waiting for acceptance | pen: "Done-done is acceptance, never silence" |
 | A parent goes `done` and holds for `closed`; acceptance at `closed` is over the whole tree, by the agent and the user | pencil, the user's: "Pencil, maybe" |
 
