@@ -103,15 +103,28 @@ restore_claude() {
 		fi
 	done
 	# shellcheck disable=SC2086  # paths here carry no whitespace
-	[ -z "$rest" ] || { yadm archive "$1" -- $rest | tar -x -C "$HOME" && n=$((n+$(echo $rest | wc -w))); }
-	echo "$n"
+	if [ -n "$rest" ]; then
+		tarball="$STATE/restore.tar"
+		if yadm archive -o "$tarball" "$1" -- $rest 2>/dev/null && tar -xf "$tarball" -C "$HOME" 2>/dev/null; then
+			n=$((n+$(echo $rest | wc -w)))
+		else
+			echo "FAILED: could not restore from $1:$rest"
+		fi
+		rm -f "$tarball"
+	fi
+	[ "$n" -eq 0 ] || echo "$n"
 }
 
 old=$(yadm rev-parse HEAD)
 if yadm merge --ff-only --quiet origin/main >/dev/null 2>&1; then
 	yadm alt >/dev/null 2>&1
 	kept=$(restore_claude "$old")
-	report "fast-forwarded $behind commit(s) to $(yadm rev-parse --short HEAD)${kept:+, kept $kept .claude file(s) the pull removed}"
+	case "$kept" in
+	'') note= ;;
+	FAILED*) note=", $kept" ;;
+	*) note=", kept $kept .claude file(s) the pull removed" ;;
+	esac
+	report "fast-forwarded $behind commit(s) to $(yadm rev-parse --short HEAD)$note"
 else
 	# The refusal is git protecting a dirty file that an incoming commit also
 	# touches. Name them so the log says what a person has to look at.

@@ -69,7 +69,8 @@ main_is "$C1"; home B; main_is "$C2"; out=$(sync B)
 has "kept .* .claude file" "$out" "S2 report"
 eq "$(hooks "$W/B")" "$NHOOKS" "S2 hooks survive the pull"
 [ -f "$W/B/.claude/settings.json" ] && ok || bad "S2 settings.json kept"
-[ -x "$W/B/.claude/hooks/$(ls "$S/hooks" | head -1)" ] || [ ! -x "$S/hooks/$(ls "$S/hooks" | head -1)" ] && ok || bad "S2 exec bit kept"
+x=$(cd "$S/hooks" && find . -type f -perm -u+x | head -1)
+[ -n "$x" ] && [ -x "$W/B/.claude/hooks/$x" ] && ok || bad "S2 exec bit kept on ${x:-<no executable hook in seed>}"
 out=$(check B); has 'hooks: ok' "$out" "S2 check"
 out=$(move B); has '^done; snapshot in' "$out" "S2 move still runs after the keep"
 out=$(check B); has 'source: clone' "$out" "S2 check after move"; has 'hooks: ok' "$out" "S2 hooks after move"
