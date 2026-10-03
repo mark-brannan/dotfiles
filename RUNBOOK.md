@@ -184,6 +184,16 @@ function (see `.zshrc`). A new secret needing the same treatment gets its
 basename added to the `case` in both `.zshrc` and `.bashrc` and its own
 wrapper; the script does not do this for you.
 
+**Exception — a secret no shell should carry**, like a signing key. Put it in
+`~/secrets/on-demand/` and have the script that uses it run `sops -d` itself;
+bootstrap never decrypts that directory:
+
+```bash
+$EDITOR ~/secrets/on-demand/$NAME.sops.env
+sops -e -i ~/secrets/on-demand/$NAME.sops.env
+yadm bootstrap && ls ~/.config/secrets/$NAME.env    # must say: No such file
+```
+
 ## Rotate a secret
 
 ```bash
