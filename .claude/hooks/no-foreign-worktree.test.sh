@@ -34,6 +34,14 @@ setup() (
   # nobody's private space, so it must stay allowed.
   cd "$TMP"
   git clone -q repo other-clone
+  # A yadm-shaped repo: the git dir is `repo.git`, not `<toplevel>/.git`,
+  # and its linked worktrees are foreign like any other.
+  mkdir -p yadm
+  git init -q --initial-branch=main --separate-git-dir="$TMP/yadm/repo.git" yhome
+  git -C yhome -c user.email=t@e -c user.name=t commit -q --allow-empty -m init
+  git -C yhome worktree add -q -b ytheirs "$TMP/ywt/theirs"
+  # The state-dir scratchpad, for a session with no CLAUDE_CODE_TMPDIR.
+  mkdir -p "home/.local/state/claude-tmpdir/claude-1000/proj/$SID/scratchpad"
   # Worktrees created under a session's scratchpad, in the claude-tmpdir
   # layout: one for the session the payloads will claim to be, one for
   # another session. Linked worktrees, so without the session-id rule both
@@ -336,7 +344,10 @@ check_claim 'stamps could not be fetched -> unknown, never stale' \
   'A hand-off carries a branch'
 check_claim 'unknown-state recovery advice is the ff-only merge, not checkout (dotfiles#233)' \
   'no card' \
-  'git merge --ff-only <branch>'
+  'git merge --ff-only theirs'
+check_claim 'unknown-state message says why a self-made worktree is foreign (dotfiles#472)' \
+  'no card' \
+  'yours only when the command that creates it also'
 
 # The stub counts its invocations: the state and the attributed line must
 # come from one read, not a second call that can disagree with the first.
@@ -395,6 +406,30 @@ if printf '%s' "$out" | grep -qF 'git merge --ff-only <branch>' && ! printf '%s'
 else
   fail=$((fail + 1)); printf 'FAIL: EnterWorktree(path=...) must recommend ff-only merge, not checkout\n  hook output: %s\n' "$out"
 fi
+
+# The deny names the cross-repo recipe with this session's real scratchpad
+# and the foreign worktree's git dir, and running that recipe is allowed.
+recipe_cmd="git --git-dir=$REPO/.git worktree add $SCRATCH/$SID/scratchpad/<name> && cd $SCRATCH/$SID/scratchpad/<name>"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" --arg s "$SID" \
+  '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
+  | CLAUDE_CODE_TMPDIR="$TMP/scratch/claude-tmpdir" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF "$recipe_cmd"; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: deny must print the scratchpad worktree recipe\n  hook output: %s\n' "$out"; fi
+sid_check allow 'following the printed recipe' "${recipe_cmd//<name>/fresh-wt}" "$SID" /tmp
+# A yadm-shaped repo: the recipe names repo.git, where `-C <repo>` has no
+# directory to name.
+out=$(printf '%s' "$(jq -n --arg c "git -C $TMP/ywt/theirs status" --arg d "$MINE" --arg s "$SID" \
+  '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
+  | CLAUDE_CODE_TMPDIR="$TMP/scratch/claude-tmpdir" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF "git --git-dir=$TMP/yadm/repo.git worktree add $SCRATCH/$SID/scratchpad/<name>"; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: recipe for a yadm-shaped repo must name its repo.git\n  hook output: %s\n' "$out"; fi
+# No CLAUDE_CODE_TMPDIR (a terminal session): the scratchpad is found under
+# the state dir, not left as a placeholder.
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" --arg s "$SID" \
+  '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
+  | env -u CLAUDE_CODE_TMPDIR HOME="$TMP/home" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF "worktree add $TMP/home/.local/state/claude-tmpdir/claude-1000/proj/$SID/scratchpad/<name>"; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: recipe must find the state-dir scratchpad without CLAUDE_CODE_TMPDIR\n  hook output: %s\n' "$out"; fi
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \

@@ -3,6 +3,7 @@
 {
 cat<<EOF
 dotfiles
+claude
 symphony
 saferspacesllc
 stranger-loops

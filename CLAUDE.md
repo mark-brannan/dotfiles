@@ -6,6 +6,8 @@ uses. Both facts constrain almost everything below.
 Global standing orders live in `.claude/CLAUDE.md` and load in every session
 everywhere; personal code and writing rules in `.claude/rules/`. Those files
 happen to be tracked here, but they are not *about* this repo. This file is.
+In a worktree, standing orders and rules load from `~`; a branch's edits to them
+are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
 
 ## Files
 
@@ -16,7 +18,8 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 - `.claude/RUNBOOK.md` — the Claude Code procedures: hooks, cloud
   environments, PR workflows. The only runbook a hook or workflow change may
   touch.
-- `.config/yadm/bootstrap` — decrypts sops-managed secrets. Idempotent.
+- `.config/yadm/bootstrap` — decrypts sops-managed secrets; keeps this file out
+  of `$HOME`. Idempotent.
 - `.config/yadm/hooks/pre_commit` — the commit-time gate against credentials.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
 - `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
@@ -51,9 +54,10 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 
 ## RUNBOOK.md and .claude/RUNBOOK.md
 
-- **`RUNBOOK.md` is the machine's, and nothing about Claude Code goes in it.**
-  Not a hook, not a cloud seed, not a PR workflow, not their troubleshooting.
-  Those go in `.claude/RUNBOOK.md`. The bar for the two files is different on
+- **`RUNBOOK.md` is the machine's. The only Claude Code procedures in it are
+  the `~/.claude` move, check and rollback,** which a human must be able to
+  follow without an agent. Nothing else: not a hook, not a cloud seed, not a
+  PR workflow, not their troubleshooting. Those go in `.claude/RUNBOOK.md`. The bar for the two files is different on
   purpose: the user holds the dotfiles themselves to a far higher standard
   than the Claude Code layer, and a session that adds its hook to
   `RUNBOOK.md` is polluting the file the user reads when a real machine is
@@ -136,6 +140,21 @@ happen to be tracked here, but they are not *about* this repo. This file is.
   than warn. Keep that.
 - Test with `--dry-run` where the script has one. `cloud-session-setup.sh
   --dry-run` is safe on any machine, including the user's own.
+
+## Hook scripts
+
+- **A new hook is stdlib Python 3, not shell.** `python3` is on every
+  machine and cloud VM here without an install; a third-party package is
+  not, so none. Wire it fail-open or fail-closed in `settings.json` as the
+  hook demands, the same as a shell hook.
+- **Look for the helper before writing one.** Reading the payload, printing
+  a verdict, a lock, the state repo, a test harness: each has one home in
+  `.claude/hooks/`, and a second copy is a bug, tests included. If the home
+  doesn't exist in Python yet, make it there, not inline.
+- **Don't port a working shell hook for its own sake.** Port it, test and
+  all, when you are already changing it substantially. The scripts under
+  "Shell scripts here" stay POSIX `sh`.
+- A module a hook imports is seeded like the hook: in the `INSTALL` list.
 
 ## Claude Code config in this repo
 

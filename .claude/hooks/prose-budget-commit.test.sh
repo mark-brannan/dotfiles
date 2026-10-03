@@ -6,7 +6,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/prose-budget-commit.sh"
-export PROSE_BUDGET="$HERE/../../.local/bin/prose-budget"
+export PROSE_BUDGET="${PROSE_BUDGET:-$HERE/../bin/prose-budget}"
 [ -n "${AWK_PATH:-}" ] && PATH="$AWK_PATH:$PATH"
 pass=0; fail=0
 

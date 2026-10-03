@@ -23,8 +23,10 @@
 #                         -- every worktree of a repo shares its objects and
 #                         refs, so nothing about another branch requires
 #                         standing in another directory.
-#   work on a branch      EnterWorktree(name=...) for your own (fresh,
-#                         unrelated-history) worktree, then `git merge
+#   work on a branch      your own worktree under the scratchpad (one
+#                         command, any repo, survives a subagent's cwd
+#                         reset; recipe() prints it), or EnterWorktree(name=...)
+#                         in this repo, then `git merge
 #                         --ff-only <branch>` inside it -- this hook's
 #                         recovery text used to say `git checkout <branch>`,
 #                         but the auto-mode classifier denies that outright
@@ -130,6 +132,24 @@ deny() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permission
 # message free of double quotes, backslashes and newlines.
 deny_literal() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-foreign-worktree: %s This is a gate and fails closed."}}\n' "$1"; exit 0; }
 
+# recipe <dir> -- one command giving this session its own worktree of <dir>'s
+# repo under its scratchpad (own by the session-id rule, any repo, survives a
+# subagent's cwd reset). `--git-dir=`, not `-C`: yadm's $HOME has no `-C`
+# directory, only `~/.local/share/yadm/repo.git`. Placeholders when unknown.
+recipe() {
+  gitdir='<git-dir>'; scratch='<scratchpad>'
+  gcd=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  [ -n "$gcd" ] && gitdir=$gcd
+  if [ -n "${session_id:-}" ]; then
+    for d in "${CLAUDE_CODE_TMPDIR:-/nonexistent}"/claude-*/*/"$session_id"/scratchpad \
+             "${TMPDIR:-/nonexistent}"/claude-*/*/"$session_id"/scratchpad \
+             "$HOME"/.local/state/claude-tmpdir/claude-*/*/"$session_id"/scratchpad; do
+      [ -d "$d" ] && { scratch=$d; break; }
+    done
+  fi
+  printf 'git --git-dir=%s worktree add %s/<name> && cd %s/<name>' "$gitdir" "$scratch" "$scratch"
+}
+
 # claim-stamp.sh, overridable so tests can point this at a stub instead of
 # shelling out to gh against a fixture repo with no real remote.
 CLAIM_STAMP_BIN=${CLAIM_STAMP_BIN:-$HERE/claim-stamp.sh}
@@ -197,7 +217,8 @@ To read that branch meanwhile, stay here: \`git log/diff/show $branch\`, \`git s
     *)
       deny "no-foreign-worktree: \`$word\` is inside $ft, a git worktree this session does not own. A hand-off carries a branch, an issue and a PR -- never a directory; another session may still be running in there, and it may be archived out from under you mid-turn (that is how PR #162 lost its worktree).
 To read that branch, stay here: \`git log/diff/show <branch>\`, \`git show <branch>:<path>\` -- worktrees of a repo share objects and refs.
-To work on it, take your own worktree: EnterWorktree(name=<name>), then \`git merge --ff-only <branch>\` inside it. If --ff-only fails, the histories have diverged: report that and stop.
+To work on it, take your own worktree, one command, from anywhere: \`$(recipe "$ft")\`, then \`git merge --ff-only ${branch:-<branch>}\` inside it. If --ff-only fails, the histories have diverged: report that and stop.
+If you made this worktree yourself in an earlier call, that is why: a worktree is yours only when the command that creates it also \`cd\`s into it, or it lives under your scratchpad. The recipe above does both.
 Worktree hygiene is the user's call, not a session's."
       ;;
   esac
@@ -314,7 +335,7 @@ case "$tool" in
       exit 0
     fi
     deny "no-foreign-worktree: EnterWorktree(path=...) enters a worktree that already exists, with no check on whose it is -- the tool only requires that the path appear in \`git worktree list\`. That is how PR #162 lost its worktree mid-turn: the session that owned it was archived and the directory went away underneath the session that had attached to it.
-Take your own instead: EnterWorktree(name=<name>), then \`git merge --ff-only <branch>\` inside it to bring the branch you are resuming into your own directory. If --ff-only fails, the histories have diverged: report that and stop.
+Take your own instead, one command, from anywhere: \`$(recipe "$p")\`, then \`git merge --ff-only <branch>\` inside it to bring the branch you are resuming into your own directory. If --ff-only fails, the histories have diverged: report that and stop.
 Nothing needs the other directory -- worktrees of a repo share objects and refs, so \`git log/diff/show <branch>\` and \`git show <branch>:<path>\` read it from here."
     ;;
 esac

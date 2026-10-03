@@ -10,9 +10,16 @@
 # ~/.config/secrets/*.env at shell startup, EXCEPT claude-token.env, which is
 # scoped to a `claude` wrapper function instead so the token isn't exported
 # into every shell and everything it spawns.
+#
+# $HOME/secrets/on-demand/ holds secrets no shell should carry: this script
+# never decrypts them, and the script that uses one runs `sops -d` itself.
 set -eu
 
 need() { command -v "$1" >/dev/null 2>&1; }
+failed=0
+# First line of every file written here, so a later run can tell its own
+# output from a file someone put in ~/.config/secrets/ by hand.
+MARK='# written by yadm bootstrap from'
 
 echo "==> checking tooling"
 
@@ -43,18 +50,60 @@ else
   else
     echo "==> age key present, decrypting sops-managed secrets"
     export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+    umask 077
     mkdir -p "$HOME/.config/secrets"
     chmod 700 "$HOME/.config/secrets"
-    find "$HOME/secrets" -maxdepth 1 -name '*.sops.env' -type f 2>/dev/null | while IFS= read -r f; do
+    # A for loop, not find | while: a pipe's subshell would lose `failed`.
+    for f in "$HOME"/secrets/*.sops.env; do
+      [ -f "$f" ] || continue
       base=$(basename "$f" .sops.env)
       out="$HOME/.config/secrets/$base.env"
-      sops -d "$f" > "$out.tmp" && mv "$out.tmp" "$out" && chmod 600 "$out"
-      echo "    decrypted $f -> $out"
+      if { echo "$MARK secrets/$base.sops.env"; sops -d "$f"; } > "$out.tmp"; then
+        mv "$out.tmp" "$out"
+        echo "    decrypted $f -> $out"
+      else
+        rm -f "$out.tmp"
+        echo "    FAILED to decrypt $f (run: sops -d $f)" >&2
+        failed=1
+      fi
+    done
+    # A deleted secret, or one moved to on-demand/, must stop reaching
+    # shells. Remove what this script wrote; name anything else.
+    for out in "$HOME"/.config/secrets/*.env; do
+      [ -f "$out" ] || continue
+      base=$(basename "$out" .env)
+      [ -f "$HOME/secrets/$base.sops.env" ] && continue
+      if [ -f "$HOME/secrets/on-demand/$base.sops.env" ] || head -n 1 "$out" | grep -qF "$MARK"; then
+        rm -f "$out"
+        echo "    removed $out (no secrets/$base.sops.env)"
+      else
+        echo "    $out has no secrets/$base.sops.env and wasn't written here; shells still source it" >&2
+      fi
     done
   fi
+fi
+
+# This repo's CLAUDE.md stays out of $HOME, where it would load as an
+# ancestor of every repo; the hook gives branch worktrees the whole tree.
+# Hook first, so no worktree is made sparse in between. Undo:
+# `yadm sparse-checkout disable`, then delete the hook link.
+hook_src="$HOME/.local/bin/yadm-post-checkout.sh"
+hook="$(yadm rev-parse --path-format=absolute --git-path hooks)/post-checkout" || hook=
+if [ -z "$hook" ] || [ ! -x "$hook_src" ]; then
+  echo "    no hooks dir or no $hook_src; ~/CLAUDE.md stays" >&2
+elif { [ -e "$hook" ] || [ -L "$hook" ]; } && [ "$(readlink "$hook")" != "$hook_src" ]; then
+  echo "    $hook is not $hook_src; left alone, so ~/CLAUDE.md stays" >&2
+elif ln -sf "$hook_src" "$hook" && yadm sparse-checkout set --no-cone '/*' '!/CLAUDE.md'; then
+  echo "==> CLAUDE.md kept out of \$HOME; worktree hook linked"
+else
+  echo "    keeping CLAUDE.md out of \$HOME failed; ~/CLAUDE.md stays" >&2
 fi
 
 # Unattended ff-only sync, every five minutes. Idempotent; see README.
 [ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
 
+if [ "$failed" -ne 0 ]; then
+  echo "==> bootstrap FAILED: a secret above did not decrypt" >&2
+  exit 1
+fi
 echo "==> bootstrap done"

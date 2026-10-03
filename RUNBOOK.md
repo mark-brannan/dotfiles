@@ -2,7 +2,7 @@
 
 Procedures for the machines these dotfiles live on. Getting started and the
 *why* are in [README.md](README.md); Claude Code's hooks, cloud environments and
-PR workflows are in [.claude/RUNBOOK.md](.claude/RUNBOOK.md).
+PR workflows are in [mark-brannan/claude's RUNBOOK.md](https://github.com/mark-brannan/claude/blob/main/RUNBOOK.md).
 
 **Deliberately partial.** Only procedures that have been run are written down.
 Age-key rotation and the two incident responses — a secret committed in
@@ -13,6 +13,9 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 **Machines**
 - [Set up a new machine](#set-up-a-new-machine)
 - [Prune old local branches](#prune-old-local-branches)
+- [Move ~/.claude to its own clone](#move-claude-to-its-own-clone)
+- [Check ~/.claude](#check-claude)
+- [Roll ~/.claude back to yadm](#roll-claude-back-to-yadm)
 
 **Secrets**
 - [Add a secret](#add-a-secret)
@@ -29,13 +32,14 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 
 ## Set up a new machine
 
-**1 — Tooling.** `jq`, `gh` and, on macOS, `flock` are for the hooks;
-`tmux` is optional.
+**1 — Tooling.** `tmux` is optional. Intel Macs skip brew (that path
+is unwritten); the checks still hold.
 
 ```zsh
-# macOS
-brew install yadm age sops jq gh flock tmux
-command -v yadm age sops jq gh flock    # all six, before continuing
+# macOS, Apple Silicon
+brew install yadm age sops jq gh flock coreutils bash tmux
+command -v yadm age sops jq gh flock gtimeout   # all seven
+bash -c 'mapfile -t x </dev/null' && echo ok    # bash 4+ first on PATH
 ```
 
 ```bash
@@ -139,6 +143,52 @@ prune-branches --delete
 Verify: exit 0 and a final `deleted N branch(es)` line; each deletion line
 carries its undo. `prune-branches --help` has the rules.
 
+## Move ~/.claude to its own clone
+
+Run once per machine after the dotfiles PR that stops tracking `.claude/` has
+merged, or on a new machine after [step 3](#set-up-a-new-machine). The PR
+deletes every file yadm put in `~/.claude` on each machine it reaches, clone or
+no clone, within five minutes (cron), `settings.json` included: until this
+runs, a new Claude Code session there starts with no hooks, permissions or
+denied connectors. Safe to re-run; it never pushes.
+
+```sh
+dotfiles-claude-clone.sh move
+```
+
+Verify: `dotfiles-claude-clone.sh check` exits 0 with `source: clone of
+...claude.git` and `hooks: ok`. A non-zero local-change count is uncommitted
+edits in `~/.claude`. Undo: [roll back](#roll-claude-back-to-yadm). Before an
+SSH key is set up: `CLAUDE_REPO=https://github.com/mark-brannan/claude.git`.
+
+## Check ~/.claude
+
+```sh
+dotfiles-claude-clone.sh check
+```
+
+Verify: exit 0. `source: yadm` means yadm still delivers it (not moved, or
+rolled back). `FAIL: missing ...` means Claude Code on this machine is
+missing its settings or hooks: run the move again, or roll back.
+
+## Roll ~/.claude back to yadm
+
+**Once, on github.com:** open the dotfiles PR that stopped tracking `.claude/`
+(the command prints its commit, which links the PR), press **Revert**, merge.
+**On every machine,** before or after that:
+
+```sh
+dotfiles-claude-clone.sh rollback
+```
+
+It moves the clone's history to `~/claude-snapshot-<time>/dot-git` (undo: `mv`
+it back) and restores `.claude/` from dotfiles; `yadm status` shows it as added
+(`A`) until the revert arrives. A machine still holding the clone refuses the
+revert's pull until this runs.
+
+Verify: `dotfiles-claude-clone.sh check` exits 0 with `source: yadm` and
+`hooks: ok`. Delete `~/claude-snapshot-*` once it does.
+
 ## Add a secret
 
 ```bash
@@ -182,6 +232,16 @@ excluded from that loop by name and sourced only inside the `claude` wrapper
 function (see `.zshrc`). A new secret needing the same treatment gets its
 basename added to the `case` in both `.zshrc` and `.bashrc` and its own
 wrapper; the script does not do this for you.
+
+**Exception — a secret no shell should carry**, like a signing key. Put it in
+`~/secrets/on-demand/` and have the script that uses it run `sops -d` itself;
+bootstrap never decrypts that directory:
+
+```bash
+$EDITOR ~/secrets/on-demand/$NAME.sops.env
+sops -e -i ~/secrets/on-demand/$NAME.sops.env
+yadm bootstrap && ls ~/.config/secrets/$NAME.env    # must say: No such file
+```
 
 ## Rotate a secret
 

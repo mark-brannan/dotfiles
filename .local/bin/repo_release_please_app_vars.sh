@@ -4,7 +4,7 @@
 # an installation token. Idempotent: `gh secret set` overwrites in place.
 #
 # Reads the app credentials from the sops-encrypted
-# ~/secrets/release-please-app.sops.env (RELEASE_PLEASE_APP_CLIENT_ID,
+# ~/secrets/on-demand/release-please-app.sops.env (RELEASE_PLEASE_APP_CLIENT_ID,
 # RELEASE_PLEASE_APP_PRIVATE_KEY_B64 — the PEM, base64'd so it survives as a
 # plain env value). Decrypted only in memory for the life of this script;
 # nothing plaintext touches disk.
@@ -19,7 +19,7 @@ case "${1:-}" in
   *) echo "usage: $(basename "$0") [--dry-run]" >&2; exit 2 ;;
 esac
 
-SECRET_FILE="$HOME/secrets/release-please-app.sops.env"
+SECRET_FILE="$HOME/secrets/on-demand/release-please-app.sops.env"
 REPO_LIST="$HOME/.local/share/vended-repos.txt"
 
 for cmd in gh sops base64; do
