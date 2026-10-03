@@ -163,10 +163,9 @@ class WorkItemTest(unittest.TestCase):
         self.assertEqual(run(A, "create", "--brief", "no link here", "No link").returncode, 1,
                          "a brief with no link is refused")
         self.assertEqual(len(list(self.dir.glob("*.md"))), n, "a refused create wrote no file")
-        self.assertEqual(run(A, "brief", self.id, "no link here").returncode, 1,
-                         "a brief rewrite with no link is refused")
-        for ok_link in ("see mark-brannan/dotfiles#510", "[log](../log/x.md)"):
-            ok(A, "brief", self.id, ok_link)
+        for i, link in enumerate(("see mark-brannan/dotfiles#510", "[log](../log/x.md)")):
+            ok(A, "create", "--id", f"170000010{i}077c62eb", "--brief", link, "Linked")
+        ok(A, "brief", self.id, "an older card is re-briefed without a link")
 
     RULING = ("decide it default: do X undo: revert, cheap until: 2026-11-01 "
               "risk: a day lost judgment: direction")
@@ -176,7 +175,7 @@ class WorkItemTest(unittest.TestCase):
     def next_id(self):
         # A fast run mints two ids in one second: give each create its own.
         WorkItemTest.seq += 1
-        return f"17000001{self.seq:02d}077c62eb"
+        return f"17000003{self.seq:02d}077c62eb"
 
     def ruling(self, brief, *extra):
         return run(A, "create", "--id", self.next_id(), "--owner", "human-ruling", *extra, "--brief",
