@@ -111,8 +111,8 @@ brief carries none. Nor does it carry the title: `work-item list` draws the
 card line as `**title**: brief`, the facts, then `id:`, so a new card reads like
 a migrated one, whose brief holds the whole line. Name a card by it in a hand-off — "card 1790836842077c62eb"
 is enough for the next session. Add `blocked: <dependency>` to the brief only
-when it is actually blocked. There is no list to place a card in, so state urgency in the
-brief's own words.
+when it is actually blocked. There is no list to place a card in and `work-item list` reads
+oldest first, so state urgency in the brief's own words; nothing ranks it.
 
 Two calls, and the item exists and is pickable. `create` prints the id and
 starts the item `open`; a writer has to log `status=ready` or no reader
@@ -137,8 +137,8 @@ append them to the card line. All are optional on an `agent` card. A dated
 ~/.local/bin/work-item log "$id" until=2026-11-01
 ```
 
-An `until:` that is an event or a PR/issue link with spaces cannot be one
-word; write it inside the brief.
+An `until:` that is an event, with spaces, cannot be one word; write it
+inside the brief. A link is one word and can be logged.
 
 A ruling card carries your evaluation, so that the ruling is one word. Owner
 `human-ruling`; the brief:
@@ -207,7 +207,8 @@ After writing, `~/.local/bin/work-item show <id>` prints the file, and
   `work-item claim <id>`, then `work-item log <id> status=done
   'evidence=<link>'` — the PR, commit or decisions line that shows it. Stop
   there: no skill writes `closed`; that waits on the user's acceptance and a
-  sweep of the whole tree. `work-item` refuses `done` without a claim.
+  sweep of the whole tree. `work-item` refuses `done` without a claim. The
+  endings below are the lifecycle doc's reading, still pencil.
 - **An answered ruling moves, it is not deleted.** `/agora` records the answer
   at once and retires the card as above; where `/sweep` finds one answered
   elsewhere it appends one dated line with the answer to `docs/decisions.md`
