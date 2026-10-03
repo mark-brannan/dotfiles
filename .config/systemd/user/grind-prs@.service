@@ -25,7 +25,7 @@ StateDirectory=grind
 # A user unit does not inherit a login shell's PATH, and grind needs git, gh,
 # jq and claude on it. Override the whole line in ~/.config/grind-prs.env when
 # claude lives somewhere else (a version manager, ~/.claude/local).
-Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin:%h/.claude/bin
 EnvironmentFile=-%h/.config/grind-prs.env
 
 ExecStart=%h/.claude/bin/grind --prs
