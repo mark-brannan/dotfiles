@@ -83,13 +83,12 @@ no GitHub home. Take the first line that fits:
 ## Where the card lands
 
 One item per card, in `~/claude_prompts_scratch/state/global/items/`, written
-only through `~/.local/bin/work-item`. Never hand-write an item file and never
-touch `kanban.md`: it is a skeleton of empty headings that nothing reads. The
-store is private, so boats, hosts and services may appear in it; nothing else
+only through `~/.local/bin/work-item`. Never hand-write an item file, and
+never put a card anywhere else, `kanban.md` included. The store is private, so boats, hosts and services may appear in it; nothing else
 may carry cards. "Project" means the `project-<name>` GitHub topic that
 `worklist` resolves — it spans repos, it is not a repo.
 
-The owner is the old section, and `--owner` takes it:
+`--owner` takes exactly one of these three words, and nothing else:
 
 | Owner | For | Surfaced to the user |
 |---|---|---|
@@ -108,7 +107,9 @@ never optional** — a card nobody but its author can resolve is not a card;
 neither is an action that cannot be stated without private paths, hosts or
 ports. Its id is minted by `create` (epoch seconds then this session's eight
 hex, no separator) and printed; never type, edit or reuse one, and the
-brief carries none. Name a card by it in a hand-off — "card 1790836842077c62eb"
+brief carries none. Nor does it carry the title: `work-item list` draws the
+card line as `**title**: brief`, the facts, then `id:`, so a new card reads like
+a migrated one, whose brief holds the whole line. Name a card by it in a hand-off — "card 1790836842077c62eb"
 is enough for the next session. Add `blocked: <dependency>` to the brief only
 when it is actually blocked. There is no list to place a card in, so state urgency in the
 brief's own words.
@@ -200,13 +201,19 @@ After writing, `~/.local/bin/work-item show <id>` prints the file, and
 
 ## Lifecycle
 
-- **Cards die when done.** Finishing one is a log line (`work-item claim`,
-  then `work-item log <id> status=done`), never an edit to the brief; the
-  item's log and the session logs keep the history.
-- **An answered ruling moves, it is not deleted.** `/sweep` appends one dated
-  line with the answer to `docs/decisions.md` in the project's primary repo
-  (a pointer line when the ruling landed as an ADR or a Q-nn), then closes
-  the item. That file is where "I decided X on the 24th" is found later.
+- **Cards die when done, never by an edit to the brief.** Per
+  [the lifecycle](../../../docs/work-item-lifecycle.md), an `open` item gets
+  `work-item log <id> status=ready` first (the second call above), then
+  `work-item claim <id>`, then `work-item log <id> status=done
+  'evidence=<link>'` — the PR, commit or decisions line that shows it. Stop
+  there: no skill writes `closed`; that waits on the user's acceptance and a
+  sweep of the whole tree. `work-item` refuses `done` without a claim.
+- **An answered ruling moves, it is not deleted.** `/agora` records the answer
+  at once and retires the card as above; where `/sweep` finds one answered
+  elsewhere it appends one dated line with the answer to `docs/decisions.md`
+  in the project's primary repo (a pointer line when the ruling landed as an
+  ADR or a Q-nn) and retires it the same way. That file is where "I decided X
+  on the 24th" is found later.
 - No cap and no expiry: `/sweep` prunes what was ruled elsewhere or went
   stale, and reranks the rest. A card that blocks nothing and has no
   consequence is never shown; take its default and record it.
