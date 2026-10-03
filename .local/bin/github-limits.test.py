@@ -73,6 +73,16 @@ class RepoTest(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("widest directory", p.stdout)
 
+    def test_offline_needs_no_reachable_remote(self):
+        subprocess.run(["git", "-C", str(self.repo), "remote", "set-url", "origin", "/nonexistent.git"], check=True)
+        p = subprocess.run([sys.executable, str(ENGINE), str(self.repo), "--offline"], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_tool_failure_exits_3_not_1(self):
+        p = subprocess.run([sys.executable, str(ENGINE), self.tmp.name, "--offline"], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 3)
+        self.assertNotIn("Traceback", p.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,8 @@
 #
 # REPO_DIR defaults to ~/claude_prompts_scratch. --offline skips the three
 # `gh api` calls (repo size, push activity, rate limit); rate_limit itself
-# costs no quota. Exit 1 when any row is over, 0 otherwise, 2 on usage.
+# costs no quota. Exit 1 when any row is over, 0 otherwise, 2 on usage,
+# 3 when git or gh fails (no network, not logged in, not a repo).
 # Python 3 stdlib only; on PATH from dotfiles.
 import argparse
 import collections
@@ -81,7 +82,9 @@ def local_rows(repo):
     width, wdir = widest_dir(paths)
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     commits_day = int(git(repo, "rev-list", "--count", f"--since={since}", "HEAD"))
-    heads = sum(1 for l in git(repo, "ls-remote", "--heads", "origin").splitlines() if l.strip())
+    # Remote-tracking refs, not ls-remote, so --offline stays off the network.
+    heads = sum(1 for l in git(repo, "for-each-ref", "--format=%(refname)", "refs/remotes/origin/").splitlines()
+                if l != "refs/remotes/origin/HEAD")
     co = dict(l.split(": ", 1) for l in git(repo, "count-objects", "-v").splitlines())
     pack = (int(co["size-pack"]) + int(co["size"])) * 1024
     return [
@@ -140,7 +143,12 @@ def main(argv=None):
     ap.add_argument("--offline", action="store_true", help="skip gh api calls")
     ap.add_argument("--json", action="store_true", help="one JSON object, for logging")
     a = ap.parse_args(argv)
-    rows = local_rows(a.repo) + ([] if a.offline else remote_rows(a.repo))
+    try:
+        rows = local_rows(a.repo) + ([] if a.offline else remote_rows(a.repo))
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        detail = getattr(e, "stderr", None) or str(e)
+        print(f"github-limits: could not measure: {detail.strip().splitlines()[-1] if detail.strip() else e}", file=sys.stderr)
+        return 3
     if a.json:
         print(json.dumps({"at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "rows": rows}))
     else:
