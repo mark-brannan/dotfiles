@@ -415,8 +415,8 @@ eq_ust "items: a stale holder has let go" 'open|' \
   "$(lsi 'work_claims_load; claude_cards | grep "Stale hold" | work_records --cards' | cut -d "$(printf '\037')" -f3,5 | tr '\037' '|')"
 eq_ust "items: no items/ is an empty board, not a kanban.md read" '' \
   "$(LSI_DIR=$SCRATCH/none lsi 'claude_cards; board_union')"
-eq_ust "items: the default store is items/ in the state dir" "$SCRATCH/sd/items" \
-  "$(CLAUDE_STATE_REPO= HOME=$SCRATCH/sd WORK_ITEM_DIR= sh -c '. "'"$HOOKS"'/lib-state.sh"; items_dir' | sed "s|/.claude/state/global/items|/items|")"
+eq_ust "items: the default store is items/ in the state dir" 'yes' \
+  "$(WORK_ITEM_DIR='' sh -c '. "'"$HOOKS"'/lib-state.sh"; [ "$(items_dir)" = "$(state_dir)/items" ] && echo yes')"
 
 # --- ruling_readiness ----------------------------------------------------------
 # Under sh as well as bash: worklist sources this file from /bin/sh. gh is
