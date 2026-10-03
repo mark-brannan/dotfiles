@@ -6,6 +6,8 @@ uses. Both facts constrain almost everything below.
 Global standing orders live in `.claude/CLAUDE.md` and load in every session
 everywhere; personal code and writing rules in `.claude/rules/`. Those files
 happen to be tracked here, but they are not *about* this repo. This file is.
+In a worktree, the standing orders and rules load from `~` (live); the branch's
+copies are drafts to Read, not loaded; this file loads from the branch.
 
 ## Files
 
