@@ -82,15 +82,19 @@ When the card is done, retire it as `/sweep` does, its Retire steps and
 [the lifecycle](../../../docs/work-item-lifecycle.md): `work-item claim <id>`
 (an `open` card gets `log <id> status=ready` first), then `log <id> status=done
 'evidence=<link>'` (the link that shows it; with none, one clause of the
-user's words with no `=` or `'` in it), and stop. No skill
+user's words with no `=` in it; quoted as `/sweep` quotes it, here-doc and
+variable, so a `'` in the text is safe), and stop. No skill
 writes `closed`. The Stop hook commits the item files. A card owned
 `human-ruling` stays until the ruling has landed somewhere durable — the PR,
 the ADR, the doc it settles — then it is retired the same way. Say in one
 line what changed and stop.
 
 If the walk stalls, write what you learned **into the card or issue**
-(a card: `work-item show <id>`, copy the text under `## Brief` minus the
-`points:` line, add the lines, send it back with `work-item brief <id> -`)
+(a card: first `work-item fold <id>`; a `holder=` that is set with
+`holder_stale=no` means another live session has it, so say who and leave it
+alone, since `brief` does not check. Otherwise `work-item show <id>`, copy the
+text under `## Brief` minus the `points:` line, add the lines, send it back
+with `work-item brief <id> -`)
 before ending — the step that failed, what the UI actually showed, what
 would unblock it. A loop that has been half-walked twice with nothing
 recorded is worse than one nobody touched.

@@ -55,7 +55,8 @@ that's a `/agora` card.
 - **"Pending:" tail with no contract:** don't resolve it — rewrite it as a
   proper card with input (the exact question) and output type (a card's brief
   by `work-item brief <id> -`; a memo's tail as a new card with `work-item
-  create`), or hand it to `/agora` if it needs judgment now.
+  create`, title quoted as `/sweep` quotes a value), or hand it to `/agora`
+  if it needs judgment now.
 - **Blocked issue whose blocker is closed or dated past:** relabel `ready`,
   proof in the issue comment.
 

@@ -130,8 +130,9 @@ each yes'd item exactly as proposed:
 
 - a card owned `agent`, worded as `/card-write` words one (a link to the
   target in it), written to the item store with
-  `work-item create --owner agent [--repo <r>] [--model <m>] [--effort <e>] --brief - '<title>'`
-  (the card text on stdin; it prints the new id), then
+  `work-item create --owner agent [--repo <r>] [--model <m>] [--effort <e>] --brief - "$title"`
+  (the card text on stdin; it prints the new id; `$title` is read from a
+  quoted here-doc, as `/sweep` quotes a value, so a `'` in a title is safe), then
   `work-item log <id> status=ready` so it is claimable;
 - at most one GitHub issue this session, never a batch (Solace,
   2026-10-01, pen); further issue-homed items stay in the proposal, marked

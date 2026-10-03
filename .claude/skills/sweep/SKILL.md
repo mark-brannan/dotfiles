@@ -86,7 +86,10 @@ the user says they have it.
   line must pass the private-terms check; failing that, it goes to the state
   repo's log with the same date.
 - **Deferred:** write or rewrite `until:` per the rule above, in the brief
-  (readers take `until:` from the brief's text): print it with `work-item
+  (readers take `until:` from the brief's text). `brief` does not check the
+  holder, so first read `work-item fold <id>`: a `holder=` that is set with
+  `holder_stale=no` means a live session has the card; say who holds it and
+  since when, leave the card, move on. Otherwise print it with `work-item
   show <id>`, copy the text under `## Brief` (minus the `points:` line),
   change or add the `until:` field, and send it back with `work-item brief
   <id> -` on stdin. The card is not shown again before then.
@@ -107,11 +110,26 @@ later sweep of an accepted parent. Read the status with `work-item fold <id>`
 | `done`, `closed` | nothing |
 
 `<link>` is the proof: where the ruling landed, or the PR that shows the card
-moot; for a stale card with no link, one clause with no `=` or `'` in it. A
+moot; for a stale card with no link, one clause with no `=` in it. A
 refused `claim` (exit 1: a live session holds the item) leaves the card where
 it is: say who holds it and since when, and move on, never around it. A `done`
 that fails after the claim takes `work-item release <id>`; either goes in the
 output.
+
+**Quoting.** A value that may hold `'` (a link, a clause, a card title) is never
+written inside single quotes. Put it in a quoted here-doc, read it into a
+variable, and pass the variable in double quotes; nothing in the text is then
+special to the shell:
+
+```sh
+ev=$(cat <<'EOF'
+<link>
+EOF
+)
+work-item log <id> status=done "evidence=$ev"
+```
+
+`'evidence=<link>'` above, and in the other skills, is shorthand for this.
 
 The board is not committed by hand: the item files are plain files in the state
 repo and the Stop hook commits and pushes them. Proofs live in the log's
