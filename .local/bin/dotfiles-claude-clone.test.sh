@@ -108,4 +108,9 @@ out=$(run B check); has 'source: yadm' "$out" "S6 B check"; has 'hooks: ok' "$ou
 out=$(run A rollback); has "restored from dotfiles $(git -C "$DOT" rev-parse --short "$C3")" "$out" "S7 restores from HEAD"
 out=$(run A check); has 'hooks: ok' "$out" "S7 check"
 
+# S8: rollback on a clone whose tracked files are all gone (nothing to snapshot)
+main_is "$C2"; home E nolitter; out=$(run E move); rm -rf "$W/E/.claude/hooks" "$W/E/.claude/settings.json" "$W/E/.claude/CLAUDE.md" "$W/E/.claude/RUNBOOK.md" "$W/E/.claude/cloud-setup.sh" "$W/E/.claude/docs" "$W/E/.claude/rules" "$W/E/.claude/skills" "$W/E/.claude/settings.local.json"
+out=$(run E rollback); r=$?; eq "$r" 0 "S8 rollback exits 0 with nothing to snapshot"
+has 'dot-git' "$(ls "$W/E"/claude-snapshot-*/ | tr '\n' ' ')" "S8 snapshot holds the clone's .git"; out=$(run E check); has 'hooks: ok' "$out" "S8 check"
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

@@ -73,7 +73,7 @@ rollback() {
 		SRC="$U^"
 	fi
 	yadm ls-tree --name-only "$SRC" .claude/ | snapshot
-	if [ -d .claude/.git ]; then mv .claude/.git "$SNAP/dot-git"; fi
+	if [ -d .claude/.git ]; then mkdir -p "$SNAP" && mv .claude/.git "$SNAP/dot-git"; fi
 	yadm checkout "$SRC" -- .claude
 	echo "done; restored from dotfiles $(yadm rev-parse --short "$SRC"); snapshot in $SNAP"
 }
