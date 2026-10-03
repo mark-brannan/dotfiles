@@ -9,7 +9,6 @@ set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SYNC="$HERE/dotfiles-sync.sh"; CLONE="$HERE/dotfiles-claude-clone.sh"
-SRC="$(cd "$HERE/../.." && pwd)"
 pass=0; fail=0
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -32,7 +31,12 @@ ydm() { h=$1; shift; HOME="$h" "$W/yadm" -c user.name=t -c user.email=t@example.
 
 CLAUDE="$W/claude.git"; git init -q --bare "$CLAUDE"
 S="$W/seed"; mkdir -p "$S"
-for p in $(git -C "$SRC" ls-tree --name-only HEAD .claude/); do cp -a "$SRC/$p" "$S/"; done
+# A small stand-in layer: the real one left this repo (#358). settings.json
+# names an executable hook and a library, as the real one does.
+mkdir -p "$S/hooks" "$S/rules"
+printf '#!/bin/sh\nexit 0\n' > "$S/hooks/guard.sh"; chmod +x "$S/hooks/guard.sh"
+echo 'BEGIN { }' > "$S/hooks/lib-words.awk"; echo '# standing orders' > "$S/CLAUDE.md"; echo '# code' > "$S/rules/code.md"
+printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/hooks/guard.sh $HOME/.claude/hooks/lib-words.awk"}]}]}}\n' > "$S/settings.json"
 $G -C "$S" init -q && $G -C "$S" add -A && $G -C "$S" commit -q -m "claude layer" && $G -C "$S" push -q "$CLAUDE" main
 NHOOKS=$(find "$S/hooks" -type f | wc -l)
 

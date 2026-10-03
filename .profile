@@ -26,6 +26,11 @@ if [ -d "$HOME/.local/bin" ] ; then
     PATH="$HOME/.local/bin:$PATH"
 fi
 
+# the Claude Code tools, from the mark-brannan/claude clone at ~/.claude
+if [ -d "$HOME/.claude/bin" ] ; then
+    PATH="$HOME/.claude/bin:$PATH"
+fi
+
 set -o vi
 
 # --- npm: settings live here, not in ~/.npmrc. npm rewrites that file with an

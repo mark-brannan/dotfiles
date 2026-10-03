@@ -28,7 +28,7 @@ StateDirectory=grind
 Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/grind-prs.env
 
-ExecStart=%h/.local/bin/grind --prs
+ExecStart=%h/.claude/bin/grind --prs
 
 # Both streams to one file, appended: the tally line and the WARN lines that
 # explain it are the same story and belong in the same order.

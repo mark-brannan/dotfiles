@@ -20,7 +20,7 @@ Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/languette-step-two.env
 
 # --since is when step one landed: every denial after it carries the copy tag.
-ExecStart=%h/.local/bin/languette-step-two --since 2026-10-01T17:30:32Z
+ExecStart=%h/.claude/bin/languette-step-two --since 2026-10-01T17:30:32Z
 
 StandardOutput=append:%S/languette/step-two.log
 StandardError=append:%S/languette/step-two.log

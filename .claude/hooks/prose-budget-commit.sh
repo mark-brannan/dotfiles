@@ -17,7 +17,7 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 LIB="$HERE/lib-shell-words.awk"
-ENGINE="${PROSE_BUDGET:-$(command -v prose-budget 2>/dev/null || echo "$HERE/../../.local/bin/prose-budget")}"
+ENGINE="${PROSE_BUDGET:-$(command -v prose-budget 2>/dev/null || echo "$HERE/../bin/prose-budget")}"
 
 command -v jq >/dev/null 2>&1 || exit 0
 command -v awk >/dev/null 2>&1 || exit 0

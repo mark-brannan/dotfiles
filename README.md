@@ -32,8 +32,10 @@ Between those, a cron line that `bootstrap` installs runs
 see "Why the cron sync is ff-only" below.
 
 **Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — sync, secrets, and
-troubleshooting. Claude Code — hooks, cloud environments, PR workflows — has
-its own runbook at [.claude/RUNBOOK.md](.claude/RUNBOOK.md).
+troubleshooting. Claude Code — hooks, rules, tools — lives in its own repo,
+[mark-brannan/claude](https://github.com/mark-brannan/claude); after bootstrap,
+`~/.local/bin/dotfiles-claude-clone.sh move` makes `~/.claude` a clone of it.
+Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/main/RUNBOOK.md).
 
 ## Conventions that keep it quiet
 

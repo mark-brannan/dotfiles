@@ -48,12 +48,13 @@ jobs:
           persist-credentials: false
       - run: bash .github/scripts/verify_encrypted.sh
 
-  # Syntax/correctness lint for every tracked shell script. The scripts
-  # here are exactly the ones CLAUDE.md flags for extra scrutiny --
-  # .claude/hooks/*, .config/yadm/hooks/*, .config/yadm/bootstrap -- all
-  # execute automatically (session start/stop, git commit, machine
-  # bootstrap). A shellcheck-caught bug in one of those runs unattended on
-  # every session or every commit, on every machine, at the next dotsync.
+  # Syntax/correctness lint for every tracked shell script. The yadm
+  # scripts here are the ones CLAUDE.md flags for extra scrutiny --
+  # .config/yadm/hooks/*, .config/yadm/bootstrap -- they execute
+  # automatically (git commit, machine bootstrap). A shellcheck-caught bug
+  # in one of those runs unattended on every commit, on every machine, at
+  # the next dotsync. The Claude Code hooks moved to mark-brannan/claude
+  # (#358) and are linted there, but for the four held back here.
   shellcheck:
     runs-on: ubuntu-latest
     steps:
@@ -77,127 +78,47 @@ jobs:
           # bash may not be what /bin/sh points at) get -s sh; everything
           # else here is bash-shebanged and checked as such.
           shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit
-          shellcheck --severity=warning .claude/hooks/*.sh .claude/cloud-setup.sh .local/bin/*.sh
+          shellcheck --severity=warning .claude/hooks/*.sh .local/bin/*.sh
 
-  # Every hook settings.json references must also be seeded by
-  # cloud-session-setup.sh. If it isn't, the hook silently no-ops in every
-  # cloud session -- and a no-op is indistinguishable from a hook that ran
-  # and passed. This invariant was prose in CLAUDE.md and got broken anyway
-  # (no-late-pr-subscribe.sh, PR #24), so it is a check now.
-  seeded:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Every settings.json hook is in the INSTALL list
-        run: |
-          set -euo pipefail
-          # Hooks named in settings.json, plus every library a hook loads
-          # from its own directory (lib-*.awk, *.jq): a hook that runs but
-          # cannot find its library fails closed on every call.
-          { grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.sh' .claude/settings.json
-            grep -ho 'lib-[A-Za-z0-9._-]*\.\(awk\|sh\|jq\)' .claude/hooks/*.sh \
-              | sed 's|^|.claude/hooks/|'
-          } | sort -u > /tmp/referenced
-          # The INSTALL heredoc-style list ends at the closing quote.
-          sed -n '/^INSTALL="/,/^"/p' .local/bin/cloud-session-setup.sh \
-            | grep -o '\.claude/hooks/[A-Za-z0-9._-]*\.\(sh\|awk\|jq\)' \
-            | sort -u > /tmp/installed
-          missing=$(comm -23 /tmp/referenced /tmp/installed)
-          if [ -n "$missing" ]; then
-            echo "::error::settings.json references hooks that cloud-session-setup.sh never seeds:"
-            echo "$missing"
-            echo "Add them to INSTALL in .local/bin/cloud-session-setup.sh."
-            exit 1
-          fi
-          echo "ok: all $(wc -l < /tmp/referenced) referenced hooks are seeded"
-      - name: settings.json hooks run from \$HOME only
-        run: |
-          set -euo pipefail
-          if grep -q 'CLAUDE_PROJECT_DIR/.claude/hooks' .claude/settings.json; then
-            echo "::error::settings.json falls back to \$CLAUDE_PROJECT_DIR for a hook."
-            echo "In a cloud session on a third-party repo that executes THAT repo's"
-            echo "hooks under user-scope trust. Seed the hook to \$HOME instead."
-            exit 1
-          fi
-          echo "ok: no \$CLAUDE_PROJECT_DIR hook fallbacks"
-      # The languette plugin carries the rm, footgun and stacked-base guards,
-      # alongside the copies in .claude/hooks for now. Install it the way
-      # cloud-session-setup.sh does and run its own hooks.json entry: a plugin
-      # that installs but no longer gates is the failure this proves against.
-      - name: languette installs and gates rm
-        run: |
-          set -euo pipefail
-          npm install -g -q @anthropic-ai/claude-code
-          claude plugin marketplace add mark-brannan/languette
-          claude plugin install languette@languette
-          root=$(jq -er '.plugins["languette@languette"][0].installPath' "$HOME/.claude/plugins/installed_plugins.json")
-          cmd=$(jq -er '.hooks.PreToolUse[].hooks[] | select(.command | test("no-rm-tree")) | .command' "$root/hooks/hooks.json")
-          # Under $HOME, not /tmp: /tmp is an agent-owned root the guard allows wholesale.
-          proj=$(mktemp -d "$HOME/languette-proof.XXXXXX"); mkdir "$proj/build" "$proj/node_modules"
-          decide() {
-            out=$(jq -n --arg c "$1" --arg d "$proj" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
-              | (cd "$proj" && CLAUDE_PLUGIN_ROOT="$root" sh -c "$cmd"))
-            if [ -n "$out" ]; then printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecision'; else echo allow; fi
-          }
-          b=$(decide 'rm -rf build'); n=$(decide 'rm -rf node_modules')
-          echo "rm -rf build -> $b; rm -rf node_modules -> $n (plugin at $root)"
-          [ "$b" = deny ] && [ "$n" = allow ] || { echo "::error::the installed languette plugin did not gate rm as expected"; exit 1; }
-
-  # Only these 8 guards share the awk tokenizer (lib-shell-words.awk) where
-  # the three-implementation contract is real (#94 names them): a gawk-ism
-  # that passes locally is a hook that fails closed on every Bash call on the
-  # Mac (mawk), or -- worse -- parses differently under original-awk. All
-  # three implementations still run on every PR; they run inside one job
-  # rather than as a three-leg matrix because the cost that hurts is queued
-  # jobs against the account's concurrent-job cap (#337), and three legs that
-  # each spent most of their wall time on the same apt-get bought two more
-  # slots in that queue and nothing else. Every implementation is reported
-  # even after one fails -- "mawk is fine, original-awk is not" is the finding
-  # this job exists to produce, so the loop records the failure and carries on
-  # rather than stopping at the first red (what fail-fast: false bought the
-  # matrix).
+  # The four guards held back in dotfiles (no-checkout-home, no-foreign-worktree,
+  # prose-budget-commit, public-issue-guard; #358) share lib-shell-words.awk,
+  # which now lives in mark-brannan/claude. Lay them over a checkout of that
+  # repo, as ~/.claude is on the machine, and run their suites under all three
+  # awks in one job (#94, #337): a gawk-ism that passes locally fails closed
+  # on the Mac (mawk).
   guard-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: mark-brannan/claude
+          path: claude-layer
+          persist-credentials: false
       - name: Install mawk, gawk and original-awk
+        run: sudo apt-get update -q && sudo apt-get install -y -q mawk gawk original-awk jq
+      - name: Run the held-back guard suites under each awk
         run: |
           set -euo pipefail
-          sudo apt-get update -q
-          # Co-installable: each package Provides: awk through
-          # update-alternatives and none of them Conflicts with the others,
-          # so /usr/bin/{mawk,gawk,original-awk} all exist side by side and
-          # the symlink below picks one per pass.
-          sudo apt-get install -y -q mawk gawk original-awk jq
-      - name: Run the lib-shell-words guard suites under each awk
-        run: |
-          set -euo pipefail
+          cp -a .claude/hooks/. claude-layer/hooks/
           status=0
           for impl in mawk gawk original-awk; do
             d=$(mktemp -d)
             ln -s "$(command -v "$impl")" "$d/awk"
-            for t in .claude/hooks/no-foreign-worktree.test.sh \
-                     .claude/hooks/no-checkout-home.test.sh \
-                     .claude/hooks/prose-budget-commit.test.sh \
-                     .claude/hooks/public-issue-guard.test.sh \
-                     .claude/hooks/issue-door.test.sh \
-                     .claude/hooks/pr-ownership-context.test.sh; do
+            for t in no-foreign-worktree no-checkout-home prose-budget-commit public-issue-guard; do
               echo "::group::$t under $impl"
-              if AWK_PATH=$d bash "$t"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
+              if AWK_PATH=$d bash "claude-layer/hooks/$t.test.sh"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
               echo "::endgroup::"
             done
           done
           exit $status
 
-  # Every other .claude/hooks and .local/bin suite: incidental awk
-  # one-liners, not the tokenizer contract, so one leg under Ubuntu's
-  # default awk (mawk) is full coverage -- running them three times bought
-  # nothing. Each suite makes its own mktemp -d, so they're independent and
-  # run in parallel via xargs -P rather than serially in a loop.
+  # The .local/bin suites that stayed here (dotfiles-sync, the ~/.claude
+  # clone mover, yadm-post-checkout). The Claude Code hook and tool suites
+  # moved to mark-brannan/claude with their code (#358). Each suite makes its
+  # own mktemp -d, so they run in parallel via xargs -P.
   tool-tests:
     runs-on: ubuntu-latest
     steps:
@@ -205,19 +126,10 @@ jobs:
         with:
           persist-credentials: false
       - run: sudo apt-get update -q && sudo apt-get install -y -q jq
-      - name: Python test suites
-        run: for t in .local/bin/*.test.py .claude/hooks/*.test.py; do echo "== $t"; python3 "$t"; done
-      - name: Run every other test suite in parallel
+      - name: Run every test suite in parallel
         run: |
           set -euo pipefail
-          printf '%s\n' .claude/hooks/*.test.sh .local/bin/*.test.sh \
-            | grep -vFf <(printf '%s\n' \
-                .claude/hooks/no-foreign-worktree.test.sh \
-                .claude/hooks/no-checkout-home.test.sh \
-                .claude/hooks/prose-budget-commit.test.sh \
-                .claude/hooks/public-issue-guard.test.sh \
-                .claude/hooks/issue-door.test.sh \
-                .claude/hooks/pr-ownership-context.test.sh) \
+          printf '%s\n' .local/bin/*.test.sh \
             | xargs -P 4 -I{} bash -c '
                 t="$1"
                 echo "::group::$t"
@@ -225,29 +137,13 @@ jobs:
                 echo "::endgroup::"
               ' _ {}
 
-  # The prose guard every consumer repo runs through mark-brannan/.github's
-  # reusable workflow, run here on the engine in this checkout rather than a
-  # fetched tag: this repo hosts the engine, and a PR that changes it must be
-  # gated by the version it ships. docs/budgets.json holds every number; the
-  # engine's own `config` rule refuses a cap that rises in the same change.
+  # The prose guard, through mark-brannan/.github's reusable workflow like
+  # every other consumer repo now that the engine lives in mark-brannan/claude
+  # (#358). docs/budgets.json holds every number.
   prose-budget:
-    runs-on: ubuntu-latest
-    env:
-      BASE: ${{ github.event.pull_request.base.sha }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: prose-budget
-        run: |
-          set -euo pipefail
-          if [ -n "$BASE" ]; then
-            python3 .local/bin/prose-budget --require-config --base "$BASE"
-          else
-            echo "::notice::not a pull_request event; running tree rules only (--tree)"
-            python3 .local/bin/prose-budget --require-config --tree
-          fi
+    permissions:
+      contents: read
+    uses: mark-brannan/.github/.github/workflows/prose-budget.yml@main
 
   # Refuses to call an empty PR green: a branch whose tree equals its base
   # at the merge base (a stray Stop-commit reverted it, which is how PR #198
@@ -267,7 +163,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, shellcheck, seeded, guard-tests, tool-tests, prose-budget, nonempty]
+    needs: [secrets-encrypted, shellcheck, guard-tests, tool-tests, prose-budget, nonempty]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}
