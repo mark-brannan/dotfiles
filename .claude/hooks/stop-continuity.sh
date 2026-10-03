@@ -668,13 +668,19 @@ git -c user.name="${GIT_AUTHOR_NAME:-Claude}" \
     commit -q -m "State: $work_repo session ${sid:0:8} ($today)" >/dev/null 2>&1 || { set_verdict "state-repo commit failed"; exit 0; }
 
 # Debounce the push, not the commit: every Stop still commits locally (cheap,
-# never lost), but pushes to GitHub at most once per 5 minutes. Measured
-# 2026-09-10: ~560 pushes/day to claude_prompts_scratch, bursty enough to
-# risk GitHub's abuse-rate heuristics. A cloud session pushes whenever
-# archivable, so its last commit is never left on a VM about to be reaped; a
-# local one batches, because its commit is already safe in the clone.
+# never lost), but this clone pushes at most once per debounce window, however
+# many sessions stop. A cloud session pushes whenever archivable, so its last
+# commit is never left on a VM about to be reaped; a local one batches, because
+# its commit is already safe in the clone and a later Stop carries it.
+#
+# The stamp lives in the clone's git dir, never in the tracked tree. Under
+# state/ it was committed by the next Stop, shared with every other machine,
+# and rewritten by any `pull --rebase --autostash` that brought in another
+# machine's stamp -- or left as conflict markers, which read as "never pushed"
+# and let the next Stop push at once. It records the attempt, not the success:
+# a push that keeps failing is retried once per window, not on every Stop.
 cloud=0; [ "${CLAUDE_CODE_REMOTE:-}" = true ] && cloud=1
-PUSH_SENTINEL="$SD/.last-state-push"
+PUSH_SENTINEL="$(git rev-parse --absolute-git-dir 2>/dev/null)/claude-last-state-push"
 debounce_secs=300
 if { [ "$cloud" -eq 0 ] || [ "$verdict" != "archivable" ]; } && [ -f "$PUSH_SENTINEL" ]; then
   last_push=$(cat "$PUSH_SENTINEL" 2>/dev/null || echo 0)
@@ -684,16 +690,14 @@ if { [ "$cloud" -eq 0 ] || [ "$verdict" != "archivable" ]; } && [ -f "$PUSH_SENT
     exit 0   # committed locally; next push (debounced or archivable) carries it
   fi
 fi
+date -u +%s > "$PUSH_SENTINEL" 2>/dev/null
 
 for attempt in 1 2; do
   # A conflicted rebase left in place wedges this clone for every later Stop
   # and every hand commit; back out, and let the push below fail and say so.
   timeout 120 git pull --rebase --autostash -q >/dev/null 2>&1 \
     || git rebase --abort >/dev/null 2>&1
-  if timeout 120 git push -q origin HEAD >/dev/null 2>&1; then
-    date -u +%s > "$PUSH_SENTINEL" 2>/dev/null
-    exit 0
-  fi
+  timeout 120 git push -q origin HEAD >/dev/null 2>&1 && exit 0
   sleep $((attempt * 3))
 done
 # In the cloud the optimistic verdict is now known to be wrong. Correcting it
