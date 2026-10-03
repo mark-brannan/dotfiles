@@ -22,14 +22,14 @@ cadence; the ruling's default that holds is "act after a veto window".
      then: -->
 
 Pull candidates from the state repo's items with `owner=human-ruling`
-(`work-item list | awk -F'\t' '$2 == "human-ruling" && $3 == "ready"'`,
-since an open or held item cannot be claimed and a blocked one waits
-on its `until=`; the card line is the last column, the id the first),
+(`work-item list | awk -F'\t' '$2 == "human-ruling" && ($3 == "ready" ||
+$3 == "open")'`, since a held item cannot be claimed and a blocked one
+waits on its `until=`; the card line is the last column, the id the first),
 anything `/reconcile` flagged as an implicit "Pending:" tail, and
 anything the user names; a candidate with no item skips every
 `work-item` step below. That list is the **agora-docket**. Count it
 before the first question, show the count on every question, and say once
-how many ruling items it left out as open, blocked or held. <!-- When
+how many ruling items it left out as blocked or held. <!-- When
 worklist awake/asleep lands, filter to awake only. -->
 
 **Admission** (pencil, the agent's proposal in the one-entry-point
@@ -72,17 +72,14 @@ Every item this skill touches gets, and keeps:
 - **Output** — exactly one of:
   - **Ruling** — the user answers; the ruling is written at once to
     `docs/decisions.md` in the primary repo, or the state repo's log if it
-    fails the private-terms check. The card retires in the same turn, the
-    ruling being the user's acceptance (pencil: the lifecycle's reading for
-    a ruling, this skill's for a spawn or a fold):
-    `work-item claim <id>`, `work-item log <id> status=done
-    'evidence=<link>'`, then `work-item log <id> status=closed
-    'accepted=<link>'`, both links to where the answer is recorded (the
-    decisions line, the spawned work, the curia's open question), per
-    [the lifecycle](../../../docs/work-item-lifecycle.md).
-    A refused `claim` leaves the card as it is; a `done` that fails after
-    the claim takes `work-item release <id>`; a `closed` that fails is
-    retried, since `list` hides a card left at `done`. Each failure goes in
+    fails the private-terms check. The card retires in the same turn, per
+    [the lifecycle](../../../docs/work-item-lifecycle.md): an `open` item
+    gets `work-item log <id> status=ready` first, then `work-item claim
+    <id>`, then `work-item log <id> status=done 'evidence=<link>'`, the
+    link to where the answer is recorded (the roll or decisions line, the
+    spawned work, the curia's open question). Stop there: no skill writes
+    `closed`. A refused `claim` leaves the card as it is, and a `done` that
+    fails after the claim takes `work-item release <id>`; either goes in
     the output line.
   - **Spawned work item** — the answer was "build X to find out"; open
     the issue or card, link it, this item retires as a ruling does.
