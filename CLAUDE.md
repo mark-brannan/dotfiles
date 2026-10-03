@@ -4,10 +4,10 @@ This repo is **public**, and its worktree is `$HOME` on every machine the user
 uses. Both facts constrain almost everything below.
 
 Global standing orders live in `~/.claude/CLAUDE.md` and load in every session
-everywhere; personal code and writing rules in `~/.claude/rules/`. Those files
-live in [mark-brannan/claude](https://github.com/mark-brannan/claude), whose repo root is `~/.claude`; they are
-not *about* this repo. This file is. This file loads from the worktree; `$HOME`
-lacks it.
+everywhere; personal code and writing rules in `~/.claude/rules/`. Both live in
+[mark-brannan/claude](https://github.com/mark-brannan/claude), whose repo root
+is `~/.claude`, with the rest of the Claude Code layer. They are not *about*
+this repo. This file is; it loads from the worktree, and `$HOME` lacks it.
 
 ## Files
 
@@ -24,25 +24,7 @@ lacks it.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
 - `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
 - `.claude/hooks/` — the four guard hooks and their tests: `no-checkout-home`,
-  `no-foreign-worktree`, `prose-budget-commit`, `public-issue-guard`. The rest
-  of the hooks are in [mark-brannan/claude](https://github.com/mark-brannan/claude), under `~/.claude/hooks/`.
-
-These live in [mark-brannan/claude](https://github.com/mark-brannan/claude), whose repo root is `~/.claude` and
-whose tools are in `bin/`, on `PATH` as `~/.claude/bin`:
-
-- [`cloud-session-setup.sh`](https://github.com/mark-brannan/claude/blob/main/bin/cloud-session-setup.sh) — seeds
-  a subset of this repo into `$HOME` on an ephemeral cloud VM.
-- [`prune-branches`](https://github.com/mark-brannan/claude/blob/main/bin/prune-branches) — deletes merged or dead
-  local branches across every repo on the machine; `/sweep` calls it.
-- [`prune-wip-refs`](https://github.com/mark-brannan/claude/blob/main/bin/prune-wip-refs) — deletes the Stop
-  hook's salvage refs (`refs/heads/wip/<session-id>`) on origin once their
-  checkpoint says the work landed or they're past the floor and
-  patch-equivalent to the default branch.
-- [`prose-budget`](https://github.com/mark-brannan/claude/blob/main/bin/prose-budget) — the documentation-bloat
-  guard every repo with a `docs/budgets.json` runs;
-  [`prose-budget.test.py`](https://github.com/mark-brannan/claude/blob/main/bin/prose-budget.test.py) is its suite.
-- [`cloud-setup.sh`](https://github.com/mark-brannan/claude/blob/main/cloud-setup.sh) — writes `deniedMcpServers`
-  at user scope.
+  `no-foreign-worktree`, `prose-budget-commit`, `public-issue-guard`.
 
 ## README.md
 
