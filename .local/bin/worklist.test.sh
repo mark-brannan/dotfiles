@@ -482,7 +482,7 @@ item() { # id title owner repo status brief
 item 1790836845aaaaaaaa 'Item task' agent o/alpha ready 'Do the stored thing.'
 item 1790836843077c62eb 'Card 0 moved' agent o/alpha ready '**Card 0 moved** — the card, now an item id: 1790836843077c62eb'
 item 1790836846aaaaaaaa 'Stored ruling' human-ruling o/colregs ready 'Decide the stored thing.'
-item 1790836847aaaaaaaa 'Finished item' agent o/alpha done 'Already done.'
+item 1790836847aaaaaaaa 'Finished item' agent o/alpha 'done' 'Already done.'
 run --all
 has 'an item is a Claude card, drawn with its title and id' '^- 1790836845aaaaaaaa \*\*Item task\*\*: Do the stored thing\. repo: o/alpha model: opus effort: high$'
 has 'an item replaces the board card with its id' '^- 1790836843077c62eb \*\*Card 0 moved\*\*'

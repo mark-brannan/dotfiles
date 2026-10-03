@@ -404,7 +404,7 @@ ki 1790836862aaaaaaaa 'Stored ruling' human-ruling o/colregs ready 'Decide it.'
 ki 1790836863aaaaaaaa 'Blocked one' agent - blocked 'Waits.'
 ki 1790836864aaaaaaaa 'Held one' agent - claimed 'Held.' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" abcd1234
 ki 1790836865aaaaaaaa 'Stale hold' agent - claimed 'Let go.' 2026-09-01T00:00:00Z eeeeeeee
-ki 1790836866aaaaaaaa 'Done one' agent - done 'Over.'
+ki 1790836866aaaaaaaa 'Done one' agent - 'done' 'Over.'
 WI="$HOOKS/../../.local/bin/work-item"
 lsi() { WORK_ITEM_BIN=$WI HOOK_DIR=/nonexistent sh -c '. "'"$HOOKS"'/lib-state.sh"; '"$1" _ "$KI/kanban.md"; }
 eq_ust "items: claude_cards drops the replaced card, adds the agent's live items, not blocked or done" \
