@@ -1,5 +1,5 @@
 {
-  "$comment": "RUNBOOK.md is the machine operator's file and holds no Claude Code procedure but the ~/.claude move, check and rollback (CLAUDE.md has the rule). The line cap sits above its size at the split so the file has headroom; raising it lands alone. Two sections and four README lines predate the guard and are grandfathered as found, not rewritten.",
+  "$comment": "RUNBOOK.md is the machine operator's file and holds no Claude Code procedure but the ~/.claude move, check and rollback (CLAUDE.md has the rule). The line cap sits above its size at the split so the file has headroom; raising it lands alone. Two sections and three README lines predate the guard and are grandfathered as found, not rewritten.",
   "lines": {
     "RUNBOOK.md": 400,
     "docs/references.md": 536
@@ -28,10 +28,6 @@
       {
         "file": "README.md",
         "hash": "5ddd9e3a30ea"
-      },
-      {
-        "file": "README.md",
-        "hash": "b02bec352b31"
       }
     ]
   }
