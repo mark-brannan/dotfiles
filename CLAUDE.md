@@ -137,6 +137,21 @@ happen to be tracked here, but they are not *about* this repo. This file is.
 - Test with `--dry-run` where the script has one. `cloud-session-setup.sh
   --dry-run` is safe on any machine, including the user's own.
 
+## Hook scripts
+
+- **A new hook is stdlib Python 3, not shell.** `python3` is on every
+  machine and cloud VM here without an install; a third-party package is
+  not, so none. Wire it fail-open or fail-closed in `settings.json` as the
+  hook demands, the same as a shell hook.
+- **Look for the helper before writing one.** Reading the payload, printing
+  a verdict, a lock, the state repo, a test harness: each has one home in
+  `.claude/hooks/`, and a second copy is a bug, tests included. If the home
+  doesn't exist in Python yet, make it there, not inline.
+- **Don't port a working shell hook for its own sake.** Port it, test and
+  all, when you are already changing it substantially. The scripts under
+  "Shell scripts here" stay POSIX `sh`.
+- A module a hook imports is seeded like the hook: in the `INSTALL` list.
+
 ## Claude Code config in this repo
 
 - `.claude/settings.json` is the source of truth for hooks. **Every hook it
