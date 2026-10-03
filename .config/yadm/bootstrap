@@ -83,6 +83,12 @@ else
   fi
 fi
 
+# This repo's own CLAUDE.md stays out of $HOME, where it would load as an
+# ancestor of every repo. Idempotent; see home-sparse.sh.
+if [ -x "$HOME/.local/bin/home-sparse.sh" ]; then
+  "$HOME/.local/bin/home-sparse.sh" --install || echo "    home-sparse.sh --install failed; ~/CLAUDE.md stays" >&2
+fi
+
 # Unattended ff-only sync, every five minutes. Idempotent; see README.
 [ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
 
