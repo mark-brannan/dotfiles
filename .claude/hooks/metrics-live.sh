@@ -397,6 +397,8 @@ save_nag() {
   # of this same session (dotfiles#161 findings 1/2/4) just skips this
   # write rather than waiting or failing the hook.
   state_lock "$LIVE/$sid.lock" || return 0
+  # Its own shard dir: the live cache may still sit at the flat path.
+  mkdir -p "${NAGF%/*}" 2>/dev/null
   jq -n --argjson cl "$ctx_line" --argjson cr "$ctx_rungs" --argjson cs "$ctx_stop_line" \
         --argjson tl "$time_line" --argjson ts "$tl_sitting" \
         --argjson ft "$fric_tripped" \

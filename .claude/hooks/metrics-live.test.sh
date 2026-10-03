@@ -221,6 +221,13 @@ jq -n --argjson ss "$(( $(date +%s) - 900 ))" \
 has 'a pre-move nag file does not suppress the new hour' '⏱ 1h0[0-9]' \
     "$(msg "$(P mOld)")"
 
+# A live cache still at the flat path (written before the shard split) must
+# not stop the nag file landing in its own shard.
+mkdir -p "$STATE/metrics/live"; printf '{}\n' > "$STATE/metrics/live/flatLive.json"
+P flatLive >/dev/null
+t 'a flat live cache: the nag file is still written, in its shard' yes \
+  "$([ -f "$STATE/metrics/live/fl/flatLive.nag.json" ] && echo yes || echo no)"
+
 # When the shared clock restarts, every session is free to speak again, not
 # only the one whose prompt restarted it: a spent time_line belongs to the
 # sitting it was recorded in, and that sitting is over. The per-session file
