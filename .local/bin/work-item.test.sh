@@ -69,7 +69,9 @@ as "$A" log "$id" status=ready >/dev/null 2>&1; ok 'closed -> ready is not a tra
 as "$A" claim "$id"; ok 'closed -> claimed' 077c62eb "$(fact "$id" holder)"
 
 # A holder that wrote nothing on the item for two hours has let go.
-old=$(as "$A" create 'Stale one')
+# Its own id: the minted one is epoch seconds, and a fast run is still in the
+# second that minted $id.
+old=$(as "$A" create --id 1700000000077c62eb 'Stale one')
 as "$A" log "$old" status=ready
 printf '2020-01-01T00:00:00Z 9a1b2c3d status=claimed\n' >> "$WORK_ITEM_DIR/$old.md"
 ok 'an old claim folds stale' yes "$(fact "$old" holder_stale)"
