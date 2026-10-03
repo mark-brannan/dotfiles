@@ -77,7 +77,7 @@ the user says they have it.
 
 ## After the tick
 
-- **Deleted:** retire the item (below); the proof goes in its brief first.
+- **Deleted:** retire the item (below); the proof is its `evidence=`.
 - **Answered:** append `- YYYY-MM-DD — <short name>: <the answer> ([link])`
   to `docs/decisions.md` in the project's primary repo — the repo whose name
   the `project-<name>` topic shares, else the repo the card links — newest
@@ -87,34 +87,35 @@ the user says they have it.
   repo's log with the same date.
 - **Deferred:** write or rewrite `until:` per the rule above, in the brief
   (readers take `until:` from the brief's text): print it with `work-item
-  show <id>`, change or add the `until:` field, and send the whole brief back
-  with `work-item brief <id> -` on stdin. The card is not shown again before
-  then.
+  show <id>`, copy the text under `## Brief` (minus the `points:` line),
+  change or add the `until:` field, and send it back with `work-item brief
+  <id> -` on stdin. The card is not shown again before then.
 - **Dig:** hold the conversation for that one card, then apply whichever of
   Deleted / Answered / Deferred it settles on.
 
-**Retire** is how a card leaves the board. First write the proof into the
-brief, the way `/reconcile` marks a done card: prefix `Ruled <date> — <link>`
-(or the stale reason in one clause), original text kept, sent back with
-`work-item brief <id> -`. Then walk the status to its end. Read it with
-`work-item fold <id>` (the `status=` line) and start where the table says:
+**Retire** is how a card leaves the board, per
+[the lifecycle](../../../docs/work-item-lifecycle.md): it ends at `done`, with
+evidence, and stops there. No skill writes `closed`; that is the user's, on a
+later sweep of an accepted parent. Read the status with `work-item fold <id>`
+(the `status=` line) and start where the table says:
 
 | status now | do |
 |---|---|
 | `open` | `log <id> status=ready`, then the `ready` row |
-| `ready` | `claim <id>`, `log <id> status=done`, `log <id> status=closed` |
-| `blocked` | the same three; `claim` takes a blocked item |
-| `done` | `log <id> status=closed` |
-| `claimed` (stale holder) | `claim <id>`, then `status=done`, `status=closed` |
-| `closed` | nothing |
+| `ready`, `blocked` | `claim <id>`, then `log <id> status=done 'evidence=<link>'` |
+| `claimed` (stale holder) | the same two; `claim` takes it over |
+| `done`, `closed` | nothing |
 
-A ready item cannot close directly; the table has no `ready` to `closed`
-move, so the sweep claims it for the length of the three calls. A refusal
-(exit 1: a live session holds the item) leaves the card where it is: say who
-holds it and since when, and move on. Never route around it.
+`<link>` is the proof: where the ruling landed, or the PR that shows the card
+moot; for a stale card with no link, one clause with no `=` or `'` in it. A
+refused `claim` (exit 1: a live session holds the item) leaves the card where
+it is: say who holds it and since when, and move on, never around it. A `done`
+that fails after the claim takes `work-item release <id>`; either goes in the
+output.
 
 The board is not committed by hand: the item files are plain files in the state
-repo and the Stop hook commits and pushes them. Proofs live in the briefs.
+repo and the Stop hook commits and pushes them. Proofs live in the log's
+`evidence=`.
 
 ## Output
 

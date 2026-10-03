@@ -78,16 +78,18 @@ same step. Losing their position is the one thing worse than a wrong step.
 
 ## Closing the card
 
-When the card is done, retire it as `/sweep` does, its Retire steps: the
-proof in the brief first, then `work-item claim <id>`, `log <id> status=done`,
-`log <id> status=closed`. The Stop hook commits the item files. A card owned
+When the card is done, retire it as `/sweep` does, its Retire steps and
+[the lifecycle](../../../docs/work-item-lifecycle.md): `work-item claim <id>`
+(an `open` card gets `log <id> status=ready` first), then `log <id> status=done
+'evidence=<the user's words or the link that shows it>'`, and stop. No skill
+writes `closed`. The Stop hook commits the item files. A card owned
 `human-ruling` stays until the ruling has landed somewhere durable — the PR,
 the ADR, the doc it settles — then it is retired the same way. Say in one
 line what changed and stop.
 
 If the walk stalls, write what you learned **into the card or issue**
-(a card: read it with `work-item show <id>`, add the lines, send the whole
-brief back with `work-item brief <id> -`)
+(a card: `work-item show <id>`, copy the text under `## Brief` minus the
+`points:` line, add the lines, send it back with `work-item brief <id> -`)
 before ending — the step that failed, what the UI actually showed, what
 would unblock it. A loop that has been half-walked twice with nothing
 recorded is worse than one nobody touched.

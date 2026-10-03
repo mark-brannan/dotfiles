@@ -7,9 +7,9 @@ description: Check the board and its memos against GitHub reality — a card on 
 
 Record vs. reality. The board is one item file per card under
 `state/global/items/`, read with `~/.local/bin/work-item list --all` (or
-`show <id>` for one) and written only with `work-item`. Every board card, decision memo and "Pending:" tail is a
-claim about GitHub or repo state; this skill checks the claim, not the
-decision behind it. Sonnet-shaped: many cheap `gh` calls, no open questions.
+`show <id>` for one) and written only with `work-item`. Every board card,
+decision memo and "Pending:" tail is a claim about GitHub or repo state; this
+skill checks the claim, not the decision behind it. Sonnet-shaped: many cheap `gh` calls, no open questions.
 `/sweep` prunes and reranks `## Needs ruling` / `## Human's`; reconcile
 corrects stale *facts* anywhere in the board or the memos, including
 `## Claude's`. Run one after the other, not instead of.
@@ -46,8 +46,10 @@ that's a `/agora` card.
 
 - **Done card / merged PR, text still open:** prefix the brief with
   `Done/Ruled <date> — <link>`, keep the original text as evidence, per
-  `/sweep`'s convention: `work-item show <id>`, then the whole brief back with
-  `work-item brief <id> -`. The status is left alone; `/sweep` retires it.
+  `/sweep`'s convention: `work-item show <id>`, copy the text under `## Brief`
+  (minus the `points:` line), and send the prefixed text back with
+  `work-item brief <id> -`. Edit briefs only: the status is left alone and
+  `/sweep` retires it.
 - **Stale memo:** append a one-line dated annotation under the memo's H1
   naming what superseded it. Never reword or delete the body.
 - **"Pending:" tail with no contract:** don't resolve it — rewrite it as a
@@ -60,7 +62,7 @@ that's a `/agora` card.
 ## Output
 
 Under 15 lines: what was checked (counts, not a list), what was corrected
-and its proof link, what's left as a `/agora` candidate. A refused `work-item` write (exit 1: a live session holds the item) is
-reported, not worked around. Board corrections are item files the Stop hook
-commits, so their proof is the link in the brief; commit memo corrections in
+and its proof link, what's left as a `/agora` candidate. A refused `work-item`
+write (exit 1: a live session holds the item) is reported, not worked around. Board corrections are item files the Stop
+hook commits, so their proof is the link in the brief; commit memo corrections in
 the state repo with the `gh` evidence in the commit message.
