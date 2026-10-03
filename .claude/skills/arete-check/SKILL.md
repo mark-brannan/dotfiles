@@ -16,8 +16,7 @@ Governing documents are the primary target, since they shape every
 decision under them. The areas apply just as well to anything else
 that touches people: a PR of code, a hook, a script, a workflow, a
 README. Any reasonable target is in scope; an area that does not
-apply to it reads `n/a` with its reason. Do not refuse a target because
-it is not a governing document.
+apply to it reads `n/a` with its reason.
 
 **It grades and recommends; the user is the gate.** Each area gets a
 grade, its findings and their evidence; the brief ends in a one-line
@@ -39,8 +38,9 @@ may overrule it; the decision is theirs.
 
 ## Steps
 
-1. **Resolve the one target.** The curia and governing-document cases
-   match `doc-settledness-check`; the rest are wider than it accepts.
+1. **Resolve the one target.** Whatever its kind, the areas are read
+   against what it does or changes; the kinds are
+   `doc-settledness-check`'s, widened.
    - **curia id** — `~/claude_prompts_scratch/state/global/curia/<id>/`
      exists. Kind `curia`. Read-set: the folder.
    - **path** — a file or directory in any repo on this machine. Kind
@@ -51,11 +51,11 @@ may overrule it; the decision is theirs.
      named or obvious.
    - **PR** — `owner/repo#n` or a URL. Kind `pr`. Read-set: `gh pr
      view`, `gh pr diff`, review comments, and the files the diff
-     touches, whole. A PR that touches no governing document is still a
-     target; the areas are read against what it changes.
+     touches, whole.
 
-   Anything else, or a target that does not resolve: say so in one line
-   and stop.
+   Anything else, or a target that does not resolve cleanly: say in one
+   line how you read it, take the nearest kind and the read-set the words
+   point at, and continue.
 
 2. **Send the reading to one sub-agent.** `Agent`, `subagent_type:
    Explore`, `model: sonnet`, no isolation, foreground. Explore keeps
