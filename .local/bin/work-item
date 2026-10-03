@@ -31,6 +31,13 @@
 # is valid when the folded status is ready or closed and no other session
 # holds it. A GitHub-homed item carries `home=`, with no link back.
 #
+# Refused at write, as kanban-lint's L6 and L8 were: a brief with no link; a
+# human-ruling brief missing default:, undo:, until:, risk: or judgment: (a
+# `judgment:` of values, risk, direction, legal or people; an `until:` a date
+# or words; `kind: tentative ADR` swaps in gates:, settle:, repos:); a
+# `status=done` line with no `evidence=`; any `status=closed`, which only the
+# future whole-tree sweep writes (docs/work-item-lifecycle.md).
+#
 # Pencil (dotfiles#510's defaults): a flat folder; a holder that wrote nothing
 # on the item for WORK_ITEM_STALE_SECS (2h) has let go; and this is a GATE --
 # a write that cannot land, or is refused, exits non-zero (1 refused, 2 usage).
@@ -121,6 +128,63 @@ def word(name, v):
 def points_ok(p):
     if p not in POINTS:
         die(f"points is one of 1 2 3 5 8 13, got [{p}]")
+
+
+LINK = re.compile(r"https?://|(^|[^\w./-])[\w.-]+/[\w.-]+#\d+|\]\((\.\./)*log/")
+JUDGMENTS = ("values", "risk", "direction", "legal", "people")
+NEXT_FIELD = r"[ (;,.*](default|undo|risk|judgment|gates|settle|repos|repo|kind|id):"
+
+
+def field(t, name):
+    """The value of `name:` in a brief, folded to lower case: cut at the next
+    field, trimmed; None when the brief lacks the field."""
+    m = re.search(rf"(^|[ (]){name}:", t)
+    if not m:
+        return None
+    v = t[m.end():]
+    cut = re.search(NEXT_FIELD, v)
+    return re.sub(r"^[ \t*]+|[ \t*.;,]+$", "", v[:cut.start()] if cut else v)
+
+
+def until_problem(v):
+    """What is wrong with an until: value, else "". Any text is an event in
+    words; a date in it must be a calendar day."""
+    if not v:
+        return "until: is empty"
+    for d in re.findall(r"\d{4}-\d{2}-\d{2}", v):
+        try:
+            time.strptime(d, "%Y-%m-%d")
+        except ValueError:
+            return f"until: date {d} is no calendar day"
+    return ""
+
+
+def check_card(owner, brief, until_fact=""):
+    """Refuse a brief that breaks L6 (every card carries a link) or, for a
+    human-ruling card, L8 (it carries the agent's evaluation, so the ruling
+    is one word)."""
+    if not LINK.search(brief):
+        refuse("the brief carries no link: an http link or owner/repo#n, "
+               "so a loop with no home gets a log entry first")
+    if owner != "human-ruling":
+        return
+    t = " " + brief.lower()
+    need = (("gates", "settle", "repos") if re.search(r"[ (]kind:[ \t]*tentative[ \t]+adr", t)
+            else ("default", "undo", "until", "risk")) + ("judgment",)
+    have_until = until_fact not in ("", "-")
+    miss = [k for k in need if field(t, k) is None and not (k == "until" and have_until)]
+    if miss:
+        refuse("a ruling card is missing " + ", ".join(k + ":" for k in miss)
+               + " (default: what you would do, undo: the reversal and its cost, until: a date, "
+                 "link or event, risk: the consequence if the default is wrong, "
+                 "judgment: values, risk, direction, legal or people)")
+    j = field(t, "judgment") or ""
+    if not re.match(r"(" + "|".join(JUDGMENTS) + r")([^a-z]|$)", j):
+        refuse("judgment: must be values, risk, direction, legal or people; "
+               "a call that is none of those is toil: take the default and write no card")
+    u = field(t, "until")
+    if u is not None and not have_until and until_problem(u):
+        refuse(until_problem(u))
 
 
 def num(s):
@@ -383,6 +447,7 @@ def create(args):
     if opt["points"]:
         points_ok(opt["points"])
     sid = me()
+    check_card(opt["owner"], brief)
     it = Item(opt["id"] or f"{int(time.time())}{sid}")
     try:
         items_dir().mkdir(parents=True, exist_ok=True)
@@ -433,7 +498,9 @@ def main(argv):
         brief = read_brief(args[0])
         sid = me()
         it.lock()
-        it.write_brief(brief, points or it.facts()["points"])
+        f = it.facts()
+        check_card(f["owner"] or "agent", brief, f["until"])
+        it.write_brief(brief, points or f["points"])
         it.append(sid, "briefed")
     elif cmd == "log":
         if not args:
@@ -442,13 +509,26 @@ def main(argv):
         if "\n" in line:
             die("a log line is one line")
         sid = me()
-        to = ""
+        to = owner = ""
+        evidence = False
         for w in args:
             if w.startswith("status="):
                 to = w[len("status="):]
             elif w.startswith("owner="):
-                check_owner(w[len("owner="):])
+                owner = w[len("owner="):]
+                check_owner(owner)
+            elif w.startswith("evidence=") and len(w) > len("evidence="):
+                evidence = True
+        if to == "closed":
+            refuse("status=closed is the whole-tree sweep's, which does not exist yet "
+                   "(docs/work-item-lifecycle.md); log status=done evidence=<link>")
+        if to == "done" and not evidence:
+            refuse("status=done needs evidence=<link>: the PR, commit, roll anchor or "
+                   "decisions line that shows it")
         it.lock()
+        if owner == "human-ruling":
+            check_card(owner, brief_text(it.path),
+                       next((w[6:] for w in args if w.startswith("until=")), it.facts()["until"]))
         if to:
             it.move(sid, to)
         it.append(sid, line)
