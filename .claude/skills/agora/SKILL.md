@@ -72,12 +72,15 @@ Every item this skill touches gets, and keeps:
     fails the private-terms check, and the card retires: `work-item claim
     <id>`, then `work-item log <id> status=done <link>`, the link its
     evidence (the ruling's line, the spawned work, the curia). `closed`
-    waits for acceptance; never write it here.
+    waits for acceptance; never write it here. A refused `claim` (an open
+    item, or one a live session holds) leaves the card as it is, and the
+    output line says so.
   - **Spawned work item** — the answer was "build X to find out"; open
     the issue or card, link it, this item retires as a ruling does.
   - **Item (partly) unblocked** — the ruling removes one dependency; say
-    which, and what still blocks (`work-item log <id> unblocked: <which>,
-    still blocked by <what>`; `log` takes free words).
+    which, and what still blocks (`work-item log <id> "unblocked: <which>,
+    still blocked by <what>"`; quoted, with no `=` in the words, since a
+    `status=` or `owner=` word moves the item).
   - **Confer** — the user's one word; the item leaves the sitting for a
     one-off confer session (see below). Not a failure of the item; a
     rating of its difficulty and possibly of the question's quality.
@@ -92,7 +95,9 @@ Every item this skill touches gets, and keeps:
 
 ## Per item: the steps
 
-1. A fresh subagent gathers the item's context and returns the typed
+1. A fresh subagent gathers the item's context, starting from
+   `work-item show <id>` (a confer mark or an unblocked note lives in its
+   log, not on the docket row), and returns the typed
    question with its four fields and a **direct link** to the stored
    context, readable by the user. It also lists the open curiae exactly as
    the curia skill's bare `/curia` does (`status: open` in the header; a
