@@ -190,9 +190,10 @@ call. The three early placeholders (`andon-rubric`,
    which this session rewrites `related:`. It proposes quotes to pull and
    prune under the rule above. Only its list enters this
    context. Lint is toil: apply the mechanical fixes and show the diff
-   for the record; beside it, one line of size from `wc -lw` on
-   `digest.md` and `agent-notes.md` (when present), before and after the
-   fixes: `digest.md 2,242 → 2,198 lines · 33,516 → 32,870 words`. Only a
+   for the record; beside it, size from `wc -lw`, one line per file —
+   the document step 1 read, and `agent-notes.md` when present — before
+   and after the fixes: `digest.md 2,242 → 2,198 lines · 33,516 → 32,870
+   words`. Only a
    finding that touches a ruling or a name becomes a question in the
    dialogue. <!-- pencil: lint-is-toil is assumed
    (design doc, the lint-diff-is-toil open question). -->
@@ -220,8 +221,9 @@ curia for it. It becomes a line under `## Open questions` here, or a
 
 1. Land every edit; rewrite **Where this stands** — the last words by
    reference, `<id>/roll.md#<stamp>`, what is unsettled, the X of Y
-   position for next time, and the size line, against this sitting's
-   opening count. If the user has ruled the question itself
+   position for next time, and the size lines again, from the lint
+   line's *before* count to now, so one sitting's closing count is the
+   next one's opening. If the user has ruled the question itself
    settled, set `status: settled` in the header too — bare `/curia` lists
    open curiae, and nothing else retires one.
 2. Say what is still open on this question, by concept.
