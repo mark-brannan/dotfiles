@@ -14,7 +14,8 @@
 set -uo pipefail
 
 GRIND="$(cd "$(dirname "$0")" && pwd)/grind"
-export GRIND_WORK_ITEM="$(cd "$(dirname "$0")" && pwd)/work-item"
+GRIND_WORK_ITEM="$(cd "$(dirname "$0")" && pwd)/work-item"
+export GRIND_WORK_ITEM
 # grind is halted (dotfiles#439): it must refuse to run. The suite below is
 # kept for when it is revived; delete this block and the exit then.
 out=$("$GRIND" --dry-run 2>&1); rc=$?
@@ -1059,6 +1060,7 @@ has 'and says what the pr kind needs' '^grind: the pr kind needs a signing key'
 run --dry-run --kind widget
 eq 'an unknown kind is a usage error' 2 "$RC"
 rm -f "$S/state/grind"/*.json; : > "$CLAUDE_LOG"
+jq -c 'map(.url = "https://github.com/o/alpha/pull/1")' "$S/pr-list.json" > "$S/pr-list.url" && mv "$S/pr-list.url" "$S/pr-list.json"
 run --kind card --pause-every 10
 eq 'card run exit 0' 0 "$RC"
 eq 'one worker for the one card' 1 "$(calls_claude)"
@@ -1067,12 +1069,13 @@ prompt_has 'the worker gets the card verbatim' '**alpha: tidy the widget** — t
 prompt_has 'framed as a card, not an issue' 'This item is a card from the agent'
 prompt_has 'on its branch' 'grind-card-alpha-tidy-the-widget'
 has 'the done line carries the card ref' '^card:alpha-tidy-the-widget: alpha: tidy the widget -- sonnet, \$0\.10'
-eq 'the verified card is a done item' done "$(itemstatus 17909840241dc56754)"
+eq 'the verified card is a done item' 'done' "$(itemstatus 17909840241dc56754)"
 eq 'the other card is still ready' ready "$(itemstatus 17909840242aaaaaaa)"
 has 'and grind said so' "INFO  marked card .alpha: tidy the widget. done in $WORK_ITEM_DIR"
 eq 'its log reads claimed, then done, by one session' 'status=claimed status=done' \
   "$(awk '/^## Log/ {l=1; next} l && /status=(claimed|done)/ {print $3}' "$WORK_ITEM_DIR/17909840241dc56754.md" | paste -sd' ' -)"
-eq 'the done is committed in the state repo' 'grind: worked card -- alpha: tidy the widget' "$("$REAL_GIT" -C "$sr" log -1 --format=%s)"
+assert 'and the done line cites the PR as evidence' grep -qE ' status=done evidence=https?://[^ ]+$' "$WORK_ITEM_DIR/17909840241dc56754.md"
+eq 'the done is committed in the state repo' 'grind: worked card -- alpha: tidy the widget -> https://github.com/o/alpha/pull/1' "$("$REAL_GIT" -C "$sr" log -1 --format=%s)"
 eq 'and the state repo is clean' '' "$("$REAL_GIT" -C "$sr" status --porcelain)"
 assert 'and pushed' grep -q 'push -q origin HEAD$' "$GIT_PUSH_LOG"
 eq 'the state file records the card ref' 'card:alpha-tidy-the-widget' "$(jq -r '.items[0].ref' "$(latest_session)")"
@@ -1116,9 +1119,17 @@ rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
 rm -f "$WORK_ITEM_DIR/17909840241dc56754.md"
 mkitem 17909840241dc56754 'alpha: tidy the widget' open
 run --kind card --pause-every 10
-eq 'an open item is retired too' done "$(itemstatus 17909840241dc56754)"
+eq 'an open item is retired too' 'done' "$(itemstatus 17909840241dc56754)"
 eq 'through ready and claimed' 'status=open status=ready status=claimed status=done' \
   "$(awk '/^## Log/ {l=1; next} l && /status=/ {for (i = 3; i <= NF; i++) if ($i ~ /^status=/) print $i}' "$WORK_ITEM_DIR/17909840241dc56754.md" | paste -sd' ' -)"
+# a claim another live session holds is never taken over: the done is refused
+rm -f "$S/state/grind"/*.json "$S/claude-replies"/*.json
+rm -f "$WORK_ITEM_DIR/17909840241dc56754.md"
+mkitem 17909840241dc56754 'alpha: tidy the widget' ready
+CLAUDE_CODE_SESSION_ID=0badc0de "$GRIND_WORK_ITEM" claim 17909840241dc56754
+run --kind card --pause-every 10
+eq 'an item another session holds stays claimed' claimed "$(itemstatus 17909840241dc56754)"
+has 'and grind says to log it by hand' "WARN  could not mark card .alpha: tidy the widget. done"
 jq -c 'map(.text |= sub(" id: [0-9a-f]+$"; ""))' "$S/cards.json" > "$S/cards.json.noid"; mv "$S/cards.json.noid" "$S/cards.json"
 rm -f "$S/state/grind"/*.json
 run --kind card --pause-every 10

@@ -748,26 +748,31 @@ build_prompt() {
   fi
 }
 
-# retire_card <card text> <note> -- a worked card leaves the agent's queue:
+# retire_card <card text> <note> <PR url> -- a worked card leaves the agent's queue:
 # its PR is the work's one home from here on. The card is an item in items/
 # (its `id:`), so retiring it is work-item's `status=done`. done is reachable
 # only from claimed (ready -> claimed -> done), and the item has not been
 # claimed -- grind claims at retirement, not at dispatch, so a worker that
 # fails leaves nothing to release -- so this walks it there under grind's own
-# session id: open -> ready if it is still open, claim, then done. The item
+# session id: open -> ready if it is still open, claim, then done with the PR
+# as its evidence. The claim is always taken, never assumed: a claim already
+# on the item is another session's (or a dead run's), and work-item refuses
+# a live one and lets a stale one go. grind never writes closed; that is the
+# user's acceptance. The item
 # file is in the private state repo, so the change is committed there and
 # pushed best-effort; a failed push is a WARN, the item is done either way.
-# Returns 1 when the item could not be marked done (no id, no work-item, or a
-# refusal such as a live holder).
+# Returns 1 when the item could not be marked done (no id, no work-item, no
+# PR for evidence, or a refusal such as a live holder).
 retire_card() {
   card_id=$(printf '%s' "$1" | grep -oE '(^|[ (])id:[[:space:]]*[0-9]{10}[0-9a-f]{8}' | head -n 1 | grep -oE '[0-9]{10}[0-9a-f]{8}$') || card_id=""
   if [ -z "$card_id" ]; then warn "card has no id: <item id>; nothing to mark done"; return 1; fi
   if [ -z "$work_item_bin" ]; then warn "work-item not found; cannot mark $card_id done"; return 1; fi
+  if [ -z "$3" ]; then warn "no PR found to cite as evidence; cannot mark $card_id done"; return 1; fi
   wi() { CLAUDE_CODE_SESSION_ID=$grind_sid "$work_item_bin" "$@"; }
   card_status=$(wi fold "$card_id" 2>/dev/null | sed -n 's/^status=//p') || card_status=""
   [ "$card_status" = open ] && { wi log "$card_id" status=ready >/dev/null || return 1; }
-  [ "$card_status" = claimed ] || { wi claim "$card_id" >/dev/null || return 1; }
-  wi log "$card_id" status=done >/dev/null || return 1
+  wi claim "$card_id" >/dev/null || return 1
+  wi log "$card_id" status=done "evidence=$3" >/dev/null || return 1
   card_file="$items_dir/$card_id.md"
   bdir=$(dirname "$items_dir")
   if git -C "$bdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -1326,7 +1331,7 @@ while [ "$i" -lt "$count" ]; do
   # marked done and then UNVERIFIED would never be queued again.
   if [ "$status" = "done" ] && [ "$kind" = card ]; then
     pr_url=$(gh pr list --repo "$repo" --head "$branch" --state open --json url --jq '.[0].url // ""' 2>/dev/null) || pr_url=""
-    if retire_card "$(printf '%s' "$item" | jq -r '.text')" "$title${pr_url:+ -> $pr_url}"; then
+    if retire_card "$(printf '%s' "$item" | jq -r '.text')" "$title${pr_url:+ -> $pr_url}" "$pr_url"; then
       info "marked card '$title' done in $items_dir"
     else
       warn "could not mark card '$title' done in $items_dir; log status=done on it by hand"
