@@ -6,9 +6,8 @@ uses. Both facts constrain almost everything below.
 Global standing orders live in `.claude/CLAUDE.md` and load in every session
 everywhere; personal code and writing rules in `.claude/rules/`. Those files
 happen to be tracked here, but they are not *about* this repo. This file is.
-In a worktree, the standing orders and rules load from `~`, so a branch's edits
-to them don't take effect in its own session: Read them as drafts. This file
-loads from the worktree and nowhere else; `$HOME` is checked out without it.
+In a worktree, standing orders and rules load from `~`; a branch's edits to them
+are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
 
 ## Files
 
@@ -19,8 +18,8 @@ loads from the worktree and nowhere else; `$HOME` is checked out without it.
 - `.claude/RUNBOOK.md` — the Claude Code procedures: hooks, cloud
   environments, PR workflows. The only runbook a hook or workflow change may
   touch.
-- `.config/yadm/bootstrap` — decrypts sops-managed secrets and keeps this file
-  out of `$HOME` (`.local/bin/home-sparse.sh`). Idempotent.
+- `.config/yadm/bootstrap` — decrypts sops-managed secrets; keeps this file out
+  of `$HOME`. Idempotent.
 - `.config/yadm/hooks/pre_commit` — the commit-time gate against credentials.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
 - `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
