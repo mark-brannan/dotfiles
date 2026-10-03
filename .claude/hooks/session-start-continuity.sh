@@ -91,7 +91,7 @@ SD="$SR/state/global"
 # test. Both children get their stdio pointed away from this hook's pipe --
 # a child still holding it would keep jq reading until the child died.
 board_view() {
-  wl="$HOME/.local/bin/worklist"
+  wl="$HOME/.claude/bin/worklist"
   if [ ! -x "$wl" ]; then
     echo "worklist not installed -- live board view unavailable; this is not a clean state (run dotsync / cloud-session-setup.sh)"
     return 0

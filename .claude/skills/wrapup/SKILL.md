@@ -133,7 +133,7 @@ effort: <low | medium | high>
 Then check it landed:
 
 ```
-~/.local/bin/pickup-list
+~/.claude/bin/pickup-list
 ```
 
 Your item must be in the list with the first line above as its text. If it

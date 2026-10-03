@@ -83,7 +83,7 @@ no GitHub home. Take the first line that fits:
 ## Where the card lands
 
 One item per card, in `~/claude_prompts_scratch/state/global/items/`, written
-only through `~/.local/bin/work-item`. Never hand-write an item file, and
+only through `~/.claude/bin/work-item`. Never hand-write an item file, and
 never put a card anywhere else, `kanban.md` included. The store is private, so boats, hosts and services may appear in it; nothing else
 may carry cards. "Project" means the `project-<name>` GitHub topic that
 `worklist` resolves — it spans repos, it is not a repo.
@@ -119,10 +119,10 @@ starts the item `open`; a writer has to log `status=ready` or no reader
 picks it:
 
 ```sh
-id=$(~/.local/bin/work-item create --owner agent --repo owner/name \
+id=$(~/.claude/bin/work-item create --owner agent --repo owner/name \
   --model sonnet --effort medium \
   --brief 'action in the imperative ([link](https://...))' 'Short name')
-~/.local/bin/work-item log "$id" status=ready
+~/.claude/bin/work-item log "$id" status=ready
 ```
 
 `create` needs `CLAUDE_CODE_SESSION_ID`, which a session has. Title is the
@@ -134,7 +134,7 @@ append them to the card line. All are optional on an `agent` card. A dated
 `until` is one word, logged after create, on any card:
 
 ```sh
-~/.local/bin/work-item log "$id" until=2026-11-01
+~/.claude/bin/work-item log "$id" until=2026-11-01
 ```
 
 An `until:` that is an event, with spaces, cannot be one word; write it
@@ -196,13 +196,13 @@ Nothing lints a card at write time; these are yours to hold. A card:
 5. if `human-click`, has `why you:`, and `why this:` unless `why you:` is
    `learn`.
 
-After writing, `~/.local/bin/work-item show <id>` prints the file, and
-`~/.local/bin/work-item list | grep <id>` shows the card line a reader sees.
+After writing, `~/.claude/bin/work-item show <id>` prints the file, and
+`~/.claude/bin/work-item list | grep <id>` shows the card line a reader sees.
 
 ## Lifecycle
 
 - **Cards die when done, never by an edit to the brief.** Per
-  [the lifecycle](../../../docs/work-item-lifecycle.md), an `open` item gets
+  [the lifecycle](../../docs/work-item-lifecycle.md), an `open` item gets
   `work-item log <id> status=ready` first (the second call above), then
   `work-item claim <id>`, then `work-item log <id> status=done
   'evidence=<link>'` — the PR, commit or decisions line that shows it. Stop

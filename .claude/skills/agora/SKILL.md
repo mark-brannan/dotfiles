@@ -73,7 +73,7 @@ Every item this skill touches gets, and keeps:
   - **Ruling** — the user answers; the ruling is written at once to
     `docs/decisions.md` in the primary repo, or the state repo's log if it
     fails the private-terms check. The card retires in the same turn, per
-    [the lifecycle](../../../docs/work-item-lifecycle.md): an `open` item
+    [the lifecycle](../../docs/work-item-lifecycle.md): an `open` item
     gets `work-item log <id> status=ready` first, then `work-item claim
     <id>`, then `work-item log <id> status=done 'evidence=<link>'`, the
     link to where the answer is recorded (the roll or decisions line, the

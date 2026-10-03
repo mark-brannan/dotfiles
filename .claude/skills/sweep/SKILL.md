@@ -11,7 +11,7 @@ once `## Human's`). It runs before the board is shown, and on its own. Cards
 owned `agent` are not swept here; that queue is yours to work, not to tidy.
 
 The board is one file per item under `state/global/items/`, written only
-through `~/.local/bin/work-item`. Read the cards to sweep with
+through `~/.claude/bin/work-item`. Read the cards to sweep with
 `work-item list | awk -F'\t' '$2 != "agent"'`: columns are id, owner, status,
 holder, updated, repo, then the card line. Read one item whole with
 `work-item show <id>`.
@@ -97,7 +97,7 @@ the user says they have it.
   Retired / Answered / Deferred it settles on.
 
 **Retire** is how a card leaves the board, per
-[the lifecycle](../../../docs/work-item-lifecycle.md): it ends at `done`, with
+[the lifecycle](../../docs/work-item-lifecycle.md): it ends at `done`, with
 evidence, and stops there. No skill writes `closed`; that is the user's, on a
 later sweep of an accepted parent. Read the status with `work-item fold <id>`
 (the `status=` line) and start where the table says:

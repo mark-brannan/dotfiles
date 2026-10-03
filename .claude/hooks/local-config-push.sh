@@ -58,7 +58,7 @@ fi
 # installer can never disagree about which .claude/ paths matter. Read from
 # the installed copy under $HOME, not a checkout, since this hook has no
 # reason to assume one exists.
-SETUP="$HOME/.local/bin/cloud-session-setup.sh"
+SETUP="$HOME/.claude/bin/cloud-session-setup.sh"
 [ -f "$SETUP" ] || exit 0
 paths=$(sed -n '/^INSTALL="$/,/^"$/p' "$SETUP" | grep '^\.claude/' | grep -v '^\.claude/settings\.json$')
 [ -n "$paths" ] || exit 0

@@ -14,10 +14,10 @@ their screen outranks anything you believe about it.
 Run `/sweep` first, so a card already closed elsewhere is never walked.
 Find it the way `/card-write` routes; its rules are the contract, don't
 paraphrase them here. An issue is walked exactly like a card. A card is an
-item file under `state/global/items/`: `~/.local/bin/work-item show <id>`
+item file under `state/global/items/`: `~/.claude/bin/work-item show <id>`
 prints it whole, and `work-item list` lists the live ones (owner
 `human-click` is what used to sit under `## Human's`). A card can be
-named by its id (`card 1790836842077c62eb`): `~/.local/bin/worklist card <id>`
+named by its id (`card 1790836842077c62eb`): `~/.claude/bin/worklist card <id>`
 prints it with its section, and every message about it carries the id. The default
 is the card or issue the user names, else the top card owned `human-click`:
 that's the work only the user can close, which is what this skill is for.
@@ -79,7 +79,7 @@ same step. Losing their position is the one thing worse than a wrong step.
 ## Closing the card
 
 When the card is done, retire it as `/sweep` does, its Retire steps and
-[the lifecycle](../../../docs/work-item-lifecycle.md): `work-item claim <id>`
+[the lifecycle](../../docs/work-item-lifecycle.md): `work-item claim <id>`
 (an `open` card gets `log <id> status=ready` first), then `log <id> status=done
 'evidence=<link>'` (the link that shows it; with none, one clause of the
 user's words with no `=` in it; quoted as `/sweep` quotes it, here-doc and

@@ -5,7 +5,7 @@ description: Report a project's status and the next unblocked work, by running t
 
 # Worklist
 
-Read-only. Run `~/.local/bin/worklist [project]` — add `--fresh` when the user
+Read-only. Run `~/.claude/bin/worklist [project]` — add `--fresh` when the user
 asks for current state rather than what the cache holds — read its output,
 add judgment only where a bucket needs it (a dependency the script can't
 see, which ready item you'd start first if asked), and stop. Never file,

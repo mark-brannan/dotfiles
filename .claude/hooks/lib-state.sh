@@ -647,7 +647,7 @@ item_rows() {
   if [ "${ITEM_ROWS_FOR-}" != "$d" ]; then
     ITEM_ROWS=""; ITEM_ROWS_FOR=$d; wi=""
     for c in "${WORK_ITEM_BIN:-}" "${self_dir:+$self_dir/work-item}" \
-             "${HOOK_DIR:+$HOOK_DIR/../../.local/bin/work-item}" "$HOME/.local/bin/work-item"; do
+             "${HOOK_DIR:+$HOOK_DIR/../bin/work-item}" "$HOME/.claude/bin/work-item"; do
       [ -n "$c" ] && [ -f "$c" ] && { wi=$c; break; }
     done
     [ -d "$d" ] && [ -n "$wi" ] && ITEM_ROWS=$(WORK_ITEM_DIR=$d python3 "$wi" list 2>/dev/null)

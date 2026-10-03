@@ -9,7 +9,7 @@
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-ENGINE="${PROSE_BUDGET:-$(command -v prose-budget 2>/dev/null || echo "$HERE/../../.local/bin/prose-budget")}"
+ENGINE="${PROSE_BUDGET:-$(command -v prose-budget 2>/dev/null || echo "$HERE/../bin/prose-budget")}"
 
 command -v jq >/dev/null 2>&1 || exit 0
 [ -x "$ENGINE" ] || exit 0

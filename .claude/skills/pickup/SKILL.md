@@ -25,7 +25,7 @@ with more facts on it and a clearer finish line than a pickup item has. Skip
 
 ## 1. Read the list
 
-Run `~/.local/bin/pickup-list`.
+Run `~/.claude/bin/pickup-list`.
 
 - **A `Hard --` block above the list** — those are PRs a fixer already gave
   up on, and each carries the line saying why. With no argument, offer the top
