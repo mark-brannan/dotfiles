@@ -55,5 +55,21 @@ absent "$HOME/CLAUDE.md"
 
 [ "$(git --git-dir="$R" config --get core.sparseCheckout)" = true ] && ok || bad "$HOME no longer sparse"
 
+# --- bootstrap installs it: hook, then sparse; idempotent; a foreign hook stays
+BOOT="$(cd "$(dirname "$0")/../.." && pwd)/.config/yadm/bootstrap"
+rm "$R/hooks/post-checkout"; (cd "$HOME" && yadm sparse-checkout disable) >/dev/null 2>&1
+present "$HOME/CLAUDE.md"
+cp "$HK" "$HOME/.local/bin/yadm-post-checkout.sh"
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap failed"
+absent "$HOME/CLAUDE.md"
+[ "$(readlink "$R/hooks/post-checkout")" = "$HOME/.local/bin/yadm-post-checkout.sh" ] && ok || bad "bootstrap did not link the hook"
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 && ok || bad "second bootstrap failed"
+(cd "$HOME" && yadm worktree add -q "$S/c" -b c) 2>/dev/null; present "$S/c/CLAUDE.md"
+rm "$R/hooks/post-checkout"; echo '#!/bin/sh' > "$R/hooks/post-checkout"
+(cd "$HOME" && yadm sparse-checkout disable) >/dev/null 2>&1
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1
+[ "$(cat "$R/hooks/post-checkout")" = '#!/bin/sh' ] && ok || bad "bootstrap clobbered a foreign hook"
+present "$HOME/CLAUDE.md"
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

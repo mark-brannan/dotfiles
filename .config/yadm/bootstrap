@@ -83,6 +83,20 @@ else
   fi
 fi
 
+# This repo's CLAUDE.md stays out of $HOME, where it would load as an
+# ancestor of every repo; the hook gives branch worktrees the whole tree.
+# Hook first, so no worktree is made sparse in between. Undo:
+# `yadm sparse-checkout disable`, then delete the hook link.
+hook_src="$HOME/.local/bin/yadm-post-checkout.sh"
+hook="$(yadm rev-parse --path-format=absolute --git-path hooks)/post-checkout"
+if [ -e "$hook" ] && [ "$(readlink "$hook")" != "$hook_src" ]; then
+  echo "    $hook is not $hook_src; left alone, so ~/CLAUDE.md stays" >&2
+elif ln -sf "$hook_src" "$hook" && yadm sparse-checkout set --no-cone '/*' '!/CLAUDE.md'; then
+  echo "==> CLAUDE.md kept out of \$HOME; worktree hook linked"
+else
+  echo "    keeping CLAUDE.md out of \$HOME failed; ~/CLAUDE.md stays" >&2
+fi
+
 # Unattended ff-only sync, every five minutes. Idempotent; see README.
 [ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
 
