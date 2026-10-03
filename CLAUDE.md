@@ -54,9 +54,10 @@ are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
 
 ## RUNBOOK.md and .claude/RUNBOOK.md
 
-- **`RUNBOOK.md` is the machine's, and nothing about Claude Code goes in it.**
-  Not a hook, not a cloud seed, not a PR workflow, not their troubleshooting.
-  Those go in `.claude/RUNBOOK.md`. The bar for the two files is different on
+- **`RUNBOOK.md` is the machine's. The only Claude Code procedures in it are
+  the `~/.claude` move, check and rollback,** which a human must be able to
+  follow without an agent. Nothing else: not a hook, not a cloud seed, not a
+  PR workflow, not their troubleshooting. Those go in `.claude/RUNBOOK.md`. The bar for the two files is different on
   purpose: the user holds the dotfiles themselves to a far higher standard
   than the Claude Code layer, and a session that adds its hook to
   `RUNBOOK.md` is polluting the file the user reads when a real machine is
