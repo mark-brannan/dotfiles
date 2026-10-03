@@ -221,10 +221,12 @@ curia for it. It becomes a line under `## Open questions` here, or a
 
 1. Land every edit; rewrite **Where this stands** — the last words by
    reference, `<id>/roll.md#<stamp>`, what is unsettled, the X of Y
-   position for next time, and the size lines again, from the lint
-   line's *before* count to now, so one sitting's closing count is the
-   next one's opening. If the user has ruled the question itself
-   settled, set `status: settled` in the header too — bare `/curia` lists
+   position for next time, and the size lines again, all three counts
+   on one line — before lint, after lint, now: `digest.md 2,242 → 2,198
+   → 2,310 lines · 33,516 → 32,870 → 34,020 words`. One sitting's
+   closing count is the next one's opening. If the user has ruled the
+   question itself settled, set `status: settled` in the header too —
+   bare `/curia` lists
    open curiae, and nothing else retires one.
 2. Say what is still open on this question, by concept.
 3. Print the paste-again prompt: `/curia <id>`, with the model and effort
