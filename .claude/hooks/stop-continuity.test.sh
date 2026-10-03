@@ -545,7 +545,7 @@ chmod +x "$BIN/flock"
 export FLOCK_CALLED="$S/flock-called"
 
 # stamp <clone> -- the push-debounce stamp: in the clone's git dir, never tracked.
-stamp() { printf '%s/claude-last-state-push' "$(git -C "$1" rev-parse --absolute-git-dir)"; }
+stamp() { printf '%s/.git/claude-last-state-push' "$1"; }
 
 SRORIGIN="$S/state-origin.git"; SREPO="$S/state-repo"
 git init -q --bare "$SRORIGIN"
@@ -655,6 +655,22 @@ echo 1 > "$(stamp "$DREPO")"   # the window has passed
 dstop debounce-dddd-0000-1111
 eq 'debounce: the next Stop past the window carries every held commit' 4 \
   "$(git -C "$DORIGIN" log --format=%s main | grep -c '^State: work session debounce ')"
+assert 'debounce: the stamp is in the clone'"'"'s git dir' test -s "$(stamp "$DREPO")"
+
+# A git that answers `rev-parse --absolute-git-dir` with nothing must not move
+# the stamp to the filesystem root, where it is never written and every Stop
+# pushes: the path comes from the directory state_repo found, not from git.
+cat > "$BIN/git" <<EOF
+#!/bin/sh
+case "\$*" in *rev-parse*--absolute-git-dir*) exit 1 ;; esac
+exec $(command -v git) "\$@"
+EOF
+chmod +x "$BIN/git"
+echo five > "$DREPO/state/global/five.txt"
+dstop debounce-eeee-0000-1111
+eq 'no git dir answer: a Stop in the window pushes nothing' 4 \
+  "$(git -C "$DORIGIN" log --format=%s main | grep -c '^State: work session debounce ')"
+rm -f "$BIN/git"
 
 # --- a live metrics-live.sh holding the per-session lock never blocks Stop (#161) --
 # Pre-create $LIVE/<sid>.lock with meta naming this test process's own pid, so

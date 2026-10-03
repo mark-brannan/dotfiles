@@ -680,7 +680,9 @@ git -c user.name="${GIT_AUTHOR_NAME:-Claude}" \
 # and let the next Stop push at once. It records the attempt, not the success:
 # a push that keeps failing is retried once per window, not on every Stop.
 cloud=0; [ "${CLAUDE_CODE_REMOTE:-}" = true ] && cloud=1
-PUSH_SENTINEL="$(git rev-parse --absolute-git-dir 2>/dev/null)/claude-last-state-push"
+# "$SR/.git" is the directory state_repo found, not a git query that can come
+# back empty and put the stamp at the filesystem root.
+PUSH_SENTINEL="$SR/.git/claude-last-state-push"
 debounce_secs=300
 if { [ "$cloud" -eq 0 ] || [ "$verdict" != "archivable" ]; } && [ -f "$PUSH_SENTINEL" ]; then
   last_push=$(cat "$PUSH_SENTINEL" 2>/dev/null || echo 0)
