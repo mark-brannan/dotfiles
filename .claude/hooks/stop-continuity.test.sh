@@ -74,7 +74,7 @@ CKPT=""
 stop() {  # stop -- run the hook and set $CKPT to the checkpoint it wrote
   printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$SID" "$WORK" \
     | bash "$HOOK" >/dev/null 2>&1
-  CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
+  CKPT=$(ls "$AUTO"/*/*"${SID:0:8}".md 2>/dev/null | head -1)
 }
 verdict() { sed -n 's/^\*\*Verdict:\*\* //p' "$CKPT" | head -1; }
 
@@ -87,10 +87,10 @@ GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' stop
 assert 'a checkpoint was written' test -n "$CKPT"
 eq 'clean, pushed, PR: archivable' 'archivable' "$(verdict)"
 eq 'the metrics record says the same' 'archivable' \
-  "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/$SID.json")"
+  "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/${SID:0:2}/$SID.json")"
 # metrics-live.sh refuses a verdict older than its Stop sequence's start, so
 # the record has to say when this one was reached.
-at=$(jq -r '.verdict_at // empty' "$HOME/.claude/state/global/metrics/sessions/$SID.json")
+at=$(jq -r '.verdict_at // empty' "$HOME/.claude/state/global/metrics/sessions/${SID:0:2}/$SID.json")
 assert "the metrics record stamps verdict_at in epoch seconds, got [$at]" \
   test "${at:-0}" -ge $(( $(date -u +%s) - 60 ))
 has 'the worktree is recorded for resume-list' "^- worktree .$WORK.$" "$CKPT"
@@ -103,7 +103,7 @@ NGSID=nogit000-1111-2222-3333
 printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$NGSID" "$NOGIT" \
   | bash "$HOOK" >/dev/null 2>&1
 eq 'not a git repo: the verdict says so' 'not archivable: not a git repo' \
-  "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/$NGSID.json")"
+  "$(jq -r .verdict "$HOME/.claude/state/global/metrics/sessions/${NGSID:0:2}/$NGSID.json")"
 
 # --- one gh round trip per Stop ---------------------------------------------------
 # The verdict's home check and the pickup item's `pr:` lookup ask the same
@@ -368,7 +368,7 @@ stop_salvage() {  # stop_salvage [VAR=value ...] -- run the hook with the salvag
   # sets them back on purpose, as arguments.
   printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$SID" "$SWORK" \
     | env -u GITHUB_ACTIONS -u CI CLAUDE_STOP_COMMIT=on "$@" bash "$HOOK" >/dev/null 2>&1
-  CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
+  CKPT=$(ls "$AUTO"/*/*"${SID:0:8}".md 2>/dev/null | head -1)
 }
 WIP="wip/$SID"
 snapshot() {
@@ -582,10 +582,10 @@ assert 'conflicting pull: no apply-backend rebase left either' \
   test ! -d "$(git -C "$SREPO" rev-parse --absolute-git-dir)/rebase-apply"
 assert 'conflicting pull: still on main' git -C "$SREPO" symbolic-ref -q HEAD
 assert 'conflicting pull: the verdict says the push failed' \
-  grep -qE 'state-repo push failed' "$SREPO/state/global/log/auto/"*"-work-${SID:0:8}.md"
+  grep -qE 'state-repo push failed' "$SREPO/state/global/log/auto/"*/*"-work-${SID:0:8}.md"
 eq 'conflicting pull: and so does the metrics record' \
   'not archivable: state-repo push failed' \
-  "$(jq -r .verdict "$SREPO/state/global/metrics/sessions/$SID.json")"
+  "$(jq -r .verdict "$SREPO/state/global/metrics/sessions/${SID:0:2}/$SID.json")"
 
 # The local twin: the same failed push on a machine that keeps its clone. The
 # commit is the promise there, and it held (ruled for dotfiles#149).
@@ -594,9 +594,9 @@ GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" st
 assert 'conflicting pull, local: the push really failed' \
   test "$(git -C "$SRORIGIN" log -1 --format=%s main)" = upstream-conflict
 eq 'conflicting pull, local: the verdict stays archivable' archivable \
-  "$(sed -n 's/^\*\*Verdict:\*\* //p' "$SREPO/state/global/log/auto/"*"-work-${SID:0:8}.md" | head -1)"
+  "$(sed -n 's/^\*\*Verdict:\*\* //p' "$SREPO/state/global/log/auto/"*/*"-work-${SID:0:8}.md" | head -1)"
 eq 'conflicting pull, local: and so does the metrics record' archivable \
-  "$(jq -r .verdict "$SREPO/state/global/metrics/sessions/$SID.json")"
+  "$(jq -r .verdict "$SREPO/state/global/metrics/sessions/${SID:0:2}/$SID.json")"
 
 # --- the board's items/ are committed like any other state ------------------
 # No lint stands between an item and the commit; on_exit still releases the
@@ -684,7 +684,7 @@ GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]'
 printf '{"transcript_path":"%s","session_id":"%s","cwd":"%s"}' "$TP" "$SID" "$WORK" \
   | GH_PRS="$GH_PRS" timeout 10 bash "$HOOK" >/dev/null 2>&1
 rc=$?
-CKPT=$(ls "$AUTO"/*"${SID:0:8}".md 2>/dev/null | head -1)
+CKPT=$(ls "$AUTO"/*/*"${SID:0:8}".md 2>/dev/null | head -1)
 assert 'a held live lock never blocks Stop' test "$rc" -ne 124
 assert 'the checkpoint is still written when the lock is held' test -n "$CKPT"
 rm -rf "$LIVE/$SID.lock"
@@ -717,7 +717,7 @@ sequence() {  # sequence -- run the real Stop sequence; prints metrics-live's st
 }
 box() { printf '%s' "$1" | jq -r '.systemMessage // ""' 2>/dev/null | grep '📦'; }
 ck_verdict() {
-  sed -n 's/^\*\*Verdict:\*\* //p' "$SREPO2/state/global/log/auto/"*"-work-${SID3:0:8}.md" | head -1
+  sed -n 's/^\*\*Verdict:\*\* //p' "$SREPO2/state/global/log/auto/"*/*"-work-${SID3:0:8}.md" | head -1
 }
 
 # Debounced: a push went out a moment ago, so this Stop only commits locally,
