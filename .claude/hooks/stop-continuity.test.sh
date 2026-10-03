@@ -598,17 +598,6 @@ eq 'conflicting pull, local: the verdict stays archivable' archivable \
 eq 'conflicting pull, local: and so does the metrics record' archivable \
   "$(jq -r .verdict "$SREPO/state/global/metrics/sessions/${SID:0:2}/$SID.json")"
 
-# --- the board's items/ are committed like any other state ------------------
-# No lint stands between an item and the commit; on_exit still releases the
-# push lock. (The push above still conflicts, so this checks the commit only.)
-it=state/global/items/1790000000d654192b.md
-mkdir -p "$SREPO/state/global/items"
-printf -- '- [ ] an item https://example.invalid/8\n' > "$SREPO/$it"
-GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
-assert 'items/: a new item is committed' \
-  git -C "$SREPO" cat-file -e HEAD:"$it"
-assert 'items/: the push lock is released' test ! -e "$TMPDIR/claude-state-push.lock.d"
-
 # A failed push stamps the window too: the push above failed a moment ago, so
 # this Stop commits and makes no second pull-and-push attempt.
 pulls() { git -C "$SREPO" reflog --format=%gs | grep -c '^pull --rebase'; }
@@ -616,6 +605,18 @@ p0=$(pulls)
 echo more > "$SREPO/state/global/more.txt"
 GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
 eq 'failed push: the next Stop in the window does not try again' "$p0" "$(pulls)"
+
+# --- the board's items/ are committed like any other state ------------------
+# No lint stands between an item and the commit; on_exit still releases the
+# push lock. (The failed push above holds the window, so this checks the commit
+# only.)
+it=state/global/items/1790000000d654192b.md
+mkdir -p "$SREPO/state/global/items"
+printf -- '- [ ] an item https://example.invalid/8\n' > "$SREPO/$it"
+GH_PRS='[{"url":"https://github.com/o/r/pull/7"}]' CLAUDE_STATE_REPO="$SREPO" stop
+assert 'items/: a new item is committed' \
+  git -C "$SREPO" cat-file -e HEAD:"$it"
+assert 'items/: the push lock is released' test ! -e "$TMPDIR/claude-state-push.lock.d"
 
 # --- the push debounce holds across a pull, however many sessions stop ---------
 # The stamp used to be state/global/.last-state-push, tracked like any state:
