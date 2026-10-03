@@ -3,6 +3,7 @@
 # Offline only: the gh rows are thin wrappers over `gh api`.
 import importlib.machinery
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,15 @@ class RepoTest(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.repo), "remote", "set-url", "origin", "/nonexistent.git"], check=True)
         p = subprocess.run([sys.executable, str(ENGINE), str(self.repo), "--offline"], capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_non_github_origin_exits_3_not_1(self):
+        p = subprocess.run([sys.executable, str(ENGINE), str(self.repo)], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 3, p.stderr)
+
+    def test_no_repo_given_is_usage_error(self):
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_STATE_REPO"}
+        p = subprocess.run([sys.executable, str(ENGINE), "--offline"], capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 2)
 
     def test_tool_failure_exits_3_not_1(self):
         p = subprocess.run([sys.executable, str(ENGINE), self.tmp.name, "--offline"], capture_output=True, text=True)

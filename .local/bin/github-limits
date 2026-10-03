@@ -12,7 +12,7 @@
 #
 # Usage: github-limits [REPO_DIR] [--offline] [--json]
 #
-# REPO_DIR defaults to ~/claude_prompts_scratch. --offline skips the three
+# REPO_DIR defaults to $CLAUDE_STATE_REPO; one or the other is required. --offline skips the three
 # `gh api` calls (repo size, push activity, rate limit); rate_limit itself
 # costs no quota. Exit 1 when any row is over, 0 otherwise, 2 on usage,
 # 3 when git or gh fails (no network, not logged in, not a repo).
@@ -104,7 +104,7 @@ def slug(repo):
     url = git(repo, "remote", "get-url", "origin").strip()
     m = re.search(r"github\.com[:/](.+?)(?:\.git)?$", url)
     if not m:
-        raise SystemExit(f"github-limits: origin is not a GitHub remote: {url}")
+        raise ValueError(f"origin is not a GitHub remote: {url}")
     return m.group(1)
 
 
@@ -139,13 +139,15 @@ def render(rows):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="github-limits")
-    ap.add_argument("repo", nargs="?", default=os.path.expanduser("~/claude_prompts_scratch"))
+    ap.add_argument("repo", nargs="?", default=os.environ.get("CLAUDE_STATE_REPO"))
     ap.add_argument("--offline", action="store_true", help="skip gh api calls")
     ap.add_argument("--json", action="store_true", help="one JSON object, for logging")
     a = ap.parse_args(argv)
+    if not a.repo:
+        ap.error("give REPO_DIR or set CLAUDE_STATE_REPO")
     try:
         rows = local_rows(a.repo) + ([] if a.offline else remote_rows(a.repo))
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
         detail = getattr(e, "stderr", None) or str(e)
         print(f"github-limits: could not measure: {detail.strip().splitlines()[-1] if detail.strip() else e}", file=sys.stderr)
         return 3
