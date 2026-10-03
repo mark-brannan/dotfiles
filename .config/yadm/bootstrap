@@ -88,8 +88,10 @@ fi
 # Hook first, so no worktree is made sparse in between. Undo:
 # `yadm sparse-checkout disable`, then delete the hook link.
 hook_src="$HOME/.local/bin/yadm-post-checkout.sh"
-hook="$(yadm rev-parse --path-format=absolute --git-path hooks)/post-checkout"
-if [ -e "$hook" ] && [ "$(readlink "$hook")" != "$hook_src" ]; then
+hook="$(yadm rev-parse --path-format=absolute --git-path hooks)/post-checkout" || hook=
+if [ -z "$hook" ] || [ ! -x "$hook_src" ]; then
+  echo "    no hooks dir or no $hook_src; ~/CLAUDE.md stays" >&2
+elif { [ -e "$hook" ] || [ -L "$hook" ]; } && [ "$(readlink "$hook")" != "$hook_src" ]; then
   echo "    $hook is not $hook_src; left alone, so ~/CLAUDE.md stays" >&2
 elif ln -sf "$hook_src" "$hook" && yadm sparse-checkout set --no-cone '/*' '!/CLAUDE.md'; then
   echo "==> CLAUDE.md kept out of \$HOME; worktree hook linked"

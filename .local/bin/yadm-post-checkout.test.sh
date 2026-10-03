@@ -75,6 +75,18 @@ rm "$R/hooks/post-checkout"; echo '#!/bin/sh' > "$R/hooks/post-checkout"
 (cd "$HOME" && sh "$BOOT") >/dev/null 2>&1
 [ "$(cat "$R/hooks/post-checkout")" = '#!/bin/sh' ] && ok || bad "bootstrap clobbered a foreign hook"
 present "$HOME/CLAUDE.md"
+rm "$R/hooks/post-checkout"; ln -s "$S/gone" "$R/hooks/post-checkout"
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1
+[ "$(readlink "$R/hooks/post-checkout")" = "$S/gone" ] && ok || bad "bootstrap replaced a dangling foreign link"
+present "$HOME/CLAUDE.md"
+
+# --- no hook script: nothing linked, CLAUDE.md stays; run from outside $HOME
+rm "$R/hooks/post-checkout" "$HOME/.local/bin/yadm-post-checkout.sh"
+(cd "$S" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap without the hook script failed"
+absent "$R/hooks/post-checkout"; present "$HOME/CLAUDE.md"
+cp "$HK" "$HOME/.local/bin/yadm-post-checkout.sh"
+(cd "$S" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap from outside \$HOME failed"
+absent "$HOME/CLAUDE.md"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
