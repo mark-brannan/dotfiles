@@ -3,7 +3,7 @@
 # it. Run: sh .local/bin/dotfiles-sync.test.sh
 #
 # Same fixtures as dotfiles-claude-clone.test.sh (fake homes, local bare repos,
-# dotfiles main going C1 tracks .claude -> C2 stops tracking it). ~10 s wall,
+# dotfiles main going C1 tracks .claude -> C2 stops tracking it). ~2 s wall,
 # one core.
 set -u
 
@@ -79,5 +79,11 @@ out=$(check B); has 'source: clone' "$out" "S2 check after move"; has 'hooks: ok
 main_is "$C1"; home C; out=$(sync C); has 'level with origin/main' "$out" "S3 level"
 $G -C "$D" checkout -q -b side "$C1"; echo y >> "$D/.zshrc"; $G -C "$D" commit -q -am "zshrc"; git -C "$D" push -q "$DOT" side:refs/heads/main -f
 out=$(sync C); has 'fast-forwarded 1 commit' "$out" "S3 plain pull"; case "$out" in *kept*) bad "S3 says kept" "$out";; *) ok;; esac
+
+# S4: before the split, a pull that deletes one .claude file on purpose keeps it deleted
+main_is "$C1"; home E; f=$(cd "$S" && find hooks -type f | head -1)
+$G -C "$D" checkout -q -b drop "$C1"; $G -C "$D" rm -q ".claude/$f"; $G -C "$D" commit -q -m "drop one hook"; git -C "$D" push -q "$DOT" drop:refs/heads/main -f
+out=$(sync E); has 'fast-forwarded 1 commit' "$out" "S4 pull"
+[ -e "$W/E/.claude/$f" ] && bad "S4 resurrected $f" "$out" || ok
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

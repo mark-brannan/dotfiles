@@ -89,10 +89,12 @@ fi
 # delivered there; the hooks go with them and the fail-closed ones then deny
 # every tool call. Put back what the merge removed: from ~/.claude's own clone
 # when there is one, else from the commit we left, so settings.json and the
-# hooks it names stay until `dotfiles-claude-clone.sh move` has run.
+# hooks it names stay until `dotfiles-claude-clone.sh move` has run. Only that
+# commit: losing settings.json marks it, as for `rollback`; any other deletion
+# under .claude was meant.
 restore_claude() {
 	gone=$(yadm diff --name-only --diff-filter=D "$1" HEAD -- .claude 2>/dev/null)
-	[ -n "$gone" ] || return 0
+	printf '%s\n' "$gone" | grep -qx '\.claude/settings\.json' || return 0
 	n=0; rest=
 	for f in $gone; do
 		if [ -d "$HOME/.claude/.git" ] && git -C "$HOME/.claude" ls-files --error-unmatch "${f#.claude/}" >/dev/null 2>&1 \
