@@ -10,7 +10,7 @@ it the moment the loop is found, while the comment link, timestamp and
 exact wording still exist.
 
 **The default owner is you.** An item exists because an agent found work: do
-the work, or prove there is none and close it with the proof. Handing an item
+the work, or prove there is none and retire it with the proof (`done`, below). Handing an item
 to the user needs a written reason, on the card.
 
 **A migration is a triage, never a copy.** A bulk move between trackers applies
@@ -189,7 +189,7 @@ Nothing lints a card at write time; these are yours to hold. A card:
    `human-ruling` card, where "decide X on PR N" is the point;
 2. has no state word: merged, awaiting, not merged, CI green, open as;
 3. has a link;
-4. if `human-ruling`, has all of `default:`, `undo:`, `until:`, `risk:`,
+4. if `human-ruling`, has all of `default:`, `undo:`, `until` (in the brief, or logged as a date), `risk:`,
    `judgment:`, and a `judgment:` that is one of the five kinds (a
    `kind: tentative ADR` card has `gates:`, `settle:`, `repos:`, `judgment:`
    instead, and the same `judgment:` rule);
@@ -215,7 +215,7 @@ After writing, `~/.local/bin/work-item show <id>` prints the file, and
   ADR or a Q-nn) and retires it the same way. That file is where "I decided X
   on the 24th" is found later.
 - No cap and no expiry: `/sweep` prunes what was ruled elsewhere or went
-  stale, and reranks the rest. A card that blocks nothing and has no
+  stale. A card that blocks nothing and has no
   consequence is never shown; take its default and record it.
 - A sweep — "reconcile", "what's outstanding", "what's stale" — is
   `worklist` for work state, which never edits, and `/sweep` for the cards.
