@@ -156,6 +156,7 @@ fi
 # One-command sync across machines. --autostash so local churn never blocks the
 # pull, and `yadm alt` so os-alternates relink immediately afterwards.
 alias dotsync='yadm pull --rebase --autostash && yadm alt && yadm status --short'
+alias claudesync='git -C ~/.claude pull --ff-only --autostash && git -C ~/.claude status --short'
 
 # Run from inside the plain ~/dotfiles clone after committing there: pushes it,
 # then folds that same history into $HOME via yadm so edits made in the clone
