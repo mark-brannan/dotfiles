@@ -85,9 +85,33 @@ if [ "$ahead" -gt 0 ]; then
 	exit 0
 fi
 
+# The commit that untracks .claude/ makes this merge delete every file yadm
+# delivered there; the hooks go with them and the fail-closed ones then deny
+# every tool call. Put back what the merge removed: from ~/.claude's own clone
+# when there is one, else from the commit we left, so settings.json and the
+# hooks it names stay until `dotfiles-claude-clone.sh move` has run.
+restore_claude() {
+	gone=$(yadm diff --name-only --diff-filter=D "$1" HEAD -- .claude 2>/dev/null)
+	[ -n "$gone" ] || return 0
+	n=0; rest=
+	for f in $gone; do
+		if [ -d "$HOME/.claude/.git" ] && git -C "$HOME/.claude" ls-files --error-unmatch "${f#.claude/}" >/dev/null 2>&1 \
+			&& git -C "$HOME/.claude" checkout -q -- "${f#.claude/}" 2>/dev/null; then
+			n=$((n+1))
+		else
+			rest="$rest $f"
+		fi
+	done
+	# shellcheck disable=SC2086  # paths here carry no whitespace
+	[ -z "$rest" ] || { yadm archive "$1" -- $rest | tar -x -C "$HOME" && n=$((n+$(echo $rest | wc -w))); }
+	echo "$n"
+}
+
+old=$(yadm rev-parse HEAD)
 if yadm merge --ff-only --quiet origin/main >/dev/null 2>&1; then
 	yadm alt >/dev/null 2>&1
-	report "fast-forwarded $behind commit(s) to $(yadm rev-parse --short HEAD)"
+	kept=$(restore_claude "$old")
+	report "fast-forwarded $behind commit(s) to $(yadm rev-parse --short HEAD)${kept:+, kept $kept .claude file(s) the pull removed}"
 else
 	# The refusal is git protecting a dirty file that an incoming commit also
 	# touches. Name them so the log says what a person has to look at.
