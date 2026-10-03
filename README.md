@@ -116,42 +116,6 @@ refuses, recording the refusal in the checkpoint rather than skipping quietly.
 that blocks the current task), `gate` (open-ended, mid-flight, needs her to
 reload context the session accumulated and she didn't).
 
-## The prose-budget engine
-
-`.local/bin/prose-budget` is one deterministic guard against documentation
-degrading under agent edits — line budgets, section word caps, a net-prose
-delta per change, narration and voice patterns. Three repositories had grown
-three drifting versions of it; this is the one they collapsed into. Each
-repository keeps only its `docs/budgets.json`.
-
-That config is the whole design and also its weak point: an agent that trips a
-limit can raise the limit. It happened — three phrases appended to a
-`voice.allow` list inside an unrelated pull request, a JSON hunk small enough
-to scroll past. So the engine reads its own config against the base version and
-treats any weakening as a finding unless the weakening lands by itself. It
-cannot enforce that the reason is written down, only that the change is alone
-in the diff, where a reason is the obvious thing to ask for. Tightening stays
-free, because a guard nobody can strengthen quickly is a guard nobody
-strengthens.
-
-It lives here rather than in `mark-brannan/.github` beside the reusable
-workflow that runs it, because CI is the smaller half of its job: it is on
-`PATH` on every machine, two Claude Code hooks exec it (a `git commit` is
-denied on findings, an Edit or Write gets advice), and
-`cloud-session-setup.sh` seeds it. Hosting it elsewhere would mean fetching or
-vendoring it back into `$HOME` — the unsolved problem of
-[#17](https://github.com/mark-brannan/dotfiles/issues/17), taken on to avoid a
-tag.
-
-What the CI half needs instead is a version. An immutable
-`prose-budget/vX.Y.Z` tag here names an engine; `mark-brannan/.github` carries
-a moving `v1` that names a workflow *and*, through the `dotfiles-ref` default
-baked into it, that engine. Consumers pin `v1` and name a version nowhere,
-which matters because the one outage this design has actually caused was a
-stale pin sitting in three repositories at once, not a bad commit. Promotion
-and rollback are each one moved tag; a commit to `main` here reaches no
-consumer.
-
 ## Ephemeral cloud sessions
 
 Claude Code cloud sessions run as root on a throwaway Ubuntu VM with no
