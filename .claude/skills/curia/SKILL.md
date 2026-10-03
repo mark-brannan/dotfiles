@@ -174,6 +174,11 @@ sections to `digest.md` from its file under [forms/](forms/):
 A curia may mix forms; the user says which. Record the choice as a
 Decided line with its reference.
 
+A section's `<!-- -->` comment is a rule or a prompt. A rule says how the
+section is kept (*Derived; rewritten in place…*) and stays. A prompt says
+what to write (*One number, how it is measured…*) and is replaced by its
+answer the first time the section is written.
+
 ## Agent notes
 
 `agent-notes.md` is the agent's extended memory for the curia, read in
