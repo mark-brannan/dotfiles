@@ -603,7 +603,8 @@ work_claims_load() {
   [ -f "$cs" ] && WORK_CLAIMS=$(sh "$cs" card-claims 2>/dev/null)
   # An item's claim is in its own log (work-item claim), keyed by its id.
   local held
-  held=$(item_rows "${1:-$(state_dir)/kanban.md}" | awk -F '\t' '$4 != "" { printf "live\t%s\t-\t-\t%s\n", $4, $1 }')
+  item_rows "${1:-$(state_dir)/kanban.md}" >/dev/null
+  held=$(printf '%s\n' "$ITEM_ROWS" | awk -F '\t' '$4 != "" { printf "live\t%s\t-\t-\t%s\n", $4, $1 }')
   [ -z "$held" ] || WORK_CLAIMS=${WORK_CLAIMS:+$WORK_CLAIMS
 }$held
   return 0
@@ -629,8 +630,10 @@ items_dir() { printf '%s' "${WORK_ITEM_DIR:-$(dirname "$1")/items}"; }
 
 # item_rows <kanban.md> -- work-item list's rows for the items beside the
 # board: `id owner status holder updated repo line`, tab-separated. Read
-# once per process into $ITEM_ROWS (one python start, not one per item);
-# empty when there is no items/ or no work-item to read it.
+# once per shell into $ITEM_ROWS (one python start, not one per item), so a
+# caller primes it outside $(...) -- `item_rows f >/dev/null; rows=$ITEM_ROWS`
+# -- or the cache dies with the subshell. Empty when there is no items/ or no
+# work-item to read it.
 item_rows() {
   local d wi c
   d=$(items_dir "$1")
@@ -652,7 +655,7 @@ item_rows() {
 # reader that parses the board's sections parses this the same way.
 board_union() {
   local rows
-  rows=$(item_rows "$1")
+  item_rows "$1" >/dev/null; rows=$ITEM_ROWS
   { [ -f "$1" ] && cat "$1"; printf '\n'; } | ROWS=$rows awk '
     BEGIN { n = split(ENVIRON["ROWS"], R, "\n"); for (i = 1; i <= n; i++) { split(R[i], c, "\t"); if (c[1] != "") item[c[1]] = 1 } }
     function cid(t,   m) { return match(t, /(^|[ (])id:[ \t]*[0-9]{10}[0-9a-f]{8}/) ? substr(t, RSTART + RLENGTH - 18, 18) : "" }
@@ -699,7 +702,7 @@ board_card() {
 # theirs, so neither is work a session can pick up.
 claude_cards() {
   local f="$1" times rows
-  rows=$(item_rows "$f")
+  item_rows "$f" >/dev/null; rows=$ITEM_ROWS
   [ -f "$f" ] || { claude_items "$rows"; return 0; }
   times=$(git -C "$(dirname "$f")" blame --line-porcelain -- "$(basename "$f")" 2>/dev/null \
     | awk '/^[0-9a-f]+ [0-9]+ [0-9]+/ { n = $3 } /^author-time / { print "@T " n " " $2 }')
@@ -733,12 +736,13 @@ claude_cards() {
 }
 
 # claude_items <item rows> -- the agent's items in claude_cards' shape,
-# <updated> the item's newest log line. A blocked item waits on something
-# and is not picked up, so it is left out; a claimed one is listed and reads
-# taken through work_claims_load.
+# <updated> the item's newest log line. Only a ready item can be claimed
+# (work-item's transitions), so an open or blocked one is left out though the
+# board still draws it; a claimed one is listed and reads taken through
+# work_claims_load.
 claude_items() {
   [ -n "$1" ] || return 0
-  printf '%s\n' "$1" | awk -F '\t' '$2 == "agent" && $3 != "blocked" { print $5 "\t" $7 }'
+  printf '%s\n' "$1" | awk -F '\t' '$2 == "agent" && ($3 == "ready" || $3 == "claimed") { print $5 "\t" $7 }'
 }
 
 # --- Ruling-card readiness -------------------------------------------------------

@@ -328,8 +328,9 @@ def list_items(args):
             status, holder = ("ready" if status == "claimed" else status), ""
         if not args and status in ("done", "closed"):
             continue
-        print("\t".join((f["id"], f["owner"] or "agent", status, holder, f["updated"],
-                         f["repo"], card_line(f, brief))))
+        row = (f["id"], f["owner"] or "agent", status, holder, f["updated"],
+               f["repo"], card_line(f, brief))
+        print("\t".join(re.sub(r"[\t\r\n]", " ", v) for v in row))
 
 
 def brief_section(brief, points):
