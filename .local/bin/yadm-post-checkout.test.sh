@@ -60,5 +60,33 @@ echo conv3 > "$O/CLAUDE.md"; git -C "$O" commit -q -am three
 (cd "$HOME" && yadm fetch -q && yadm merge -q --ff-only origin/main) || bad "ff merge after worktree adds failed"
 absent "$HOME/CLAUDE.md"
 
+# --- bootstrap installs it: hook, then sparse; idempotent; a foreign hook stays
+BOOT="$(cd "$(dirname "$0")/../.." && pwd)/.config/yadm/bootstrap"
+rm "$R/hooks/post-checkout"; (cd "$HOME" && yadm sparse-checkout disable) >/dev/null 2>&1
+present "$HOME/CLAUDE.md"
+cp "$HK" "$HOME/.local/bin/yadm-post-checkout.sh"
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap failed"
+absent "$HOME/CLAUDE.md"
+[ "$(readlink "$R/hooks/post-checkout")" = "$HOME/.local/bin/yadm-post-checkout.sh" ] && ok || bad "bootstrap did not link the hook"
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 && ok || bad "second bootstrap failed"
+(cd "$HOME" && yadm worktree add -q "$S/c" -b c) 2>/dev/null; present "$S/c/CLAUDE.md"
+rm "$R/hooks/post-checkout"; echo '#!/bin/sh' > "$R/hooks/post-checkout"
+(cd "$HOME" && yadm sparse-checkout disable) >/dev/null 2>&1
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1
+[ "$(cat "$R/hooks/post-checkout")" = '#!/bin/sh' ] && ok || bad "bootstrap clobbered a foreign hook"
+present "$HOME/CLAUDE.md"
+rm "$R/hooks/post-checkout"; ln -s "$S/gone" "$R/hooks/post-checkout"
+(cd "$HOME" && sh "$BOOT") >/dev/null 2>&1
+[ "$(readlink "$R/hooks/post-checkout")" = "$S/gone" ] && ok || bad "bootstrap replaced a dangling foreign link"
+present "$HOME/CLAUDE.md"
+
+# --- no hook script: nothing linked, CLAUDE.md stays; run from outside $HOME
+rm "$R/hooks/post-checkout" "$HOME/.local/bin/yadm-post-checkout.sh"
+(cd "$S" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap without the hook script failed"
+absent "$R/hooks/post-checkout"; present "$HOME/CLAUDE.md"
+cp "$HK" "$HOME/.local/bin/yadm-post-checkout.sh"
+(cd "$S" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap from outside \$HOME failed"
+absent "$HOME/CLAUDE.md"
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
