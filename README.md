@@ -4,7 +4,7 @@ My dotfiles, managed with [yadm](https://yadm.io).
 
 ```
 yadm clone git@github.com:mark-brannan/dotfiles.git
-yadm bootstrap    # decrypts secrets; installs the sync cron line; keeps ~/CLAUDE.md out
+yadm bootstrap    # decrypts sops-managed secrets; installs the sync cron line
 dotsync           # the sync routine, from here on
 ```
 
