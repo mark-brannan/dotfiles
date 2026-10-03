@@ -13,6 +13,9 @@ SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 pass=0; fail=0
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+# yadm finds its repo under $XDG_DATA_HOME before $HOME: with it set, the
+# script under test would act on the real $HOME.
+unset XDG_CONFIG_HOME XDG_DATA_HOME GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 G="git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false -c init.defaultBranch=main"
 
 ok()   { pass=$((pass+1)); }
@@ -109,7 +112,8 @@ out=$(run A rollback); has "restored from dotfiles $(git -C "$DOT" rev-parse --s
 out=$(run A check); has 'hooks: ok' "$out" "S7 check"
 
 # S8: rollback on a clone whose tracked files are all gone (nothing to snapshot)
-main_is "$C2"; home E nolitter; out=$(run E move); rm -rf "$W/E/.claude/hooks" "$W/E/.claude/settings.json" "$W/E/.claude/CLAUDE.md" "$W/E/.claude/RUNBOOK.md" "$W/E/.claude/cloud-setup.sh" "$W/E/.claude/docs" "$W/E/.claude/rules" "$W/E/.claude/skills" "$W/E/.claude/settings.local.json"
+main_is "$C2"; home E nolitter; out=$(run E move)
+git -C "$W/E/.claude" ls-tree --name-only HEAD | while IFS= read -r p; do rm -rf "$W/E/.claude/$p"; done
 out=$(run E rollback); r=$?; eq "$r" 0 "S8 rollback exits 0 with nothing to snapshot"
 has 'dot-git' "$(ls "$W/E"/claude-snapshot-*/ | tr '\n' ' ')" "S8 snapshot holds the clone's .git"; out=$(run E check); has 'hooks: ok' "$out" "S8 check"
 
