@@ -40,26 +40,12 @@
 .local/share/keyrings/
 .config/secrets/
 
-# --- Claude Code runtime/session state: churn, no value in git ---
-.claude/cache/
-.claude/file-history/
-.claude/sessions/
-.claude/session-env/
-.claude/shell-snapshots/
-.claude/paste-cache/
-.claude/downloads/
-.claude/ide/
-.claude/tasks/
-.claude/plans/
-.claude/todos/
-.claude/statsig/
-.claude/plugins/marketplaces/
-.claude/remote/
-.claude/projects/
-.claude/metrics/
-.claude/history.jsonl
-.claude/.last-cleanup
-.claude/.last-update-result.json
+# --- ~/.claude is its own clone of mark-brannan/claude (#358), put there by
+# dotfiles-claude-clone.sh move. None of it is this repo's; ignoring the whole
+# directory stops a stray `yadm add` from tracking it here again. Four guards
+# in .claude/hooks stay tracked here until hook-guards-strategy rules on them;
+# ignore rules do not untrack a tracked file. ---
+.claude/
 **/.claude/settings.local.json
 
 # --- Claude session state: this repo is PUBLIC. Boards, checkpoints, logs

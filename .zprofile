@@ -13,6 +13,8 @@ fi
 
 # npm prefix and PATH are handled in .zshenv, which zsh reads first.
 export PATH=$PATH:$HOME/.local/bin
+# the Claude Code tools, from the mark-brannan/claude clone at ~/.claude
+export PATH=$PATH:$HOME/.claude/bin
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm

@@ -1,83 +1,105 @@
-name: 'Seed Claude config from dotfiles'
+name: 'Seed Claude config'
 description: >-
-  Seed this job's $HOME with mark-brannan/dotfiles' Claude Code config
-  (CLAUDE.md, rules, hooks, skills) so a Claude Code run in this checkout is
-  gated by the same fail-closed hooks a real session runs under, instead of
-  either having no config at all or a bespoke per-repo fetch step. Checks
-  out dotfiles at `ref` and runs its own cloud-session-setup.sh installer --
-  this action does not re-implement the install logic, only invokes it, so
-  the two never drift.
+  Seed this job's $HOME/.claude with the Claude Code config (CLAUDE.md, rules,
+  hooks, skills) so a Claude Code run in this checkout is gated by the same
+  fail-closed hooks a real session runs under, instead of either having no
+  config at all or a bespoke per-repo fetch step. The config lives in
+  mark-brannan/claude (its root is the contents of ~/.claude, tools under
+  `bin/`); the four guard hooks that stay in mark-brannan/dotfiles, with their
+  tests, are overlaid on top. $HOME/.claude/bin goes on the job's PATH.
 
   Design: https://github.com/mark-brannan/dotfiles/blob/main/.claude/docs/config-sync-strategy.md#64-ci-in-other-repos
   (issue #17, phase P3).
 
 inputs:
+  claude-ref:
+    description: >-
+      git ref (branch, tag or full commit SHA) of mark-brannan/claude to
+      install from. Defaults to `main` -- floating, not pinned. A caller that
+      wants a pin can pass a full commit SHA here.
+    required: false
+    default: main
   ref:
     description: >-
-      git ref (branch, tag or full commit SHA) of mark-brannan/dotfiles to
-      seed from. Defaults to `main` -- floating, not pinned. #17 P2 (a
-      signed `claude-config/vN` release tag, reviewed and hardware-key
-      signed before promotion) has not been built yet; once it lands, this
-      default moves to the newest such tag instead of `main`. A caller that
-      wants a pin today can already pass a full commit SHA here.
+      git ref of mark-brannan/dotfiles to take the four guard hooks from
+      (no-checkout-home, no-foreign-worktree, prose-budget-commit,
+      public-issue-guard). Defaults to `main`; a full commit SHA pins it.
     required: false
     default: main
 
 outputs:
   complete:
     description: >-
-      "true" or "false", mirrored from the installer's own
-      $HOME/.claude/.sync-status.json "complete" field. "false" (or this
-      output being empty) means the install was partial or the status file
-      never landed -- treat $HOME/.claude as untrustworthy.
+      "true" or "false". "true" only when every expected file landed under
+      $HOME/.claude (settings.json, the four overlaid guard hooks and their
+      tests). "false" (or this output being empty) means the install was
+      partial -- treat $HOME/.claude as untrustworthy.
     value: ${{ steps.status.outputs.complete }}
 
 runs:
   using: composite
   steps:
-    - name: Check out mark-brannan/dotfiles at ${{ inputs.ref }}
+    - name: Check out mark-brannan/claude at ${{ inputs.claude-ref }}
+      uses: actions/checkout@v7
+      with:
+        repository: mark-brannan/claude
+        ref: ${{ inputs.claude-ref }}
+        path: .claude-config-seed/claude
+        persist-credentials: false
+
+    # Only the guard hooks; the rest of dotfiles is not config.
+    - name: Check out the guard hooks from mark-brannan/dotfiles at ${{ inputs.ref }}
       uses: actions/checkout@v7
       with:
         repository: mark-brannan/dotfiles
         ref: ${{ inputs.ref }}
-        path: .dotfiles-claude-config-seed
+        path: .claude-config-seed/dotfiles
+        sparse-checkout: .claude/hooks
         persist-credentials: false
 
-    # cloud-session-setup.sh is dotfiles' own installer, documented for
-    # exactly this invocation shape (CLOUD_SESSION=1, a checkout at
-    # $DOTFILES_SEED). It always exits 0 -- a missing dotfile must never
-    # fail a cloud session or a CI job -- so the status file below, not this
-    # step's exit code, is what says whether the install actually completed.
-    - name: Run cloud-session-setup.sh
+    # The guard list is explicit so a hook added to dotfiles later is a
+    # deliberate change here, not an accident. A missing file is reported by
+    # the status step below, not by this step's exit code.
+    - name: Install into $HOME/.claude and put its bin/ on PATH
       shell: sh
       env:
-        DOTFILES_SEED: ${{ github.workspace }}/.dotfiles-claude-config-seed
+        SEED: ${{ github.workspace }}/.claude-config-seed
       run: |
-        CLOUD_SESSION=1 sh "$DOTFILES_SEED/.local/bin/cloud-session-setup.sh"
+        set -u
+        mkdir -p "$HOME/.claude/hooks"
+        cp -a "$SEED/claude/." "$HOME/.claude/"
+        rm -rf "$HOME/.claude/.git"
+        for h in no-checkout-home no-foreign-worktree prose-budget-commit public-issue-guard; do
+          for f in "$h.sh" "$h.test.sh"; do
+            cp -p "$SEED/dotfiles/.claude/hooks/$f" "$HOME/.claude/hooks/$f" \
+              || echo "::warning::overlay hook $f missing from mark-brannan/dotfiles"
+          done
+        done
+        echo "$HOME/.claude/bin" >> "$GITHUB_PATH"
 
-    # The installer stages its own copy under $HOME/.claude-config, so the
-    # seed is spent. Left in the caller's workspace it is a second copy of
-    # dotfiles -- CLAUDE.md, hooks and all -- inside the repo a Claude run is
-    # about to search and review.
-    - name: Remove the spent seed checkout
+    # The seed is spent. Left in the caller's workspace it is a second copy of
+    # the config -- CLAUDE.md, hooks and all -- inside the repo a Claude run
+    # is about to search and review.
+    - name: Remove the spent seed checkouts
       shell: sh
-      env:
-        DOTFILES_SEED: ${{ github.workspace }}/.dotfiles-claude-config-seed
-      run: rm -rf "$DOTFILES_SEED"
+      run: rm -rf "${{ github.workspace }}/.claude-config-seed"
 
     - name: Report install status
       id: status
       shell: sh
       run: |
-        f="$HOME/.claude/.sync-status.json"
-        if [ -f "$f" ]; then
-          cat "$f"
-          complete=$(grep -o '"complete": *[a-z]*' "$f" | grep -o '[a-z]*$')
-          echo "complete=${complete:-false}" >> "$GITHUB_OUTPUT"
-          if [ "$complete" != "true" ]; then
-            echo "::warning::cloud-session-setup.sh reported an incomplete install -- \$HOME/.claude is a partial set, not old-or-new"
+        complete=true
+        for f in settings.json \
+          hooks/no-checkout-home.sh hooks/no-checkout-home.test.sh \
+          hooks/no-foreign-worktree.sh hooks/no-foreign-worktree.test.sh \
+          hooks/prose-budget-commit.sh hooks/prose-budget-commit.test.sh \
+          hooks/public-issue-guard.sh hooks/public-issue-guard.test.sh; do
+          if [ ! -f "$HOME/.claude/$f" ]; then
+            echo "::warning::\$HOME/.claude/$f missing after seeding"
+            complete=false
           fi
-        else
-          echo "::warning::no $f after seeding -- installer did not run or failed before writing status"
-          echo "complete=false" >> "$GITHUB_OUTPUT"
+        done
+        if [ "$complete" != "true" ]; then
+          echo "::warning::incomplete Claude config install -- \$HOME/.claude is a partial set, not old-or-new"
         fi
+        echo "complete=$complete" >> "$GITHUB_OUTPUT"

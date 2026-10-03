@@ -2,7 +2,7 @@
 
 Procedures for the machines these dotfiles live on. Getting started and the
 *why* are in [README.md](README.md); Claude Code's hooks, cloud environments and
-PR workflows are in [.claude/RUNBOOK.md](.claude/RUNBOOK.md).
+PR workflows are in [mark-brannan/claude's RUNBOOK.md](https://github.com/mark-brannan/claude/blob/main/RUNBOOK.md).
 
 **Deliberately partial.** Only procedures that have been run are written down.
 Age-key rotation and the two incident responses — a secret committed in
