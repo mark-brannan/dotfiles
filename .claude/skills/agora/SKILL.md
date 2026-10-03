@@ -71,12 +71,14 @@ Every item this skill touches gets, and keeps:
 - **Output** — exactly one of:
   - **Ruling** — the user answers; the ruling is written at once to
     `docs/decisions.md` in the primary repo, or the state repo's log if it
-    fails the private-terms check, and the card retires: `work-item claim
-    <id>`, then `work-item log <id> status=done <link>`, the link its
-    evidence (the ruling's line, the spawned work, the curia). `closed`
-    waits for acceptance; never write it here. A refused `claim` leaves the card
-    as it is, and the output line says so; a `done` that fails after the
-    claim takes `work-item release <id>`.
+    fails the private-terms check. The card retires in the same turn, the
+    ruling being the user's acceptance: `work-item claim <id>`, `work-item
+    log <id> status=done evidence=<link>`, then `work-item log <id>
+    status=closed accepted=<link>`, both links to where the answer is
+    recorded (the decisions line, the spawned work, the curia's open
+    question), per [the lifecycle](../../../docs/work-item-lifecycle.md).
+    A refused `claim` leaves the card as it is, and the output line says
+    so; a `done` that fails after the claim takes `work-item release <id>`.
   - **Spawned work item** — the answer was "build X to find out"; open
     the issue or card, link it, this item retires as a ruling does.
   - **Item (partly) unblocked** — the ruling removes one dependency; say
