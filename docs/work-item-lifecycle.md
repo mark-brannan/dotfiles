@@ -8,11 +8,11 @@ more.
 
 | Rule | Standing |
 |---|---|
-| `claimed` comes from `ready`, `blocked`, `done` or `closed`, never `open`: an `open` item gets a `status=ready` line first | pen: "Transitions"; `work-item` refuses `open -> claimed` |
-| `done` comes only from `claimed`, written by the claim's holder | pen: "Transitions"; `work-item` refuses another session while the claim is live |
-| `closed` comes only from `done`, by the user's acceptance: never on a clock or on silence | pen: "Transitions", "Done-done is acceptance, never silence" |
-| The archive window counts from `closed`, never from `done`; an item left at `done` is waiting for acceptance | pen: "Done-done is acceptance, never silence" |
-| A parent goes `done` and holds. `closed` is written only by a sweep of the whole tree, for a parent item the user has accepted, after an acceptance period; no skill writes it today | pencil, the user's, 2026-10-03: "it happens only on a sweep of the whole tree for a parent item that has been accepted" |
+| `claimed` comes from `ready`, `blocked`, `done` or `closed`, never `open`: an `open` item gets a `status=ready` line first | pen: "Transitions", roll `20261002t012203z`; `work-item` refuses `open -> claimed` |
+| `done` comes only from `claimed`, written by the claim's holder | pen: "Transitions", roll `20261002t012203z`; `work-item` refuses another session while the claim is live |
+| `closed` comes only from `done`, by the user's acceptance: never on a clock or on silence | pen: "Transitions", roll `20261002t012203z`; "Done-done is acceptance, never silence", roll `20261002t011351z` |
+| The archive window counts from `closed`, never from `done`; an item left at `done` is waiting for acceptance | pen: "Done-done is acceptance, never silence", roll `20261002t011351z` |
+| A parent goes `done` and holds. `closed` is written only by a sweep of the whole tree, for a parent item the user has accepted, after an acceptance period that follows the acceptance and never stands in for it; no skill writes it today | pencil, the user's, 2026-10-03, not yet in the roll: "it happens only on a sweep of the whole tree for a parent item that has been accepted" |
 | What counts as acceptance, the acceptance period and the sweep's mechanics | open: "We can figure that out later" |
 
 ## Two words, two writers (pencil, the agent's reading)
