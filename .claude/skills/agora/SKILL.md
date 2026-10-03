@@ -22,7 +22,9 @@ cadence; the ruling's default that holds is "act after a veto window".
      then: -->
 
 Pull candidates from the state repo's items with `owner=human-ruling`
-(`work-item list | awk -F'\t' '$2 == "human-ruling"'`; the card line is
+(`work-item list | awk -F'\t' '$2 == "human-ruling" && $3 == "ready"'`,
+since an open or held item cannot be claimed and a blocked one waits
+on its `until=`; the card line is
 the last column, the id the first), anything `/reconcile`
 flagged as an implicit "Pending:" tail, and anything the user names. That
 list is the **agora-docket**. Count it before the first question, and show
@@ -72,9 +74,9 @@ Every item this skill touches gets, and keeps:
     fails the private-terms check, and the card retires: `work-item claim
     <id>`, then `work-item log <id> status=done <link>`, the link its
     evidence (the ruling's line, the spawned work, the curia). `closed`
-    waits for acceptance; never write it here. A refused `claim` (an open
-    item, or one a live session holds) leaves the card as it is, and the
-    output line says so.
+    waits for acceptance; never write it here. A refused `claim` leaves the card
+    as it is, and the output line says so; a `done` that fails after the
+    claim takes `work-item release <id>`.
   - **Spawned work item** — the answer was "build X to find out"; open
     the issue or card, link it, this item retires as a ruling does.
   - **Item (partly) unblocked** — the ruling removes one dependency; say
@@ -120,7 +122,8 @@ Every item this skill touches gets, and keeps:
 
 ## Confer: handing a hard item to a confer session
 
-On the word *confer*: record it on the card (<!-- format open -->
+On the word *confer*: record it on the card
+(<!-- format open; this is its pencil form -->
 `work-item log <id> confer=<YYYY-MM-DD>`), leave the card where it is,
 and move on. **Create nothing under `state/global/curia/`.** A curia question
 petitions the agora first; no lower-level session creates a curia. The
