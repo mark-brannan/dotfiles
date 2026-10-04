@@ -1,7 +1,7 @@
 # References and reading list
 
 The sources behind the working loop in this repo: the skills and hooks under
-`.claude/`, the board, the guards, and the standing orders. Each entry gives
+[`~/.claude/`](https://github.com/mark-brannan/claude), the board, the guards, and the standing orders. Each entry gives
 the idea in one line and what it maps to here in one line. Every citation was
 checked against the web on 2026-09-29. An entry the web could not confirm is
 marked unverified, never dropped.
@@ -413,7 +413,7 @@ Dates are as found on 2026-09-29.
 - **AWS Kiro.** Preview 14 July 2025, general availability 17 November 2025.
   Specs (requirements, design, tasks) and hooks on file events.
   [kiro.dev](https://kiro.dev/blog/general-availability/)
-  - Maps to: the hooks under `.claude/hooks`, the same idea on session events
+  - Maps to: the hooks under [`~/.claude/hooks`](https://github.com/mark-brannan/claude/tree/main/hooks), the same idea on session events
     rather than file events.
 - **Beads.** Yegge, S., 13 October 2025. A git-backed, dependency-aware issue
   tracker that gives coding agents memory across sessions.
@@ -497,17 +497,18 @@ Dates are as found on 2026-09-29.
   frontmatter `description`, `globs` and `alwaysApply`; a plain `.md` there is
   ignored. Cursor also reads `AGENTS.md`, nested.
   [cursor.com](https://cursor.com/docs/context/rules)
-  - Maps to: `.claude/rules/`, loaded by the files being worked on.
+  - Maps to: [`~/.claude/rules/`](https://github.com/mark-brannan/claude/tree/main/rules), loaded by the files being worked on.
 - **Aider conventions.** A small markdown file, by convention `CONVENTIONS.md`,
   loaded read-only with `--read` or a `read:` line in `.aider.conf.yml`.
   [aider.chat](https://aider.chat/docs/usage/conventions.html)
-  - Maps to: `.claude/rules/code.md` and `writing.md`.
+  - Maps to: [`~/.claude/rules/code.md`](https://github.com/mark-brannan/claude/blob/main/rules/code.md) and
+    [`writing.md`](https://github.com/mark-brannan/claude/blob/main/rules/writing.md).
 - **GitHub Copilot custom instructions.** `.github/copilot-instructions.md`
   for the repository, `.github/instructions/*.instructions.md` by path glob,
   and for agents `AGENTS.md` anywhere in the tree, nearest wins, or one
   `CLAUDE.md` or `GEMINI.md` at the root.
   [docs.github.com](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)
-  - Maps to: the same split as `CLAUDE.md` and `.claude/rules/`.
+  - Maps to: the same split as `CLAUDE.md` and `~/.claude/rules/`.
 - **adr-tools.** Pryce, N., 2016. Shell scripts that number and link
   Nygard-style records in `doc/adr/`; `adr init <dir>` records another
   location in `.adr-dir`.
