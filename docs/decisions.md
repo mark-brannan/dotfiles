@@ -4,7 +4,7 @@ Rulings that are settled, newest first. One line each: the date, a short name,
 the answer, and a link to where it was argued. A ruling here is the record —
 the issue may close and the board card go away, but this line stays.
 
-- 2026-10-01 — `churn-ok`: the label is the user's alone, given on the PR; a request for it is never a card, ruling or agora item. A working session may ask about the churn guard inline ([claude#10](https://github.com/mark-brannan/claude/pull/10)).
+- 2026-10-01 — `churn-ok`: the label is the user's alone, given on the PR; a request for it is never a card, ruling or agora item. A working session may ask about the churn guard inline ([PR 10](https://github.com/mark-brannan/claude/pull/10)).
 - 2026-10-01 — Sitting nag: never end a session for the user; it shapes a good stop ([#452](https://github.com/mark-brannan/dotfiles/pull/452)).
 - 2026-10-01 — The private line, in pencil: privacy covers business strategy, closely held values and tone of voice; not the boat's name, MMSI or hostnames ([#464](https://github.com/mark-brannan/dotfiles/pull/464)).
 - 2026-10-01 — Languette: plugin and copy denials made distinguishable; thresholds stay.
