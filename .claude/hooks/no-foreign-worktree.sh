@@ -132,6 +132,15 @@ deny() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permission
 # message free of double quotes, backslashes and newlines.
 deny_literal() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-foreign-worktree: %s This is a gate and fails closed."}}\n' "$1"; exit 0; }
 
+# shq <path> -- the path as one shell word: left bare when plain, so the
+# printed command stays readable; single-quoted when whitespace or a shell
+# metacharacter would split or expand it on copy-paste.
+shq() {
+  case "$1" in
+  *[!A-Za-z0-9_./:@%+=,-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+  *) printf '%s' "$1" ;;
+  esac
+}
 # recipe <dir> -- one command giving this session its own worktree of <dir>'s
 # repo under its scratchpad (own by the session-id rule, any repo, survives a
 # subagent's cwd reset). `--git-dir=`, not `-C`: yadm's $HOME has no `-C`
@@ -139,12 +148,12 @@ deny_literal() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","pe
 recipe() {
   gitdir='<git-dir>'; scratch='<scratchpad>'
   gcd=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
-  [ -n "$gcd" ] && gitdir=$gcd
+  [ -n "$gcd" ] && gitdir=$(shq "$gcd")
   if [ -n "${session_id:-}" ]; then
     for d in "${CLAUDE_CODE_TMPDIR:-/nonexistent}"/claude-*/*/"$session_id"/scratchpad \
              "${TMPDIR:-/nonexistent}"/claude-*/*/"$session_id"/scratchpad \
              "$HOME"/.local/state/claude-tmpdir/claude-*/*/"$session_id"/scratchpad; do
-      [ -d "$d" ] && { scratch=$d; break; }
+      [ -d "$d" ] && { scratch=$(shq "$d"); break; }
     done
   fi
   printf 'git --git-dir=%s worktree add %s/<name> && cd %s/<name>' "$gitdir" "$scratch" "$scratch"
