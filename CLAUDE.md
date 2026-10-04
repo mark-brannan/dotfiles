@@ -3,11 +3,11 @@
 This repo is **public**, and its worktree is `$HOME` on every machine the user
 uses. Both facts constrain almost everything below.
 
-Global standing orders live in `.claude/CLAUDE.md` and load in every session
-everywhere; personal code and writing rules in `.claude/rules/`. Those files
-happen to be tracked here, but they are not *about* this repo. This file is.
-In a worktree, standing orders and rules load from `~`; a branch's edits to them
-are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
+Global standing orders live in `~/.claude/CLAUDE.md` and load in every session
+everywhere; personal code and writing rules in `~/.claude/rules/`. Both live in
+[mark-brannan/claude](https://github.com/mark-brannan/claude), whose repo root
+is `~/.claude`, with the rest of the Claude Code layer. They are not *about*
+this repo. This file is; it loads from the worktree, and `$HOME` lacks it.
 
 ## Files
 
@@ -15,26 +15,16 @@ are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
   conventions and the design rationale.
 - `RUNBOOK.md` — the machine operator's procedures: setup, sync, secrets,
   troubleshooting. Deliberately partial; it says so at the top.
-- `.claude/RUNBOOK.md` — the Claude Code procedures: hooks, cloud
-  environments, PR workflows. The only runbook a hook or workflow change may
-  touch.
+- [`~/.claude/RUNBOOK.md`](https://github.com/mark-brannan/claude/blob/main/RUNBOOK.md) — the Claude Code
+  procedures: hooks, cloud environments, PR workflows. The only runbook a hook
+  or workflow change may touch.
 - `.config/yadm/bootstrap` — decrypts sops-managed secrets; keeps this file out
   of `$HOME`. Idempotent.
 - `.config/yadm/hooks/pre_commit` — the commit-time gate against credentials.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
 - `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
-- `.local/bin/cloud-session-setup.sh` — seeds a subset of this repo into `$HOME`
-  on an ephemeral cloud VM.
-- `.local/bin/prune-branches` — deletes merged or dead local branches across
-  every repo on the machine; `/sweep` calls it.
-- `.local/bin/prune-wip-refs` — deletes the Stop hook's salvage refs
-  (`refs/heads/wip/<session-id>`) on origin once their checkpoint says the
-  work landed or they're past the floor and patch-equivalent to the
-  default branch.
-- `.local/bin/prose-budget` — the documentation-bloat guard every repo with a
-  `docs/budgets.json` runs; `prose-budget.test.py` beside it is its suite.
-- `.claude/cloud-setup.sh` — writes `deniedMcpServers` at user scope.
-- `.claude/hooks/` — session-continuity and metrics hooks.
+- `.claude/hooks/` — the four guard hooks and their tests: `no-checkout-home`,
+  `no-foreign-worktree`, `prose-budget-commit`, `public-issue-guard`.
 
 ## README.md
 
@@ -49,15 +39,15 @@ are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
 - If the README starts to bloat, the fix is to move background *out* — to a
   `reference/` file if one becomes warranted — never to compress the
   getting-started path to make room.
-- Don't restructure it as a side effect of unrelated work. `.claude/rules/writing.md`
+- Don't restructure it as a side effect of unrelated work. [`~/.claude/rules/writing.md`](https://github.com/mark-brannan/claude/blob/main/rules/writing.md)
   governs; it is a human-voiced doc.
 
-## RUNBOOK.md and .claude/RUNBOOK.md
+## RUNBOOK.md and the claude repo's RUNBOOK.md
 
 - **`RUNBOOK.md` is the machine's. The only Claude Code procedures in it are
   the `~/.claude` move, check and rollback,** which a human must be able to
   follow without an agent. Nothing else: not a hook, not a cloud seed, not a
-  PR workflow, not their troubleshooting. Those go in `.claude/RUNBOOK.md`. The bar for the two files is different on
+  PR workflow, not their troubleshooting. Those go in [`~/.claude/RUNBOOK.md`](https://github.com/mark-brannan/claude/blob/main/RUNBOOK.md). The bar for the two files is different on
   purpose: the user holds the dotfiles themselves to a far higher standard
   than the Claude Code layer, and a session that adds its hook to
   `RUNBOOK.md` is polluting the file the user reads when a real machine is
@@ -128,8 +118,8 @@ are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
 ## Shell scripts here
 
 - **POSIX `sh` unless there is a reason.** `bootstrap`, `pre_commit`,
-  `dotfiles-triage.sh`, `dotfiles-add-secret.sh` and `cloud-session-setup.sh` all
-  run in places where
+  `dotfiles-triage.sh`, `dotfiles-add-secret.sh` and `cloud-session-setup.sh` (in the claude repo's
+  `bin/`) all run in places where
   bash may not be what `sh` points at.
 - **Fail closed on a gate, exit 0 on a convenience.** `pre_commit` aborts when
   it can't inspect the commit; `cloud-session-setup.sh` always exits 0, because
@@ -149,21 +139,21 @@ are drafts, not loaded. This file loads from the worktree; `$HOME` lacks it.
   hook demands, the same as a shell hook.
 - **Look for the helper before writing one.** Reading the payload, printing
   a verdict, a lock, the state repo, a test harness: each has one home in
-  `.claude/hooks/`, and a second copy is a bug, tests included. If the home
+  [`~/.claude/hooks/`](https://github.com/mark-brannan/claude/tree/main/hooks), and a second copy is a bug, tests included. If the home
   doesn't exist in Python yet, make it there, not inline.
 - **Don't port a working shell hook for its own sake.** Port it, test and
   all, when you are already changing it substantially. The scripts under
   "Shell scripts here" stay POSIX `sh`.
 - A module a hook imports is seeded like the hook: in the `INSTALL` list.
 
-## Claude Code config in this repo
+## Claude Code config, in mark-brannan/claude
 
-- `.claude/settings.json` is the source of truth for hooks. **Every hook it
+- `~/.claude/settings.json` is the source of truth for hooks. **Every hook it
   references must also be in the `INSTALL` list of
-  `.local/bin/cloud-session-setup.sh`** — otherwise it silently no-ops in every
+  [`~/.claude/bin/cloud-session-setup.sh`](https://github.com/mark-brannan/claude/blob/main/bin/cloud-session-setup.sh)** — otherwise it silently no-ops in every
   cloud session, and a no-op is indistinguishable from a hook that ran.
 - Adding a connector to the account does not deny it. `deniedMcpServers` is
-  by name, in two places: `.claude/cloud-setup.sh` and `.claude/settings.json`.
+  by name, in two places: `~/.claude/cloud-setup.sh` and `~/.claude/settings.json`.
   Update both.
 - Verify a Claude Code setting exists and does what you think before writing it
   down. `disableClaudeAiConnectors` was set here for a long time and did not do
