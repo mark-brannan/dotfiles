@@ -4,6 +4,6 @@
 # patterns of the worktree it runs from; a new branch worktree needs the
 # whole tree, so this gives it back. Only a worktree add passes the null id.
 case "${1:-x}" in *[!0]*) exit 0 ;; esac
-[ "$(git rev-parse --absolute-git-dir)" = "$(git rev-parse --path-format=absolute --git-common-dir)" ] && exit 0
+[ -f "$(git rev-parse --git-dir)/commondir" ] || exit 0
 [ "$(git config --get core.sparseCheckout)" = true ] || exit 0
 exec git sparse-checkout disable

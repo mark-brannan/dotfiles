@@ -430,6 +430,13 @@ out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" --arg
   | env -u CLAUDE_CODE_TMPDIR HOME="$TMP/home" bash "$HOOK" 2>&1)
 if printf '%s' "$out" | grep -qF "worktree add $TMP/home/.local/state/claude-tmpdir/claude-1000/proj/$SID/scratchpad/<name>"; then pass=$((pass + 1)); else
   fail=$((fail + 1)); printf 'FAIL: recipe must find the state-dir scratchpad without CLAUDE_CODE_TMPDIR\n  hook output: %s\n' "$out"; fi
+# A scratchpad path with a space is printed single-quoted, one shell word.
+mkdir -p "$TMP/home sp/.local/state/claude-tmpdir/claude-1000/proj/$SID/scratchpad"
+out=$(printf '%s' "$(jq -n --arg c "git -C $THEIRS status" --arg d "$MINE" --arg s "$SID" \
+  '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}')" \
+  | env -u CLAUDE_CODE_TMPDIR HOME="$TMP/home sp" bash "$HOOK" 2>&1)
+if printf '%s' "$out" | grep -qF "worktree add '$TMP/home sp/.local/state/claude-tmpdir/claude-1000/proj/$SID/scratchpad'/<name>"; then pass=$((pass + 1)); else
+  fail=$((fail + 1)); printf 'FAIL: recipe must quote a scratchpad path with a space\n  hook output: %s\n' "$out"; fi
 
 # --- other tools are none of this hook business --------------------------
 check_json allow 'Read of a foreign path is not gated here' \
