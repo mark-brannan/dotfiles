@@ -1,0 +1,10 @@
+{
+	"autodeskProduct":	"Fusion360",
+	"type":	"script",
+	"author":	"",
+	"description":	{
+		"":	"Import STLs, convert to BRep, combine, optional extrude, export STEP/STL"
+	},
+	"supportedOS":	"windows|mac",
+	"editEnabled":	true
+}
