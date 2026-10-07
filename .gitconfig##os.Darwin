@@ -7,3 +7,9 @@
 [user]
 	email = markbrannan@gmail.com
 	name = Mark Brannan
+[branch]
+	# A branch tracks its own remote branch, never the one it was cut from, so mergify's stack pre-push hook doesn't mistake a PR branch for a stack.
+	autoSetupMerge = simple
+[push]
+	# autoSetupRemote makes a bare `git push` create and track origin/<branch>.
+	autoSetupRemote = true
