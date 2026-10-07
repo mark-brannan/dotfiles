@@ -25,7 +25,7 @@ name: Churn guard
 # Raising the ceiling is Solace's call, not a session's.
 #
 # Bypass is the `churn-ok` label, applied by a human. A session cannot apply
-# it: public-issue-guard.sh denies the label by name. A gate whose bypass the
+# it: the languette plugin's guard-bypass-labels denies the label by name. A gate whose bypass the
 # gated party can reach is not a gate.
 
 on:

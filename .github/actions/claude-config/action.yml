@@ -5,8 +5,7 @@ description: >-
   fail-closed hooks a real session runs under, instead of either having no
   config at all or a bespoke per-repo fetch step. The config lives in
   mark-brannan/claude (its root is the contents of ~/.claude, tools under
-  `bin/`); the four guard hooks that stay in mark-brannan/dotfiles, with their
-  tests, are overlaid on top. $HOME/.claude/bin goes on the job's PATH.
+  `bin/`). $HOME/.claude/bin goes on the job's PATH.
 
   Design: https://github.com/mark-brannan/dotfiles/blob/main/.claude/docs/config-sync-strategy.md#64-ci-in-other-repos
   (issue #17, phase P3).
@@ -19,20 +18,12 @@ inputs:
       wants a pin can pass a full commit SHA here.
     required: false
     default: main
-  ref:
-    description: >-
-      git ref of mark-brannan/dotfiles to take the four guard hooks from
-      (no-checkout-home, no-foreign-worktree, prose-budget-commit,
-      public-issue-guard). Defaults to `main`; a full commit SHA pins it.
-    required: false
-    default: main
 
 outputs:
   complete:
     description: >-
-      "true" or "false". "true" only when every expected file landed under
-      $HOME/.claude (settings.json, the four overlaid guard hooks and their
-      tests). "false" (or this output being empty) means the install was
+      "true" or "false". "true" only when settings.json landed under
+      $HOME/.claude. "false" (or this output being empty) means the install was
       partial -- treat $HOME/.claude as untrustworthy.
     value: ${{ steps.status.outputs.complete }}
 
@@ -47,19 +38,6 @@ runs:
         path: .claude-config-seed/claude
         persist-credentials: false
 
-    # Only the guard hooks; the rest of dotfiles is not config.
-    - name: Check out the guard hooks from mark-brannan/dotfiles at ${{ inputs.ref }}
-      uses: actions/checkout@v7
-      with:
-        repository: mark-brannan/dotfiles
-        ref: ${{ inputs.ref }}
-        path: .claude-config-seed/dotfiles
-        sparse-checkout: .claude/hooks
-        persist-credentials: false
-
-    # The guard list is explicit so a hook added to dotfiles later is a
-    # deliberate change here, not an accident. A missing file is reported by
-    # the status step below, not by this step's exit code.
     - name: Install into $HOME/.claude and put its bin/ on PATH
       shell: sh
       env:
@@ -69,12 +47,6 @@ runs:
         mkdir -p "$HOME/.claude/hooks"
         cp -a "$SEED/claude/." "$HOME/.claude/"
         rm -rf "$HOME/.claude/.git"
-        for h in no-checkout-home no-foreign-worktree prose-budget-commit public-issue-guard; do
-          for f in "$h.sh" "$h.test.sh"; do
-            cp -p "$SEED/dotfiles/.claude/hooks/$f" "$HOME/.claude/hooks/$f" \
-              || echo "::warning::overlay hook $f missing from mark-brannan/dotfiles"
-          done
-        done
         echo "$HOME/.claude/bin" >> "$GITHUB_PATH"
 
     # The seed is spent. Left in the caller's workspace it is a second copy of
@@ -89,11 +61,7 @@ runs:
       shell: sh
       run: |
         complete=true
-        for f in settings.json \
-          hooks/no-checkout-home.sh hooks/no-checkout-home.test.sh \
-          hooks/no-foreign-worktree.sh hooks/no-foreign-worktree.test.sh \
-          hooks/prose-budget-commit.sh hooks/prose-budget-commit.test.sh \
-          hooks/public-issue-guard.sh hooks/public-issue-guard.test.sh; do
+        for f in settings.json; do
           if [ ! -f "$HOME/.claude/$f" ]; then
             echo "::warning::\$HOME/.claude/$f missing after seeding"
             complete=false

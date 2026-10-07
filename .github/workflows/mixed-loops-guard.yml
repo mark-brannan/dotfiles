@@ -19,7 +19,7 @@ name: Mixed loops guard
 # neutral and never trips the gate.
 #
 # Bypass is the `mixed-loops-ok` label, applied by a human. A session cannot
-# apply it: public-issue-guard.sh denies the label by name. A gate whose
+# apply it: the languette plugin's guard-bypass-labels denies the label by name. A gate whose
 # bypass the gated party can reach is not a gate.
 
 on:

@@ -53,8 +53,8 @@ jobs:
   # .config/yadm/hooks/*, .config/yadm/bootstrap -- they execute
   # automatically (git commit, machine bootstrap). A shellcheck-caught bug
   # in one of those runs unattended on every commit, on every machine, at
-  # the next dotsync. The Claude Code hooks moved to mark-brannan/claude
-  # (#358) and are linted there, but for the four held back here.
+  # the next dotsync. The Claude Code hooks live in mark-brannan/claude and
+  # the languette plugin, and are linted there.
   shellcheck:
     runs-on: ubuntu-latest
     steps:
@@ -78,42 +78,7 @@ jobs:
           # bash may not be what /bin/sh points at) get -s sh; everything
           # else here is bash-shebanged and checked as such.
           shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit
-          shellcheck --severity=warning .claude/hooks/*.sh .local/bin/*.sh
-
-  # The four guards held back in dotfiles (no-checkout-home, no-foreign-worktree,
-  # prose-budget-commit, public-issue-guard; #358) share lib-shell-words.awk,
-  # which now lives in mark-brannan/claude. Lay them over a checkout of that
-  # repo, as ~/.claude is on the machine, and run their suites under all three
-  # awks in one job (#94, #337): a gawk-ism that passes locally fails closed
-  # on the Mac (mawk).
-  guard-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v7
-        with:
-          repository: mark-brannan/claude
-          path: claude-layer
-          persist-credentials: false
-      - name: Install mawk, gawk and original-awk
-        run: sudo apt-get update -q && sudo apt-get install -y -q mawk gawk original-awk jq
-      - name: Run the held-back guard suites under each awk
-        run: |
-          set -euo pipefail
-          cp -a .claude/hooks/. claude-layer/hooks/
-          status=0
-          for impl in mawk gawk original-awk; do
-            d=$(mktemp -d)
-            ln -s "$(command -v "$impl")" "$d/awk"
-            for t in no-foreign-worktree no-checkout-home prose-budget-commit public-issue-guard; do
-              echo "::group::$t under $impl"
-              if AWK_PATH=$d bash "claude-layer/hooks/$t.test.sh"; then echo "ok"; else status=1; echo "::error::$t failed under $impl"; fi
-              echo "::endgroup::"
-            done
-          done
-          exit $status
+          shellcheck --severity=warning .local/bin/*.sh
 
   # The .local/bin suites that stayed here (dotfiles-sync, the ~/.claude
   # clone mover, yadm-post-checkout). The Claude Code hook and tool suites
@@ -163,7 +128,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, shellcheck, guard-tests, tool-tests, prose-budget, nonempty]
+    needs: [secrets-encrypted, shellcheck, tool-tests, prose-budget, nonempty]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}

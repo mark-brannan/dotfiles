@@ -126,8 +126,8 @@ weakening are documented there, in its header and in
 This repository keeps only what is its own: [`docs/budgets.json`](docs/budgets.json),
 the `prose-budget` job in `ci.yml`, which calls the reusable workflow in
 `mark-brannan/.github` (that fetches the engine from mark-brannan/claude
-`main`, unpinned on purpose), and `.claude/hooks/prose-budget-commit.sh`, the
-guard that denies a `git commit` on findings.
+`main`, unpinned on purpose). The guard that denies a `git commit` on
+findings, `prose-budget-commit`, ships in the languette plugin.
 
 ## Ephemeral cloud sessions
 
