@@ -159,7 +159,7 @@ jobs:
   # re-running this job; `edited` is deliberately not a trigger type.
   title:
     permissions: {}
-    uses: mark-brannan/.github/.github/workflows/pr-title.yml@claude/pr-title-check
+    uses: mark-brannan/.github/.github/workflows/pr-title.yml@main
 
   # The single required status check, shared across repositories: the
   # `gate` job of mark-brannan/.github's reusable ci-gate workflow, which
