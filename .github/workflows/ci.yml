@@ -154,6 +154,13 @@ jobs:
       contents: read
     uses: mark-brannan/.github/.github/workflows/nonempty-diff.yml@main
 
+  # Holds the PR title to `area: summary`, since a squash merge makes it the
+  # commit subject. Reads the live title, so fix a bad one by editing it and
+  # re-running this job; `edited` is deliberately not a trigger type.
+  title:
+    permissions: {}
+    uses: mark-brannan/.github/.github/workflows/pr-title.yml@claude/pr-title-check
+
   # The single required status check, shared across repositories: the
   # `gate` job of mark-brannan/.github's reusable ci-gate workflow, which
   # fails unless every result in `needs` is green. The reported context is
@@ -163,7 +170,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, shellcheck, guard-tests, tool-tests, prose-budget, nonempty]
+    needs: [secrets-encrypted, shellcheck, guard-tests, tool-tests, prose-budget, nonempty, title]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}
