@@ -25,6 +25,7 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 **Troubleshooting**
 - [`yadm status` shows a permanent typechange](#yadm-status-shows-a-permanent-typechange)
 - [A pull refuses: local changes would be overwritten](#a-pull-refuses-local-changes-would-be-overwritten)
+- [dotsync aborts: untracked files would be overwritten](#dotsync-aborts-untracked-files-would-be-overwritten)
 - [Nothing decrypts on a new machine](#nothing-decrypts-on-a-new-machine)
 - [A dev server in WSL2 is unreachable from any other device](#a-dev-server-in-wsl2-is-unreachable-from-any-other-device)
 
@@ -305,6 +306,66 @@ exactly; any diff means the copy silently failed and `~/<file>` is still wrong.
 
 If it is not a de-tracked file, `yadm status --short` and `yadm diff <file>`
 first — do not blanket-checkout a file you have not read.
+
+## dotsync aborts: untracked files would be overwritten
+
+**Symptom.** `dotsync` stops with, for the rebase it runs (a plain merge says
+"by merge"):
+
+```
+error: The following untracked working tree files would be overwritten by checkout:
+        .claude/hooks/some-hook.sh
+Please move or remove them before you switch branches.
+Aborting
+```
+
+**Cause.** A file at that path exists in `$HOME` but yadm does not track it,
+and the commit being pulled adds it. Typical case: an earlier session copied an
+unmerged PR's files (hooks) into `$HOME` by hand, and the PR then merged. Git
+refuses rather than clobber an untracked file and aborts before changing
+anything. The cron `dotfiles-sync.sh` hits the same refusal and logs a
+`skipped: ... fast-forward refused by dirty files` line to syslog (tag
+`dotfiles-sync`); that is the machine asking for a `dotsync` by hand.
+
+**Recovery.** Never `rm` first: a copy that differs from the merged version may
+be work that exists nowhere else.
+
+```bash
+yadm fetch
+yadm status | head -3        # a rebase in progress? stop and resolve that first
+yadm stash list              # --autostash should have restored; anything here is yours
+
+# list the blockers (yadm status hides untracked files, so take the pull's own error)
+yadm pull --rebase --autostash 2>&1 | grep -P '^\t' | tr -d '\t' > /tmp/blockers.txt
+
+# 1. snapshot every blocker, outside $HOME
+mkdir -p /tmp/dotsync-blockers
+(cd ~ && tar cf /tmp/dotsync-blockers/untracked.tar -T /tmp/blockers.txt)
+tar tf /tmp/dotsync-blockers/untracked.tar | wc -l    # must equal: wc -l < /tmp/blockers.txt
+
+# 2. diagnose each file against the incoming commit
+while read -r f; do
+  if yadm show "@{u}:$f" | diff -q - ~/"$f" >/dev/null; then echo "same     $f"
+  else echo "DIFFERS  $f"; fi
+done < /tmp/blockers.txt
+```
+
+- `same`: your copy is what the PR merged; `rm ~/<file>`.
+- `DIFFERS`: read `yadm show "@{u}:<file>" | diff - ~/<file>`. If your version
+  has changes worth keeping, leave the file out of the delete (it is in the
+  snapshot) and re-apply the change on top of the pulled file afterwards. Do
+  not delete on a guess.
+
+Then pull and verify:
+
+```bash
+dotsync
+yadm status --short          # no output, and no "Aborting" above
+yadm diff @{u} --stat        # no output: tracked files match the pulled commit
+```
+
+Keep `/tmp/dotsync-blockers/untracked.tar` for a day; it is the only copy of
+anything you chose not to restore.
 
 ## Nothing decrypts on a new machine
 
