@@ -99,9 +99,12 @@ ff_only() {
 # shellcheck disable=SC2317  # called through ff_only's $g
 claude_git() { git -C "$HOME/.claude" "$@"; }
 
-# installed_sha PLUGIN: the commit the installed copy was built from.
+# installed_sha PLUGIN: the commit the installed copy was built from; empty
+# when PLUGIN has no entry. Stops at the next plugin's key, so an entry
+# without a sha never borrows its neighbour's.
 installed_sha() {
 	awk -v key="\"$1\"" '
+		found && /^[[:space:]]*"[^"]*@[^"]*"[[:space:]]*:/ && !index($0, key) { exit }
 		index($0, key) { found = 1 }
 		found && /"gitCommitSha"/ { gsub(/.*"gitCommitSha"[[:space:]]*:[[:space:]]*"|".*/, ""); print; exit }
 	' "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null
@@ -116,6 +119,7 @@ plugin_sync() {
 	clone="$HOME/.claude/plugins/marketplaces/$market"
 	[ -d "$clone/.git" ] || { echo "$name: skipped, marketplace $market not cloned"; return; }
 	have=$(installed_sha "$1")
+	[ -n "$have" ] || { echo "$name: skipped, not installed"; return; }
 	want=$(git -C "$clone" ls-remote origin refs/heads/main 2>/dev/null | cut -f1)
 	[ -n "$want" ] || { echo "$name: ls-remote failed (offline?), at $(echo "${have:-?}" | cut -c1-7)"; return; }
 	if [ "$have" = "$want" ]; then echo "$name: current at $(echo "$have" | cut -c1-7)"; return; fi

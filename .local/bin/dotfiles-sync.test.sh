@@ -125,4 +125,10 @@ echo '{"v":2}' > "$L/plugin.json"; $G -C "$L" commit -q -am p2; $G -C "$L" push 
 out=$(SYNC_PLUGINS=lang@lang sync A); has "lang: updated to $($G -C "$L" rev-parse --short=7 HEAD)" "$out" "S7 updated"
 has 'plugin marketplace update lang' "$(cat "$W/claude.log")" "S7 marketplace refreshed"
 
+# S8: an entry without a sha never borrows the next plugin's; uninstalled means skipped, claude untouched
+rm -f "$W/claude.log"
+printf '{\n  "plugins": {\n    "lang@lang": [\n      { "scope": "user" }\n    ],\n    "other@lang": [\n      { "gitCommitSha": "%s" }\n    ]\n  }\n}\n' "$P1" > "$W/A/.claude/plugins/installed_plugins.json"
+out=$(SYNC_PLUGINS=lang@lang sync A); has 'lang: skipped, not installed' "$out" "S8 no sha borrowed"
+[ -e "$W/claude.log" ] && bad "S8 started claude for an uninstalled plugin" "$(cat "$W/claude.log")" || ok
+
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
