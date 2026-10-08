@@ -23,8 +23,8 @@ this repo. This file is; it loads from the worktree, and `$HOME` lacks it.
 - `.config/yadm/hooks/pre_commit` — the commit-time gate against credentials.
 - `.local/bin/dotfiles-triage.sh` — read-only inventory of `$HOME` vs policy.
 - `.local/bin/dotfiles-add-secret.sh` — the one command for adding a sops secret.
-- `.claude/hooks/` — the four guard hooks and their tests: `no-checkout-home`,
-  `no-foreign-worktree`, `prose-budget-commit`, `public-issue-guard`.
+- The guard hooks (`guard-worktrees`, `guard-private-terms`, `prose-budget-commit`,
+  `guard-github-issues`) live in the languette plugin, not in this repo.
 
 ## README.md
 
@@ -96,10 +96,10 @@ this repo. This file is; it loads from the worktree, and `$HOME` lacks it.
   `command -v`, `[ -d ... ]`, `[[ "$OSTYPE" == darwin* ]]`. Reach for a yadm
   alternate only when a whole file genuinely differs per OS, and then use
   `##default`, never `##os.Linux` — yadm reports `WSL` under WSL2.
-- Branch work: `yadm worktree add -b <branch> ~/.claude/worktrees/<name> main`. Never `yadm checkout <branch>` in `$HOME` (enforced by `no-checkout-home.sh`). Also never `git checkout <branch>` in `~/dotfiles` — not enforced by any hook, just don't.
+- Branch work: `yadm worktree add -b <branch> ~/.claude/worktrees/<name> main`. Never `yadm checkout <branch>` in `$HOME` (enforced by languette's `guard-worktrees`). Also never `git checkout <branch>` in `~/dotfiles` — not enforced by any hook, just don't.
 - **A worktree belongs to one session.** Never work in another session's,
   whatever route offers itself — `EnterWorktree(path=...)`, `git -C`, an edit
-  by absolute path (enforced by `no-foreign-worktree.sh`). A session that is
+  by absolute path (enforced by languette's `guard-worktrees`). A session that is
   *finished* pushes, opens the PR and then releases its worktree, so the
   branch it held is free for whoever picks the work up.
 - **Stack only on a real dependency, and never delete a base branch by hand.**
@@ -111,7 +111,7 @@ this repo. This file is; it loads from the worktree, and `$HOME` lacks it.
   the merge delete the base. GitHub retargets a stacked PR only when its base
   disappears *because the base PR merged*; a base branch deleted any other way
   closes every PR pointing at it, and the recovery is a reopen-and-retarget,
-  one PR at a time (enforced by `no-delete-stacked-base.sh`). If the base needs
+  one PR at a time (enforced by languette's `guard-git-stacked-base`). If the base needs
   rework, rebase the stacked branch onto it and force-push — never recreate the
   base under a new name.
 
