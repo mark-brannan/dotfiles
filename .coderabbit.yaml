@@ -27,6 +27,18 @@ reviews:
       instructions: >
         detect-secrets baseline. Flag baseline edits that suppress a real
         finding rather than an actual false positive.
+    - path: "{**/README*,**/CHANGELOG*,docs/**,**/SKILL.md}"
+      instructions: >
+        Human-facing prose; review against rules/writing.md in
+        mark-brannan/claude. Flag in added lines only: a list item or table
+        row over 110 rendered characters (link syntax stripped) or longer
+        than the shortest neighbour; flags, fields, env vars or scar stories
+        in a README (they belong in the code header); a table whose columns
+        repeat each other; a parenthetical that restates its bullet; AI-tell
+        words (delve, leverage, seamless, robust, comprehensive, foster,
+        elevate, unlock) and "it's worth noting"/"not just X, but Y". Flag
+        edits to existing README/CHANGELOG prose beyond correcting a false
+        claim. A length complaint means delete, never add a clause.
 
 chat:
   auto_reply: true
