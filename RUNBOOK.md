@@ -25,6 +25,7 @@ plaintext, a lost key — are known gaps; a guessed procedure is worse than none
 **Troubleshooting**
 - [`yadm status` shows a permanent typechange](#yadm-status-shows-a-permanent-typechange)
 - [A pull refuses: local changes would be overwritten](#a-pull-refuses-local-changes-would-be-overwritten)
+- [dotsync aborts: untracked files would be overwritten](#dotsync-aborts-untracked-files-would-be-overwritten)
 - [Nothing decrypts on a new machine](#nothing-decrypts-on-a-new-machine)
 - [A dev server in WSL2 is unreachable from any other device](#a-dev-server-in-wsl2-is-unreachable-from-any-other-device)
 
@@ -305,6 +306,48 @@ exactly; any diff means the copy silently failed and `~/<file>` is still wrong.
 
 If it is not a de-tracked file, `yadm status --short` and `yadm diff <file>`
 first — do not blanket-checkout a file you have not read.
+
+## dotsync aborts: untracked files would be overwritten
+
+**Symptom.** `dotsync` stops with (a plain merge says "by merge"):
+
+```
+error: The following untracked working tree files would be overwritten by checkout:
+        .claude/hooks/some-hook.sh
+Please move or remove them before you switch branches.
+Aborting
+```
+
+**Cause.** The file exists in `$HOME` untracked and the commit being pulled
+adds it: typically an earlier session copied an unmerged PR's files into
+`$HOME` by hand, and the PR then merged. Git aborts before changing anything.
+The cron `dotfiles-sync.sh` hits the same refusal and logs `skipped: ...
+fast-forward refused by dirty files` to syslog (tag `dotfiles-sync`).
+
+**Recovery.** Never `rm` first: a copy that differs from the merged version may
+be work that exists nowhere else.
+
+```bash
+yadm fetch
+yadm status | head -3        # a rebase in progress? resolve that first
+work=$(mktemp -d)
+# list the blockers from the pull's own error (yadm status hides untracked
+# files); when nothing blocks, this is a real pull
+yadm pull --rebase --autostash 2>&1 | grep -P '^\t' | tr -d '\t' > "$work/blockers"
+(cd ~ && tar cf "$work/untracked.tar" -T "$work/blockers")   # snapshot, outside $HOME
+while read -r f; do
+  yadm show "@{u}:$f" | diff -q - ~/"$f" >/dev/null && echo "same     $f" || echo "DIFFERS  $f"
+done < "$work/blockers"
+```
+
+- `same`: your copy is what the PR merged; `rm ~/<file>`.
+- `DIFFERS`: read `yadm show "@{u}:<file>" | diff - ~/<file>`. Keep a change
+  worth keeping out of the delete (the snapshot holds it) and re-apply it on
+  top of the pulled file afterwards. Do not delete on a guess.
+
+Then `dotsync`; verify with `yadm status --short` and `yadm diff @{u} --stat`,
+both silent. Keep `$work/untracked.tar` for a day: it is the only copy of
+anything you chose not to restore.
 
 ## Nothing decrypts on a new machine
 
