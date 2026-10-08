@@ -141,9 +141,9 @@ this repo. This file is; it loads from the worktree, and `$HOME` lacks it.
   a verdict, a lock, the state repo, a test harness: each has one home in
   [`~/.claude/hooks/`](https://github.com/mark-brannan/claude/tree/main/hooks), and a second copy is a bug, tests included. If the home
   doesn't exist in Python yet, make it there, not inline.
-- **Don't port a working shell hook for its own sake.** Port it, test and
-  all, when you are already changing it substantially. The scripts under
-  "Shell scripts here" stay POSIX `sh`.
+- **An existing shell hook is a candidate for porting when the port has a
+  clear value: testing, robustness, stability.** Port it, tests and all,
+  in its own PR. The scripts under "Shell scripts here" stay POSIX `sh`.
 - A module a hook imports is seeded like the hook: in the `INSTALL` list.
 
 ## Claude Code config, in mark-brannan/claude
