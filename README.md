@@ -28,7 +28,8 @@ yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
 
 Between those, a cron line that `bootstrap` installs runs
-`.local/bin/dotfiles-sync.sh` every five minutes. It only ever fast-forwards;
+`.local/bin/dotfiles-sync.sh` every five minutes. It brings dotfiles, the
+`~/.claude` clone and the languette plugin up to date, and only ever fast-forwards;
 see "Why the cron sync is ff-only" below.
 
 **Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — sync, secrets, and

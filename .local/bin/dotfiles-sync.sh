@@ -1,9 +1,10 @@
 #!/bin/sh
-# Unattended fast-forward of $HOME's dotfiles from origin/main. Safe to run
-# every few minutes: it never rebases, stashes or merges, so the only outcomes
-# are "fast-forwarded", "nothing to do", or "skipped, here's why". Git refuses
-# a fast-forward that would overwrite a dirty tracked file, atomically, which
-# is the whole safety story -- see README "Why the cron sync is ff-only".
+# Unattended fast-forward of $HOME's dotfiles from origin/main, then of the
+# ~/.claude clone, then the Claude Code plugins named in $SYNC_PLUGINS. Safe to
+# run every few minutes: it never rebases, stashes or merges, so the only
+# outcomes are "fast-forwarded", "nothing to do", or "skipped, here's why". Git
+# refuses a fast-forward that would overwrite a dirty tracked file, atomically,
+# which is the whole safety story -- see README "Why the cron sync is ff-only".
 #
 #   dotfiles-sync.sh            run once (what cron calls)
 #   dotfiles-sync.sh --install  add the crontab line, idempotently
@@ -17,6 +18,7 @@ PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 STATE="$HOME/.local/state/dotfiles-sync"
 LOCK="$STATE/lock"
 SELF="$HOME/.local/bin/dotfiles-sync.sh"
+SYNC_PLUGINS="${SYNC_PLUGINS-languette@languette}"
 CRON_LINE="*/5 * * * * $SELF # dotfiles-sync"
 
 mkdir -p "$STATE"
@@ -43,8 +45,6 @@ case "${1:-}" in
 *)	echo "usage: dotfiles-sync.sh [--install|--status]" >&2; exit 0 ;;
 esac
 
-command -v yadm >/dev/null 2>&1 || { report "skipped: yadm not on PATH"; exit 0; }
-
 # mkdir is the portable atomic lock (macOS has no flock). A lock older than
 # ten minutes is a crashed run, not a live one.
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -56,34 +56,78 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 
-# A checkout mid-merge, mid-rebase or holding unmerged paths needs a person;
-# anything automatic here would compound it.
-gitdir=$(yadm rev-parse --git-dir 2>/dev/null) || { report "skipped: yadm has no repo"; exit 0; }
-if [ -e "$gitdir/MERGE_HEAD" ] || [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; then
-	report "skipped: merge or rebase in progress, resolve by hand"; exit 0
-fi
-unmerged=$(yadm diff --name-only --diff-filter=U 2>/dev/null)
-if [ -n "$unmerged" ]; then
-	report "skipped: unmerged paths, resolve by hand: $(echo "$unmerged" | tr '\n' ' ')"; exit 0
-fi
+# ff_only CMD: fast-forward CMD's checkout to origin/main, or say why
+# not. CMD is yadm or a function wrapping git -C. Prints one phrase; returns 0
+# only when HEAD moved.
+ff_only() {
+	g=$1
+	gitdir=$($g rev-parse --absolute-git-dir 2>/dev/null) || { echo "skipped: no repo"; return 1; }
+	# A checkout mid-merge, mid-rebase or holding unmerged paths needs a
+	# person; anything automatic here would compound it.
+	if [ -e "$gitdir/MERGE_HEAD" ] || [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; then
+		echo "skipped: merge or rebase in progress, resolve by hand"; return 1
+	fi
+	unmerged=$($g diff --name-only --diff-filter=U 2>/dev/null)
+	if [ -n "$unmerged" ]; then
+		echo "skipped: unmerged paths, resolve by hand: $(echo "$unmerged" | tr '\n' ' ')"; return 1
+	fi
+	if ! $g fetch --quiet --prune origin 2>/dev/null; then
+		echo "fetch failed (offline?), $($g rev-list --count HEAD..origin/main 2>/dev/null || echo '?') behind at last fetch"
+		return 1
+	fi
+	ahead=$($g rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
+	behind=$($g rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+	if [ "$behind" -eq 0 ]; then
+		if [ "$ahead" -gt 0 ]; then echo "level with origin/main, $ahead local commit(s) unpushed"
+		else echo "level with origin/main"; fi
+		return 1
+	fi
+	if [ "$ahead" -gt 0 ]; then
+		echo "skipped: $ahead ahead and $behind behind, not fast-forwardable, pull by hand"
+		return 1
+	fi
+	if $g merge --ff-only --quiet origin/main >/dev/null 2>&1; then
+		echo "fast-forwarded $behind commit(s) to $($g rev-parse --short HEAD)"; return 0
+	fi
+	# The refusal is git protecting a dirty file that an incoming commit also
+	# touches. Name them so the log says what a person has to look at.
+	blockers=$( { $g diff --name-only HEAD; $g diff --name-only HEAD origin/main; } 2>/dev/null | sort | uniq -d | tr '\n' ' ')
+	echo "skipped: $behind behind, fast-forward refused by dirty files: ${blockers:-unknown}"
+	return 1
+}
 
-if ! yadm fetch --quiet --prune origin 2>/dev/null; then
-	report "fetch failed (offline?), $(yadm rev-list --count HEAD..origin/main 2>/dev/null || echo '?') behind at last fetch"
-	exit 0
-fi
+# shellcheck disable=SC2317  # called through ff_only's $g
+claude_git() { git -C "$HOME/.claude" "$@"; }
 
-ahead=$(yadm rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
-behind=$(yadm rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+# installed_sha PLUGIN: the commit the installed copy was built from.
+installed_sha() {
+	awk -v key="\"$1\"" '
+		index($0, key) { found = 1 }
+		found && /"gitCommitSha"/ { gsub(/.*"gitCommitSha"[[:space:]]*:[[:space:]]*"|".*/, ""); print; exit }
+	' "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null
+}
 
-if [ "$behind" -eq 0 ]; then
-	if [ "$ahead" -gt 0 ]; then report "level with origin/main, $ahead local commit(s) unpushed"
-	else report "level with origin/main"; fi
-	exit 0
-fi
-if [ "$ahead" -gt 0 ]; then
-	report "skipped: $ahead ahead and $behind behind, not fast-forwardable, run dotsync by hand"
-	exit 0
-fi
+# plugin_sync PLUGIN: update it when its marketplace's main has moved past the
+# installed copy. Asks the remote first, so a quiet run costs one ls-remote and
+# never starts claude. A changed install command still waits for a person:
+# no --yes, so the update fails here and says so.
+plugin_sync() {
+	name=${1%@*}; market=${1#*@}
+	clone="$HOME/.claude/plugins/marketplaces/$market"
+	[ -d "$clone/.git" ] || { echo "$name: skipped, marketplace $market not cloned"; return; }
+	have=$(installed_sha "$1")
+	want=$(git -C "$clone" ls-remote origin refs/heads/main 2>/dev/null | cut -f1)
+	[ -n "$want" ] || { echo "$name: ls-remote failed (offline?), at $(echo "${have:-?}" | cut -c1-7)"; return; }
+	if [ "$have" = "$want" ]; then echo "$name: current at $(echo "$have" | cut -c1-7)"; return; fi
+	command -v claude >/dev/null 2>&1 || { echo "$name: skipped, claude not on PATH"; return; }
+	if ! claude plugin marketplace update "$market" >/dev/null 2>&1; then
+		echo "$name: marketplace update failed, run claude plugin marketplace update $market"; return
+	fi
+	if ! claude plugin update "$1" </dev/null >/dev/null 2>&1; then
+		echo "$name: update failed, run claude plugin update $1 by hand"; return
+	fi
+	echo "$name: updated to $(installed_sha "$1" | cut -c1-7), new sessions load it"
+}
 
 # The commit that untracks .claude/ makes this merge delete every file yadm
 # delivered there; the hooks go with them and the fail-closed ones then deny
@@ -117,20 +161,31 @@ restore_claude() {
 	[ "$n" -eq 0 ] || echo "$n"
 }
 
-old=$(yadm rev-parse HEAD)
-if yadm merge --ff-only --quiet origin/main >/dev/null 2>&1; then
-	yadm alt >/dev/null 2>&1
-	kept=$(restore_claude "$old")
-	case "$kept" in
-	'') note= ;;
-	FAILED*) note=", $kept" ;;
-	*) note=", kept $kept .claude file(s) the pull removed" ;;
-	esac
-	report "fast-forwarded $behind commit(s) to $(yadm rev-parse --short HEAD)$note"
+
+if command -v yadm >/dev/null 2>&1; then
+	old=$(yadm rev-parse HEAD 2>/dev/null)
+	if msg=$(ff_only yadm); then
+		yadm alt >/dev/null 2>&1
+		kept=$(restore_claude "$old")
+		case "$kept" in
+		'') ;;
+		FAILED*) msg="$msg, $kept" ;;
+		*) msg="$msg, kept $kept .claude file(s) the pull removed" ;;
+		esac
+	fi
 else
-	# The refusal is git protecting a dirty file that an incoming commit also
-	# touches. Name them so the log says what a person has to look at.
-	blockers=$( { yadm diff --name-only HEAD; yadm diff --name-only HEAD origin/main; } 2>/dev/null | sort | uniq -d | tr '\n' ' ')
-	report "skipped: $behind behind, fast-forward refused by dirty files: ${blockers:-unknown}"
+	msg="skipped: yadm not on PATH"
 fi
+
+# ~/.claude is its own clone of mark-brannan/claude once
+# dotfiles-claude-clone.sh move has run; before that yadm delivers it.
+if [ -d "$HOME/.claude/.git" ]; then
+	msg="$msg; claude: $(ff_only claude_git)"
+fi
+
+for p in $SYNC_PLUGINS; do
+	msg="$msg; $(plugin_sync "$p")"
+done
+
+report "$msg"
 exit 0

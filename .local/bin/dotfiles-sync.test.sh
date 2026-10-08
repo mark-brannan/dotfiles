@@ -1,10 +1,11 @@
 #!/bin/sh
-# Tests for dotfiles-sync.sh keeping ~/.claude across the commit that untracks
-# it. Run: sh .local/bin/dotfiles-sync.test.sh
+# Tests for dotfiles-sync.sh: keeping ~/.claude across the commit that
+# untracks it, fast-forwarding the ~/.claude clone, and updating a plugin.
+# Run: sh .local/bin/dotfiles-sync.test.sh
 #
 # Same fixtures as dotfiles-claude-clone.test.sh (fake homes, local bare repos,
 # dotfiles main going C1 tracks .claude -> C2 stops tracking it). ~2 s wall,
-# one core.
+# one core. No network: every remote is a local bare repo, claude is a stub.
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -55,7 +56,7 @@ home() {
 		&& ydm "$h" remote add origin "$DOT" && ydm "$h" fetch -q origin && ydm "$h" reset -q --hard origin/main
 	mkdir -p "$h/.claude/projects/p"; echo s > "$h/.claude/projects/p/x"
 }
-sync()  { HOME="$W/$1" sh "$SYNC" 2>&1; cat "$W/$1/.local/state/dotfiles-sync/last"; }
+sync()  { HOME="$W/$1" SYNC_PLUGINS="${SYNC_PLUGINS-}" sh "$SYNC" 2>&1; cat "$W/$1/.local/state/dotfiles-sync/last"; }
 move()  { HOME="$W/$1" CLAUDE_REPO="$CLAUDE" sh "$CLONE" move 2>&1; }
 check() { HOME="$W/$1" CLAUDE_REPO="$CLAUDE" sh "$CLONE" check 2>&1; }
 hooks() { find "$1/.claude/hooks" -type f 2>/dev/null | wc -l; }
@@ -89,5 +90,39 @@ main_is "$C1"; home E; f=$(cd "$S" && find hooks -type f | head -1)
 $G -C "$D" checkout -q -b drop "$C1"; $G -C "$D" rm -q ".claude/$f"; $G -C "$D" commit -q -m "drop one hook"; git -C "$D" push -q "$DOT" drop:refs/heads/main -f
 out=$(sync E); has 'fast-forwarded 1 commit' "$out" "S4 pull"
 [ -e "$W/E/.claude/$f" ] && bad "S4 resurrected $f" "$out" || ok
+
+# S5: the ~/.claude clone is behind; the run fast-forwards it too
+U="$W/claude-up"; $G clone -q -b main "$CLAUDE" "$U"
+echo '# more' >> "$U/CLAUDE.md"; $G -C "$U" commit -q -am "rules"; $G -C "$U" push -q origin main
+out=$(sync A); has 'claude: fast-forwarded 1 commit' "$out" "S5 claude clone pulled"
+eq "$(git -C "$W/A/.claude" rev-parse HEAD)" "$($G -C "$U" rev-parse HEAD)" "S5 clone at upstream"
+
+# S6: a dirty settings.json that upstream also changed blocks it, by name; never stashed
+echo '{}' > "$W/A/.claude/settings.json"
+printf '{"x":1}\n' > "$U/settings.json"; $G -C "$U" commit -q -am "settings"; $G -C "$U" push -q origin main
+out=$(sync A); has 'claude: skipped: 1 behind, fast-forward refused by dirty files: settings.json' "$out" "S6 named"
+eq "$(cat "$W/A/.claude/settings.json")" '{}' "S6 local edit untouched"
+eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6 nothing stashed"
+git -C "$W/A/.claude" checkout -q -- settings.json
+
+# S7: a plugin whose marketplace main moved is updated; a current one never starts claude
+LANG_UP="$W/lang.git"; git init -q --bare "$LANG_UP"; L="$W/lang"; mkdir -p "$L"
+echo '{}' > "$L/plugin.json"; $G -C "$L" init -q && $G -C "$L" add -A && $G -C "$L" commit -q -m p1 && $G -C "$L" push -q "$LANG_UP" main
+P1=$($G -C "$L" rev-parse HEAD)
+mkdir -p "$W/A/.claude/plugins/marketplaces"; git clone -q -b main "$LANG_UP" "$W/A/.claude/plugins/marketplaces/lang"
+inst() { printf '{"plugins":{"lang@lang":[{"scope":"user","gitCommitSha":"%s"}]}}\n' "$1" > "$W/A/.claude/plugins/installed_plugins.json"; }
+inst "$P1"
+cat > "$W/A/.local/bin/claude" <<C
+#!/bin/sh
+echo "\$*" >> "$W/claude.log"
+case "\$*" in "plugin update lang@lang") git -C "$W/A/.claude/plugins/marketplaces/lang" pull -q
+	printf '{"plugins":{"lang@lang":[{"gitCommitSha":"%s"}]}}\\n' "\$(git -C "$W/A/.claude/plugins/marketplaces/lang" rev-parse HEAD)" > "$W/A/.claude/plugins/installed_plugins.json";; esac
+C
+chmod +x "$W/A/.local/bin/claude"
+out=$(SYNC_PLUGINS=lang@lang sync A); has 'lang: current at' "$out" "S7 current"
+[ -e "$W/claude.log" ] && bad "S7 started claude while current" "$(cat "$W/claude.log")" || ok
+echo '{"v":2}' > "$L/plugin.json"; $G -C "$L" commit -q -am p2; $G -C "$L" push -q "$LANG_UP" main
+out=$(SYNC_PLUGINS=lang@lang sync A); has "lang: updated to $($G -C "$L" rev-parse --short=7 HEAD)" "$out" "S7 updated"
+has 'plugin marketplace update lang' "$(cat "$W/claude.log")" "S7 marketplace refreshed"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
