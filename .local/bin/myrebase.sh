@@ -2,11 +2,15 @@
 
 {
 cat<<EOF
+.github
 dotfiles
 claude
 symphony
 saferspacesllc
 stranger-loops
+claude_prompts_scratch
+homebrew-tap
+coderabbit
 EOF
 cat ~/.local/share/vended-repos.txt
 } | while read i
