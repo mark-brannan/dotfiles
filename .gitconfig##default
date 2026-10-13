@@ -22,3 +22,9 @@
 [push]
 	# autoSetupRemote makes a bare `git push` create and track origin/<branch>.
 	autoSetupRemote = true
+[blame]
+	ignoreRevsFile = .git-blame-ignore-revs
+[filter "sops"]
+	clean = python3 /home/solace/symphony/scripts/sops_filter.py clean %f
+	smudge = python3 /home/solace/symphony/scripts/sops_filter.py smudge %f
+	required = true
