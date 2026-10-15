@@ -313,7 +313,7 @@ first — do not blanket-checkout a file you have not read.
 
 ```
 error: The following untracked working tree files would be overwritten by checkout:
-        .claude/hooks/some-hook.sh
+        .local/bin/some-script.sh
 Please move or remove them before you switch branches.
 Aborting
 ```

@@ -14,11 +14,11 @@ reviews:
     enabled: true
     drafts: false
   path_instructions:
-    - path: ".claude/hooks/**"
+    - path: ".config/yadm/hooks/**"
       instructions: >
-        These run unattended on every session start/stop and can commit + push.
-        Flag anything that executes remote/untrusted input, widens what runs
-        without confirmation, or could push unintended state.
+        These run unattended on yadm operations. Flag anything that executes
+        remote/untrusted input, widens what runs without confirmation, or
+        could push unintended state.
     - path: "secrets/**"
       instructions: >
         Must remain sops-encrypted per .sops.yaml. Flag any plaintext secret
