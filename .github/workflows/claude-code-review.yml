@@ -50,7 +50,7 @@ jobs:
 
         This repo manages shell config, Claude Code hooks/settings, sops-encrypted
         secrets, and a detect-secrets baseline. Attack surface worth extra scrutiny:
-          - anything that executes automatically (shell rc files, .claude/hooks/*,
+          - anything that executes automatically (shell rc files, .config/yadm/hooks/*,
             git hooks, SessionStart/Stop hooks) — new or modified commands there
             run unattended on every session/shell start.
           - secrets handling: .sops.yaml rules, the secrets/ path, .secrets.baseline
