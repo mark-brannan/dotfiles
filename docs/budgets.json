@@ -28,6 +28,16 @@
       {
         "file": "README.md",
         "hash": "5ddd9e3a30ea"
+      },
+      {
+        "file": "docs/decisions.md",
+        "hash": "fc066da0427a",
+        "match": "claude#127"
+      },
+      {
+        "file": "docs/decisions.md",
+        "hash": "fc066da0427a",
+        "match": "claude#125"
       }
     ]
   }
