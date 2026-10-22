@@ -171,10 +171,12 @@ alias dotpush='git push && (cd ~ && dotsync)'
 # github-token.env are excluded on purpose — see the `claude` wrapper below,
 # which scopes CLAUDE_CODE_OAUTH_TOKEN and GITHUB_PERSONAL_ACCESS_TOKEN to
 # just that command instead of exporting them into every shell and
-# everything the shell spawns.
+# everything the shell spawns. agent-bot.env holds the agent GitHub App's
+# private key; only bin/gh-agent in the Claude layer reads it, and no shell
+# should carry it.
 for _secret_file in "$HOME"/.config/secrets/*.env; do
     case "$_secret_file" in
-        */claude-token.env|*/github-token.env) continue ;;
+        */claude-token.env|*/github-token.env|*/agent-bot.env) continue ;;
     esac
     [ -r "$_secret_file" ] && . "$_secret_file"
 done
