@@ -7,7 +7,7 @@ description: >-
   mark-brannan/claude (its root is the contents of ~/.claude, tools under
   `bin/`). $HOME/.claude/bin goes on the job's PATH.
 
-  Design: https://github.com/mark-brannan/dotfiles/blob/main/.claude/docs/config-sync-strategy.md#64-ci-in-other-repos
+  Design: https://github.com/mark-brannan/claude/blob/main/docs/config-sync-strategy.md#64-ci-in-other-repos
   (issue #17, phase P3).
 
 inputs:

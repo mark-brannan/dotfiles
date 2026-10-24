@@ -8,13 +8,12 @@ name: Mixed loops guard
 # unreviewable in the way that matters: the reader cannot tell whether the
 # doc was bent to fit the code or the code to fit the doc. Ruled by
 # Solace, 2026-09-29; the standing order is the "Double-loop learning"
-# section of .claude/CLAUDE.md.
+# section of ~/.claude/CLAUDE.md (mark-brannan/claude).
 #
-# Design set: every CLAUDE.md, .claude/rules/, .claude/docs/,
-# docs/decisions.md, docs/references.md, any ADR path, and the curia and
-# agora skills -- the loop-two artifacts.
-# Implementation set: anything with a shebang, .jq files, workflows,
-# .claude/hooks/ and .claude/settings.json.
+# Design set: every CLAUDE.md, docs/decisions.md, any ADR path -- the
+# loop-two artifacts this repo holds. (The Claude layer's own rules, docs and
+# skills live in mark-brannan/claude, which runs its own guard.)
+# Implementation set: anything with a shebang, .jq files, workflows.
 # Everything else -- README, runbooks, tests, the other skills -- is
 # neutral and never trips the gate.
 #
@@ -64,14 +63,12 @@ jobs:
             | while IFS= read -r f; do
                 case "$f" in
                   CLAUDE.md|*/CLAUDE.md|\
-                  .claude/rules/*|.claude/docs/*|\
-                  docs/decisions.md|docs/references.md|\
-                  docs/adr/*|*.adr.md|\
-                  .claude/skills/curia/*|.claude/skills/agora/*)
+                  docs/decisions.md|\
+                  docs/adr/*|*.adr.md)
                     printf '%s\n' "$f" >> "$design"; continue ;;
                   *.test.*|*.examples.sh)
                     continue ;;
-                  *.jq|.github/workflows/*|.claude/hooks/*|.claude/settings.json)
+                  *.jq|.github/workflows/*)
                     printf '%s\n' "$f" >> "$impl"; continue ;;
                 esac
                 # `|| sig=` : head closing the pipe early is not a failure.

@@ -17,7 +17,7 @@ This is a personal dotfiles repository. Relevant reports include:
 
 - Secrets or key material committed unencrypted (anything that should be
   sops/age-encrypted under `.sops.yaml` but isn't)
-- A bootstrap or hook script (`.config/yadm/bootstrap`, `.claude/hooks/*`)
+- A bootstrap or hook script (`.config/yadm/bootstrap`)
   that executes untrusted input, fetches over an insecure channel, or
   otherwise creates a path to code execution beyond what's expected of a
   dotfiles install
