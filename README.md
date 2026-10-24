@@ -41,22 +41,16 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 ## Conventions that keep it quiet
 
 * **Why the cron sync merges only what it has already checked.** `dotsync`
-  rebases with `--autostash`, which is right with a person watching and was
-  wrong unattended: Claude Code rewrote the tracked `.claude/settings.json` in
-  its own key order, so the three-way merge saw a whole-file conflict, the
-  autostash re-apply failed, `yadm pull` still exited 0, and `$HOME` was left
-  with invalid JSON and a stash nobody saw. That happened on the boat. The
-  failure was never the stash; it was applying a merge nobody had looked at
-  into a file that gets executed. `dotfiles-sync.sh` therefore fast-forwards,
-  and when git refuses because a dirty tracked file is in the way it rehearses
-  the re-apply first: the same three-way merge, off-tree, per file, then a
-  parse of the result for JSON, Python and shell. All clean, it autostashes
-  and fast-forwards; otherwise it skips with the file and the reason named,
-  and the live tree is never touched. The outcomes are still "fast-forwarded",
-  "level" or "skipped", and a skip is still the machine asking for a `dotsync`
-  by hand. Measured before the change, 89% of the cron runs that found
-  `~/.claude` behind skipped it, most on a `settings.json` the Claude Code UI
-  had dirtied (mark-brannan/claude#166).
+  rebases with `--autostash`, right with a person watching, wrong unattended:
+  Claude Code rewrote the tracked `.claude/settings.json` in its own key
+  order, the autostash re-apply conflicted, `yadm pull` still exited 0, and
+  `$HOME` was left with invalid JSON and a stash nobody saw. That happened on
+  the boat. The failure was an unlooked-at merge landing in an executed file,
+  not the stash. So `dotfiles-sync.sh` fast-forwards, and when a dirty tracked
+  file is in the way it rehearses the re-apply off-tree, per file, and parses
+  the result (JSON, Python, shell). All clean, it autostashes; otherwise it
+  skips with the file and reason named, live tree untouched. A skip is the
+  machine asking for a `dotsync` by hand (mark-brannan/claude#166).
 
 * **Machine-specific values are guarded or substituted, never hardcoded.** Use
   `$HOME`, `command -v foo`, `[ -d ... ]`, or `[[ "$OSTYPE" == darwin* ]]`. A file
