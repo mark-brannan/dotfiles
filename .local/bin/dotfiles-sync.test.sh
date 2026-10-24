@@ -1,6 +1,7 @@
 #!/bin/sh
 # Tests for dotfiles-sync.sh: keeping ~/.claude across the commit that
-# untracks it, fast-forwarding the ~/.claude clone, and updating a plugin.
+# untracks it, fast-forwarding the ~/.claude clone (carrying a dirty file
+# over only after a clean rehearsal), and updating a plugin.
 # Run: sh .local/bin/dotfiles-sync.test.sh
 #
 # Same fixtures as dotfiles-claude-clone.test.sh (fake homes, local bare repos,
@@ -97,13 +98,54 @@ echo '# more' >> "$U/CLAUDE.md"; $G -C "$U" commit -q -am "rules"; $G -C "$U" pu
 out=$(sync A); has 'claude: fast-forwarded 1 commit' "$out" "S5 claude clone pulled"
 eq "$(git -C "$W/A/.claude" rev-parse HEAD)" "$($G -C "$U" rev-parse HEAD)" "S5 clone at upstream"
 
-# S6: a dirty settings.json that upstream also changed blocks it, by name; never stashed
-echo '{}' > "$W/A/.claude/settings.json"
-printf '{"x":1}\n' > "$U/settings.json"; $G -C "$U" commit -q -am "settings"; $G -C "$U" push -q origin main
-out=$(sync A); has 'claude: skipped: 1 behind, fast-forward refused by dirty files: settings.json' "$out" "S6 named"
-eq "$(cat "$W/A/.claude/settings.json")" '{}' "S6 local edit untouched"
-eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6 nothing stashed"
-git -C "$W/A/.claude" checkout -q -- settings.json
+# S6: a dirty settings.json that upstream also changed. The UI writes
+# machine-local keys into the tracked file; a merge to main touches other keys.
+# Both land, nothing is left in the stash.
+base() { printf '{\n  "a": 1,\n  "b": 2,\n  "c": 3,\n  "d": 4,\n  "e": 5\n}\n'; }
+base > "$U/settings.json"; $G -C "$U" commit -q -am "multi-line settings"; $G -C "$U" push -q origin main
+sync A >/dev/null
+base | sed 's/"a": 1/"a": 10/' > "$W/A/.claude/settings.json"              # local: the UI's toggle
+base | sed 's/"e": 5/"e": 50/' > "$U/settings.json"; $G -C "$U" commit -q -am "settings e"; $G -C "$U" push -q origin main
+out=$(sync A); has 'claude: fast-forwarded 1 commit(s) to [0-9a-f]*, local edits to settings.json carried over' "$out" "S6 merged"
+eq "$(cat "$W/A/.claude/settings.json")" "$(base | sed 's/"a": 1/"a": 10/; s/"e": 5/"e": 50/')" "S6 both edits live"
+eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6 nothing left in the stash"
+eq "$(git -C "$W/A/.claude" rev-parse HEAD)" "$($G -C "$U" rev-parse HEAD)" "S6 clone at upstream"
+
+# S6b: the same hunk changed both sides is a conflict: skipped by name, the
+# live file untouched, HEAD where it was, no stash. The boat case.
+base | sed 's/"a": 1/"a": 11/' > "$W/A/.claude/settings.json"
+base | sed 's/"a": 1/"a": 12/; s/"e": 5/"e": 50/' > "$U/settings.json"; $G -C "$U" commit -q -am "settings a"; $G -C "$U" push -q origin main
+before=$(git -C "$W/A/.claude" rev-parse HEAD)
+out=$(sync A); has 'claude: skipped: 1 behind, local edits to settings.json would conflict with upstream in settings.json, pull by hand' "$out" "S6b named"
+eq "$(cat "$W/A/.claude/settings.json")" "$(base | sed 's/"a": 1/"a": 11/')" "S6b local edit untouched"
+eq "$(git -C "$W/A/.claude" rev-parse HEAD)" "$before" "S6b HEAD unmoved"
+eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6b nothing stashed"
+git -C "$W/A/.claude" checkout -q -- settings.json; sync A >/dev/null
+
+# S6c: hunks that merge cleanly as text into JSON that does not parse. The
+# inputs are contrived; the point is that the check reads the merged result.
+cur() { $G -C "$U" show HEAD:settings.json; }
+cur | sed 's/"a": 12/"a": 10/' > "$W/A/.claude/settings.json"
+cur | sed 's/"e": 50$/"e": 50,/' > "$U/settings.json"; $G -C "$U" commit -q -am "settings comma"; $G -C "$U" push -q origin main
+out=$(sync A); has 'claude: skipped: 1 behind, local edits to settings.json would merge into a settings.json that does not parse, pull by hand' "$out" "S6c named"
+eq "$(cat "$W/A/.claude/settings.json")" "$(cur | sed 's/"a": 12/"a": 10/; s/"e": 50,$/"e": 50/')" "S6c local edit untouched"
+eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6c nothing stashed"
+git -C "$W/A/.claude" checkout -q -- settings.json; sync A >/dev/null
+
+# S6d: upstream removed the file the local edit is in; nothing to merge onto
+echo '# local' >> "$W/A/.claude/rules/code.md"
+$G -C "$U" rm -q rules/code.md; $G -C "$U" commit -q -m "drop rule"; $G -C "$U" push -q origin main
+out=$(sync A); has 'claude: skipped: 1 behind, local edits to rules/code.md would conflict: rules/code.md is removed upstream, pull by hand' "$out" "S6d named"
+eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6d nothing stashed"
+git -C "$W/A/.claude" checkout -q -- rules/code.md; sync A >/dev/null
+
+# S6e: a dirty file upstream did not touch never blocked and still does not
+echo '# local' >> "$W/A/.claude/CLAUDE.md"
+mkdir -p "$U/rules"; echo '# up' > "$U/rules/code.md"
+$G -C "$U" add -A; $G -C "$U" commit -q -m "rule back"; $G -C "$U" push -q origin main
+out=$(sync A); has 'claude: fast-forwarded 1 commit(s) to [0-9a-f]*$' "$out" "S6e plain ff, no carry-over note"
+has '# local' "$(cat "$W/A/.claude/CLAUDE.md")" "S6e local edit kept"
+git -C "$W/A/.claude" checkout -q -- CLAUDE.md
 
 # S7: a plugin whose marketplace main moved is updated; a current one never starts claude
 LANG_UP="$W/lang.git"; git init -q --bare "$LANG_UP"; L="$W/lang"; mkdir -p "$L"

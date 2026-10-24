@@ -30,7 +30,7 @@ yadm pull --rebase --autostash && yadm alt && yadm status --short
 Between those, a cron line that `bootstrap` installs runs
 `.local/bin/dotfiles-sync.sh` every five minutes. It brings dotfiles, the
 `~/.claude` clone and the languette plugin up to date, and only ever fast-forwards;
-see "Why the cron sync is ff-only" below.
+see "Why the cron sync merges only what it has already checked" below.
 
 **Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — sync, secrets, and
 troubleshooting. Claude Code — hooks, rules, tools — lives in its own repo,
@@ -40,16 +40,23 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 
 ## Conventions that keep it quiet
 
-* **Why the cron sync is ff-only.** `dotsync` rebases with `--autostash`,
-  which is right with a person watching and wrong unattended: Claude Code
-  rewrote the tracked `.claude/settings.json` in its own key order, so a
-  three-way merge sees a whole-file conflict, the autostash re-apply fails,
-  `yadm pull` still exits 0, and `$HOME` is left with invalid JSON and a stash
-  nobody sees. That happened on the boat. `dotfiles-sync.sh` therefore never rebases, stashes or
-  merges: git refuses a fast-forward that would overwrite a dirty tracked file,
-  atomically, so the only outcomes are "fast-forwarded", "level", or "skipped"
-  with the blocking files named in the log. A skip is the machine asking for a
-  `dotsync` by hand.
+* **Why the cron sync merges only what it has already checked.** `dotsync`
+  rebases with `--autostash`, which is right with a person watching and was
+  wrong unattended: Claude Code rewrote the tracked `.claude/settings.json` in
+  its own key order, so the three-way merge saw a whole-file conflict, the
+  autostash re-apply failed, `yadm pull` still exited 0, and `$HOME` was left
+  with invalid JSON and a stash nobody saw. That happened on the boat. The
+  failure was never the stash; it was applying a merge nobody had looked at
+  into a file that gets executed. `dotfiles-sync.sh` therefore fast-forwards,
+  and when git refuses because a dirty tracked file is in the way it rehearses
+  the re-apply first: the same three-way merge, off-tree, per file, then a
+  parse of the result for JSON, Python and shell. All clean, it autostashes
+  and fast-forwards; otherwise it skips with the file and the reason named,
+  and the live tree is never touched. The outcomes are still "fast-forwarded",
+  "level" or "skipped", and a skip is still the machine asking for a `dotsync`
+  by hand. Measured before the change, 89% of the cron runs that found
+  `~/.claude` behind skipped it, most on a `settings.json` the Claude Code UI
+  had dirtied (mark-brannan/claude#166).
 
 * **Machine-specific values are guarded or substituted, never hardcoded.** Use
   `$HOME`, `command -v foo`, `[ -d ... ]`, or `[[ "$OSTYPE" == darwin* ]]`. A file

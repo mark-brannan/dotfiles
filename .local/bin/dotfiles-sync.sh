@@ -1,10 +1,13 @@
 #!/bin/sh
 # Unattended fast-forward of $HOME's dotfiles from origin/main, then of the
 # ~/.claude clone, then the Claude Code plugins named in $SYNC_PLUGINS. Safe to
-# run every few minutes: it never rebases, stashes or merges, so the only
+# run every few minutes: it never rebases or merges histories, so the only
 # outcomes are "fast-forwarded", "nothing to do", or "skipped, here's why". Git
-# refuses a fast-forward that would overwrite a dirty tracked file, atomically,
-# which is the whole safety story -- see README "Why the cron sync is ff-only".
+# refuses a fast-forward that would overwrite a dirty tracked file, atomically.
+# When that happens the run merges each dirty file off-tree first and
+# autostashes only if every one merges cleanly and still parses; anything less
+# is a skip with the file named -- see README "Why the cron sync merges only
+# what it has already checked".
 #
 #   dotfiles-sync.sh            run once (what cron calls)
 #   dotfiles-sync.sh --install  add the crontab line, idempotently
@@ -90,10 +93,83 @@ ff_only() {
 		echo "fast-forwarded $behind commit(s) to $($g rev-parse --short HEAD)"; return 0
 	fi
 	# The refusal is git protecting a dirty file that an incoming commit also
-	# touches. Name them so the log says what a person has to look at.
-	blockers=$( { $g diff --name-only HEAD; $g diff --name-only HEAD origin/main; } 2>/dev/null | sort | uniq -d | tr '\n' ' ')
-	echo "skipped: $behind behind, fast-forward refused by dirty files: ${blockers:-unknown}"
+	# touches. An untracked file in the way has no stash to carry it, so that
+	# stays a skip. Otherwise rehearse the autostash's re-apply off-tree, one
+	# file at a time: the same three-way merge git would do, into a temp file,
+	# then a parse of the result where the file is one the layer executes
+	# from. Only when every dirty file passes does the real autostash run; a
+	# conflict or a result that does not parse never reaches the live tree.
+	# This is what the boat incident was missing (README).
+	blockers=$( { $g diff --name-only HEAD; $g diff --name-only HEAD origin/main; } 2>/dev/null | sort | uniq -d)
+	if [ -z "$blockers" ]; then
+		echo "skipped: $behind behind, fast-forward refused by untracked files in the way, pull by hand"
+		return 1
+	fi
+	names=$(echo "$blockers" | paste -sd' ' -)
+	if why=$(rehearse_apply "$g" "$blockers"); then :; else
+		echo "skipped: $behind behind, local edits to $names would $why, pull by hand"
+		return 1
+	fi
+	old=$($g rev-parse HEAD)
+	if $g merge --ff-only --autostash --quiet origin/main >/dev/null 2>&1 \
+		&& [ -z "$($g diff --name-only --diff-filter=U 2>/dev/null)" ]; then
+		echo "fast-forwarded $behind commit(s) to $($g rev-parse --short HEAD), local edits to $names carried over"
+		return 0
+	fi
+	# The rehearsal said clean and git disagreed. Put everything back exactly
+	# as it was: HEAD where it stood, the stash git kept re-applied onto it.
+	$g reset -q --hard "$old" >/dev/null 2>&1
+	if $g stash pop -q >/dev/null 2>&1; then
+		echo "skipped: $behind behind, autostash of $names failed after a clean rehearsal, rolled back, pull by hand"
+	else
+		echo "FAILED: $behind behind, autostash of $names failed and the roll-back left it in the stash, run git stash pop by hand"
+	fi
 	return 1
+}
+
+# rehearse_apply CMD FILES: merge each dirty FILE three ways in a temp dir
+# (base HEAD, ours the working copy, theirs origin/main), as the autostash
+# re-apply will, and parse what comes out. Prints why it would fail and
+# returns 1 at the first file that would; silent and 0 when all pass.
+rehearse_apply() {
+	g=$1; files=$2
+	tmp=$(mktemp -d) || { echo "need a temp dir the merge rehearsal could not get"; return 1; }
+	top=$($g rev-parse --show-toplevel 2>/dev/null)
+	for f in $files; do
+		if ! $g cat-file -e "origin/main:$f" 2>/dev/null; then
+			rm -rf "$tmp"; echo "conflict: $f is removed upstream"; return 1
+		fi
+		$g show "HEAD:$f" > "$tmp/base" 2>/dev/null || { rm -rf "$tmp"; echo "conflict: $f is new in both"; return 1; }
+		$g show "origin/main:$f" > "$tmp/theirs" 2>/dev/null
+		cp "$top/$f" "$tmp/ours" 2>/dev/null || { rm -rf "$tmp"; echo "conflict: $f is deleted locally"; return 1; }
+		if ! git merge-file -p "$tmp/ours" "$tmp/base" "$tmp/theirs" > "$tmp/merged" 2>/dev/null; then
+			rm -rf "$tmp"; echo "conflict with upstream in $f"; return 1
+		fi
+		if ! parses "$f" "$tmp/merged"; then
+			rm -rf "$tmp"; echo "merge into a $f that does not parse"; return 1
+		fi
+	done
+	rm -rf "$tmp"
+	return 0
+}
+
+# parses NAME FILE: FILE, which will live at NAME, loads in the language NAME
+# is in. Only the kinds the layer executes from on every tool call are
+# checked, since a broken one denies every call until a person looks: JSON
+# (settings), Python and shell (hooks). Any other kind is taken as text. A
+# missing checker counts as a failure: unverifiable is not verified.
+parses() {
+	case "$1" in
+	*.json)
+		if command -v python3 >/dev/null 2>&1; then python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$2" >/dev/null 2>&1
+		elif command -v jq >/dev/null 2>&1; then jq -e . "$2" >/dev/null 2>&1
+		else return 1; fi ;;
+	*.py)
+		command -v python3 >/dev/null 2>&1 && python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$2" >/dev/null 2>&1 ;;
+	*.sh)
+		sh -n "$2" >/dev/null 2>&1 ;;
+	*)	return 0 ;;
+	esac
 }
 
 # shellcheck disable=SC2317  # called through ff_only's $g
