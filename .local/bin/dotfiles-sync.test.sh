@@ -1,134 +1,73 @@
 #!/bin/sh
-# Tests for dotfiles-sync.sh: keeping ~/.claude across the commit that
-# untracks it, fast-forwarding the ~/.claude clone, and updating a plugin.
-# Run: sh .local/bin/dotfiles-sync.test.sh
-#
-# Same fixtures as dotfiles-claude-clone.test.sh (fake homes, local bare repos,
-# dotfiles main going C1 tracks .claude -> C2 stops tracking it). ~2 s wall,
-# one core. No network: every remote is a local bare repo, claude is a stub.
+# Tests for dotfiles-sync.sh: each repo pulled ff-only with autostash; a
+# clean carry-over of a dirty file; a conflicted re-apply made valid again
+# with the edits kept in the stash; a diverged clone left alone; a plugin
+# update that fails, named. Run: sh .local/bin/dotfiles-sync.test.sh
+# Fake homes and local bare repos, ~2 s wall, one core, no network.
 set -u
-
-HERE="$(cd "$(dirname "$0")" && pwd)"
-SYNC="$HERE/dotfiles-sync.sh"; CLONE="$HERE/dotfiles-claude-clone.sh"
-pass=0; fail=0
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+HERE="$(cd "$(dirname "$0")" && pwd)"; SYNC="$HERE/dotfiles-sync.sh"
+pass=0; fail=0; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset XDG_CONFIG_HOME XDG_DATA_HOME GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 G="git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false -c init.defaultBranch=main"
-
 ok()  { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); echo "FAIL: $1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/    /'; }
 has() { printf '%s' "$2" | grep -q -- "$1" && ok || bad "expected /$1/ in: $3" "$2"; }
 eq()  { [ "$1" = "$2" ] && ok || bad "$3: expected '$2', got '$1'"; }
 
-# The script resets PATH to $HOME/.local/bin first, so the yadm stand-in lives
-# in each fake home, never the real one.
-cat > "$W/yadm" <<'Y'
-#!/bin/sh
-exec git --git-dir="$HOME/.local/share/yadm/repo.git" --work-tree="$HOME" "$@"
-Y
-chmod +x "$W/yadm"
-ydm() { h=$1; shift; HOME="$h" "$W/yadm" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "$@"; }
-
-CLAUDE="$W/claude.git"; git init -q --bare "$CLAUDE"
-S="$W/seed"; mkdir -p "$S"
-# A small stand-in layer: the real one left this repo (#358). settings.json
-# names an executable hook and a library, as the real one does.
-mkdir -p "$S/hooks" "$S/rules"
-printf '#!/bin/sh\nexit 0\n' > "$S/hooks/guard.sh"; chmod +x "$S/hooks/guard.sh"
-echo 'BEGIN { }' > "$S/hooks/lib-words.awk"; echo '# standing orders' > "$S/CLAUDE.md"; echo '# code' > "$S/rules/code.md"
-printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/hooks/guard.sh $HOME/.claude/hooks/lib-words.awk"}]}]}}\n' > "$S/settings.json"
-$G -C "$S" init -q && $G -C "$S" add -A && $G -C "$S" commit -q -m "claude layer" && $G -C "$S" push -q "$CLAUDE" main
-NHOOKS=$(find "$S/hooks" -type f | wc -l)
-
-DOT="$W/dotfiles.git"; git init -q --bare "$DOT"
-D="$W/dot"; mkdir -p "$D"; cp -a "$S" "$D/.claude"; rm -rf "$D/.claude/.git"; echo x > "$D/.zshrc"
-$G -C "$D" init -q && $G -C "$D" add -A && $G -C "$D" commit -q -m "C1 tracks .claude" && $G -C "$D" push -q "$DOT" main
-C1=$($G -C "$D" rev-parse HEAD)
-$G -C "$D" rm -rq .claude && $G -C "$D" commit -q -m "C2 stop tracking .claude"
-C2=$($G -C "$D" rev-parse HEAD); $G -C "$D" push -q "$DOT" "$C2:refs/heads/c2"
-main_is() { git -C "$DOT" update-ref refs/heads/main "$1"; }
-main_is "$C1"
-
-home() {
-	h="$W/$1"; mkdir -p "$h/.local/share/yadm" "$h/.local/bin"; cp "$W/yadm" "$h/.local/bin/yadm"
-	ydm "$h" init -q && ydm "$h" config core.bare false && ydm "$h" config core.worktree "$h" && ydm "$h" config status.showUntrackedFiles no \
-		&& ydm "$h" remote add origin "$DOT" && ydm "$h" fetch -q origin && ydm "$h" reset -q --hard origin/main
-	mkdir -p "$h/.claude/projects/p"; echo s > "$h/.claude/projects/p/x"
+H="$W/home"; mkdir -p "$H/.local/bin" "$H/.local/share/yadm"
+# yadm and claude stand-ins; the script resets PATH to $HOME/.local/bin first
+printf '#!/bin/sh\n[ "$1" = alt ] && exit 0\nexec git --git-dir="$HOME/.local/share/yadm/repo.git" --work-tree="$HOME" "$@"\n' > "$H/.local/bin/yadm"
+printf '#!/bin/sh\necho "$*" >> "$HOME/claude.log"\n[ -e "$HOME/plugin-broken" ] && exit 1\nexit 0\n' > "$H/.local/bin/claude"
+chmod +x "$H/.local/bin/yadm" "$H/.local/bin/claude"
+Y() { HOME="$H" "$H/.local/bin/yadm" "$@"; }
+seed() { # seed NAME: a bare repo with one commit, and NAME-up as a clone of it
+  $G init -q --bare "$W/$1.git"; $G clone -q "$W/$1.git" "$W/$1-up" 2>/dev/null
+  printf '{\n  "a": 1,\n  "b": 2,\n  "c": 3,\n  "d": 4,\n  "e": 5\n}\n' > "$W/$1-up/settings.json"
+  $G -C "$W/$1-up" add -A; $G -C "$W/$1-up" commit -qm seed; $G -C "$W/$1-up" push -q origin main
 }
-sync()  { HOME="$W/$1" SYNC_PLUGINS="${SYNC_PLUGINS-}" sh "$SYNC" 2>&1; cat "$W/$1/.local/state/dotfiles-sync/last"; }
-move()  { HOME="$W/$1" CLAUDE_REPO="$CLAUDE" sh "$CLONE" move 2>&1; }
-check() { HOME="$W/$1" CLAUDE_REPO="$CLAUDE" sh "$CLONE" check 2>&1; }
-hooks() { find "$1/.claude/hooks" -type f 2>/dev/null | wc -l; }
+seed dot; seed claude
+Y init -q -b main; Y config core.bare false; Y config core.worktree "$H"; Y remote add origin "$W/dot.git"
+Y fetch -q origin; Y reset -q --hard origin/main; Y branch -q --set-upstream-to=origin/main main
+$G clone -q "$W/claude.git" "$H/.claude" 2>/dev/null
+sync() { HOME="$H" sh "$SYNC" >/dev/null 2>&1; cat "$H/.local/state/dotfiles-sync/last"; }
+up()   { printf '%s\n' "$2" > "$W/$1-up/settings.json"; $G -C "$W/$1-up" commit -qam up; $G -C "$W/$1-up" push -q origin main; }
+C="$H/.claude"; cur() { $G -C "$W/claude-up" show HEAD:settings.json; }
 
-# S1: nested clone in place, then the untrack commit arrives
-home A; move A >/dev/null; main_is "$C2"; out=$(sync A)
-has "kept [0-9]* .claude file" "$out" "S1 report names what it kept"
-eq "$(hooks "$W/A")" "$NHOOKS" "S1 hooks survive the pull"
-out=$(check A); has 'hooks: ok' "$out" "S1 check"; has 'source: clone' "$out" "S1 source"
-eq "$(git -C "$W/A/.claude" status --porcelain | wc -l)" 0 "S1 clone is clean"
-eq "$(ydm "$W/A" ls-files .claude | wc -l)" 0 "S1 yadm no longer tracks .claude"
+# T1: level everywhere
+out=$(sync); has "dotfiles: current at $($G -C "$W/dot-up" rev-parse --short HEAD); claude: current at $($G -C "$W/claude-up" rev-parse --short HEAD); languette: current" "$out" "T1 all current"
+has 'plugin marketplace update languette' "$(cat "$H/claude.log")" "T1 marketplace refreshed"
 
-# S2: no clone yet, the untrack commit arrives; settings.json and hooks stay
-main_is "$C1"; home B; main_is "$C2"; out=$(sync B)
-has "kept .* .claude file" "$out" "S2 report"
-eq "$(hooks "$W/B")" "$NHOOKS" "S2 hooks survive the pull"
-[ -f "$W/B/.claude/settings.json" ] && ok || bad "S2 settings.json kept"
-x=$(cd "$S/hooks" && find . -type f -perm -u+x | head -1)
-[ -n "$x" ] && [ -x "$W/B/.claude/hooks/$x" ] && ok || bad "S2 exec bit kept on ${x:-<no executable hook in seed>}"
-out=$(check B); has 'hooks: ok' "$out" "S2 check"
-out=$(move B); has '^done; snapshot in' "$out" "S2 move still runs after the keep"
-out=$(check B); has 'source: clone' "$out" "S2 check after move"; has 'hooks: ok' "$out" "S2 hooks after move"
+# T2: both clones behind, clean: pulled
+up dot "$(cur | sed 's/"e": 5/"e": 50/')"; up claude "$(cur | sed 's/"e": 5/"e": 50/')"
+out=$(sync); eq "$(git -C "$C" rev-parse HEAD)" "$($G -C "$W/claude-up" rev-parse HEAD)" "T2 clone at upstream"
+eq "$(Y rev-parse HEAD)" "$($G -C "$W/dot-up" rev-parse HEAD)" "T2 home at upstream"
 
-# S3: a pull that touches no .claude file reports no keep
-main_is "$C1"; home C; out=$(sync C); has 'level with origin/main' "$out" "S3 level"
-$G -C "$D" checkout -q -b side "$C1"; echo y >> "$D/.zshrc"; $G -C "$D" commit -q -am "zshrc"; git -C "$D" push -q "$DOT" side:refs/heads/main -f
-out=$(sync C); has 'fast-forwarded 1 commit' "$out" "S3 plain pull"; case "$out" in *kept*) bad "S3 says kept" "$out";; *) ok;; esac
+# T3: a dirty settings.json the UI wrote (one hunk), upstream touched another: both land, no stash
+cur | sed 's/"a": 1/"a": 10/' > "$C/settings.json"; up claude "$(cur | sed 's/"c": 3/"c": 30/')"
+out=$(sync); has "claude: current at $($G -C "$W/claude-up" rev-parse --short HEAD)" "$out" "T3 pulled"
+eq "$(cat "$C/settings.json")" "$(cur | sed 's/"a": 1/"a": 10/')" "T3 both edits live"
+eq "$(git -C "$C" stash list | wc -l)" 0 "T3 nothing left in the stash"
 
-# S4: before the split, a pull that deletes one .claude file on purpose keeps it deleted
-main_is "$C1"; home E; f=$(cd "$S" && find hooks -type f | head -1)
-$G -C "$D" checkout -q -b drop "$C1"; $G -C "$D" rm -q ".claude/$f"; $G -C "$D" commit -q -m "drop one hook"; git -C "$D" push -q "$DOT" drop:refs/heads/main -f
-out=$(sync E); has 'fast-forwarded 1 commit' "$out" "S4 pull"
-[ -e "$W/E/.claude/$f" ] && bad "S4 resurrected $f" "$out" || ok
+# T4: the same hunk on both sides: upstream's valid file is live, the edit is in the stash, HEAD moved
+cur | sed 's/"a": 1,/"a": 11,/' > "$C/settings.json"; up claude "$(cur | sed 's/"a": 1,/"a": 12,/')"
+out=$(sync); has 'claude: skipped your edits to settings.json: they conflicted with upstream and are in git stash' "$out" "T4 named"
+eq "$(cat "$C/settings.json")" "$(cur)" "T4 upstream copy live, no markers"
+eq "$(git -C "$C" stash list | wc -l)" 1 "T4 edit kept in the stash"
+eq "$(git -C "$C" rev-parse HEAD)" "$($G -C "$W/claude-up" rev-parse HEAD)" "T4 clone at upstream"
+has '"a": 11' "$(git -C "$C" show 'stash@{0}:settings.json')" "T4 the stash holds the edit"
+eq "$(git -C "$C" status --short | wc -l)" 0 "T4 tree clean"
 
-# S5: the ~/.claude clone is behind; the run fast-forwards it too
-U="$W/claude-up"; $G clone -q -b main "$CLAUDE" "$U"
-echo '# more' >> "$U/CLAUDE.md"; $G -C "$U" commit -q -am "rules"; $G -C "$U" push -q origin main
-out=$(sync A); has 'claude: fast-forwarded 1 commit' "$out" "S5 claude clone pulled"
-eq "$(git -C "$W/A/.claude" rev-parse HEAD)" "$($G -C "$U" rev-parse HEAD)" "S5 clone at upstream"
+# T5: a local commit: ff-only refuses, nothing moves, says so
+echo '# local' >> "$C/CLAUDE.md"; git -C "$C" add CLAUDE.md; $G -C "$C" commit -qm local; up claude "$(cur | sed 's/"e": 50/"e": 5/')"
+before=$(git -C "$C" rev-parse HEAD)
+out=$(sync); has 'claude: skipped: pull failed (diverged, offline?), pull by hand' "$out" "T5 named"
+eq "$(git -C "$C" rev-parse HEAD)" "$before" "T5 HEAD unmoved"
+git -C "$C" reset -q --hard origin/main
 
-# S6: a dirty settings.json that upstream also changed blocks it, by name; never stashed
-echo '{}' > "$W/A/.claude/settings.json"
-printf '{"x":1}\n' > "$U/settings.json"; $G -C "$U" commit -q -am "settings"; $G -C "$U" push -q origin main
-out=$(sync A); has 'claude: skipped: 1 behind, fast-forward refused by dirty files: settings.json' "$out" "S6 named"
-eq "$(cat "$W/A/.claude/settings.json")" '{}' "S6 local edit untouched"
-eq "$(git -C "$W/A/.claude" stash list | wc -l)" 0 "S6 nothing stashed"
-git -C "$W/A/.claude" checkout -q -- settings.json
-
-# S7: a plugin whose marketplace main moved is updated; a current one never starts claude
-LANG_UP="$W/lang.git"; git init -q --bare "$LANG_UP"; L="$W/lang"; mkdir -p "$L"
-echo '{}' > "$L/plugin.json"; $G -C "$L" init -q && $G -C "$L" add -A && $G -C "$L" commit -q -m p1 && $G -C "$L" push -q "$LANG_UP" main
-P1=$($G -C "$L" rev-parse HEAD)
-mkdir -p "$W/A/.claude/plugins/marketplaces"; git clone -q -b main "$LANG_UP" "$W/A/.claude/plugins/marketplaces/lang"
-inst() { printf '{"plugins":{"lang@lang":[{"scope":"user","gitCommitSha":"%s"}]}}\n' "$1" > "$W/A/.claude/plugins/installed_plugins.json"; }
-inst "$P1"
-cat > "$W/A/.local/bin/claude" <<C
-#!/bin/sh
-echo "\$*" >> "$W/claude.log"
-case "\$*" in "plugin update lang@lang") git -C "$W/A/.claude/plugins/marketplaces/lang" pull -q
-	printf '{"plugins":{"lang@lang":[{"gitCommitSha":"%s"}]}}\\n' "\$(git -C "$W/A/.claude/plugins/marketplaces/lang" rev-parse HEAD)" > "$W/A/.claude/plugins/installed_plugins.json";; esac
-C
-chmod +x "$W/A/.local/bin/claude"
-out=$(SYNC_PLUGINS=lang@lang sync A); has 'lang: current at' "$out" "S7 current"
-[ -e "$W/claude.log" ] && bad "S7 started claude while current" "$(cat "$W/claude.log")" || ok
-echo '{"v":2}' > "$L/plugin.json"; $G -C "$L" commit -q -am p2; $G -C "$L" push -q "$LANG_UP" main
-out=$(SYNC_PLUGINS=lang@lang sync A); has "lang: updated to $($G -C "$L" rev-parse --short=7 HEAD)" "$out" "S7 updated"
-has 'plugin marketplace update lang' "$(cat "$W/claude.log")" "S7 marketplace refreshed"
-
-# S8: an entry without a sha never borrows the next plugin's; uninstalled means skipped, claude untouched
-rm -f "$W/claude.log"
-printf '{\n  "plugins": {\n    "lang@lang": [\n      { "scope": "user" }\n    ],\n    "other@lang": [\n      { "gitCommitSha": "%s" }\n    ]\n  }\n}\n' "$P1" > "$W/A/.claude/plugins/installed_plugins.json"
-out=$(SYNC_PLUGINS=lang@lang sync A); has 'lang: skipped, not installed' "$out" "S8 no sha borrowed"
-[ -e "$W/claude.log" ] && bad "S8 started claude for an uninstalled plugin" "$(cat "$W/claude.log")" || ok
+# T6: a plugin update that fails is named; the other repos still report
+touch "$H/plugin-broken"
+out=$(sync); has 'languette: update failed, run claude plugin update languette@languette by hand' "$out" "T6 named"
+has 'claude: current at' "$out" "T6 others still reported"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
