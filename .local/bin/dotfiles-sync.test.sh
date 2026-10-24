@@ -22,9 +22,9 @@ printf '#!/bin/sh\necho "$*" >> "$HOME/claude.log"\n[ -e "$HOME/plugin-broken" ]
 chmod +x "$H/.local/bin/yadm" "$H/.local/bin/claude"
 Y() { HOME="$H" "$H/.local/bin/yadm" "$@"; }
 seed() { # seed NAME: a bare repo with one commit, and NAME-up as a clone of it
-	$G init -q --bare "$W/$1.git"; $G clone -q "$W/$1.git" "$W/$1-up" 2>/dev/null
-	printf '{\n  "a": 1,\n  "b": 2,\n  "c": 3,\n  "d": 4,\n  "e": 5\n}\n' > "$W/$1-up/settings.json"
-	$G -C "$W/$1-up" add -A; $G -C "$W/$1-up" commit -qm seed; $G -C "$W/$1-up" push -q origin main
+  $G init -q --bare "$W/$1.git"; $G clone -q "$W/$1.git" "$W/$1-up" 2>/dev/null
+  printf '{\n  "a": 1,\n  "b": 2,\n  "c": 3,\n  "d": 4,\n  "e": 5\n}\n' > "$W/$1-up/settings.json"
+  $G -C "$W/$1-up" add -A; $G -C "$W/$1-up" commit -qm seed; $G -C "$W/$1-up" push -q origin main
 }
 seed dot; seed claude
 Y init -q -b main; Y config core.bare false; Y config core.worktree "$H"; Y remote add origin "$W/dot.git"
