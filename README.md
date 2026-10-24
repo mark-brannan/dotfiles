@@ -30,7 +30,7 @@ yadm pull --rebase --autostash && yadm alt && yadm status --short
 Between those, a cron line that `bootstrap` installs runs
 `.local/bin/dotfiles-sync.sh` every five minutes. It brings dotfiles, the
 `~/.claude` clone and the languette plugin up to date, and only ever fast-forwards;
-see "Why the cron sync merges only what it has already checked" below.
+see "Why the cron sync is the aliases, plus one guard" below.
 
 **Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — sync, secrets, and
 troubleshooting. Claude Code — hooks, rules, tools — lives in its own repo,
@@ -40,17 +40,14 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 
 ## Conventions that keep it quiet
 
-* **Why the cron sync merges only what it has already checked.** `dotsync`
-  rebases with `--autostash`, right with a person watching, wrong unattended:
-  Claude Code rewrote the tracked `.claude/settings.json` in its own key
-  order, the autostash re-apply conflicted, `yadm pull` still exited 0, and
-  `$HOME` was left with invalid JSON and a stash nobody saw. That happened on
-  the boat. The failure was an unlooked-at merge landing in an executed file,
-  not the stash. So `dotfiles-sync.sh` fast-forwards, and when a dirty tracked
-  file is in the way it rehearses the re-apply off-tree, per file, and parses
-  the result (JSON, Python, shell). All clean, it autostashes; otherwise it
-  skips with the file and reason named, live tree untouched. A skip is the
-  machine asking for a `dotsync` by hand (mark-brannan/claude#166).
+* **Why the cron sync is the aliases, plus one guard.** `dotfiles-sync.sh`
+  runs `pull --ff-only --autostash` on `$HOME`, `~/.claude` and the plugins
+  we dogfood, the same command `claudesync` runs by hand. Unattended it needs
+  one guard: when the autostash re-apply conflicts, git exits 0 and leaves the
+  markers live, which on the boat left `settings.json` invalid and every hook
+  denying. So a pull that ends with unmerged paths gets upstream's copy of
+  those files checked out, the local edits stay in the stash, and the status
+  line names them. A `skipped` in the status is the machine asking for a hand.
 
 * **Machine-specific values are guarded or substituted, never hardcoded.** Use
   `$HOME`, `command -v foo`, `[ -d ... ]`, or `[[ "$OSTYPE" == darwin* ]]`. A file

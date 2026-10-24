@@ -116,10 +116,8 @@ dotsync    # alias: yadm pull --rebase --autostash && yadm alt && yadm status --
 Run `yadm alt` by hand after editing any `##`-suffixed file; a stale alternate
 symlink looks exactly like a working one.
 
-Unattended, every five minutes, cron runs a fast-forward sync; a dirty
-tracked file rides along only after an off-tree rehearsal of the merge
-passes (README, "Why the cron sync merges only what it has already checked").
-`yadm bootstrap` installs the line; on a machine that predates it:
+Unattended, every five minutes, cron runs a fast-forward-only sync. `yadm
+bootstrap` installs the line; on a machine that predates it:
 
 ```bash
 ~/.local/bin/dotfiles-sync.sh --install
@@ -324,8 +322,7 @@ Aborting
 adds it: typically an earlier session copied an unmerged PR's files into
 `$HOME` by hand, and the PR then merged. Git aborts before changing anything.
 The cron `dotfiles-sync.sh` hits the same refusal and logs `skipped: ...
-fast-forward refused by untracked files in the way` to syslog (tag
-`dotfiles-sync`).
+fast-forward refused by dirty files` to syslog (tag `dotfiles-sync`).
 
 **Recovery.** Never `rm` first: a copy that differs from the merged version may
 be work that exists nowhere else.
