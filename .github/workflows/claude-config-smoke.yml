@@ -1,0 +1,34 @@
+name: claude-config-smoke
+
+# Runs this PR's own copy of the claude-config action, which nothing else in
+# CI does. Not a required check: it only fires when the action changes.
+on:
+  pull_request:
+    paths:
+      - '.github/actions/claude-config/**'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # main: the normal path. The SHA is claude before claude#341 landed
+        # localise-settings, so the action's warning path runs.
+        claude-ref:
+          - main
+          - 5e3410bf8dc1109d54444ae6c57a8fa7e7ef3c8d
+    steps:
+      - uses: actions/checkout@v7
+      - id: seed
+        uses: ./.github/actions/claude-config
+        with:
+          claude-ref: ${{ matrix.claude-ref }}
+      - name: Assert settings.json landed
+        run: |
+          test -f "$HOME/.claude/settings.json"
+          echo "complete=${{ steps.seed.outputs.complete }}"
+          echo complete

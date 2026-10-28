@@ -23,8 +23,10 @@ outputs:
   complete:
     description: >-
       "true" or "false". "true" only when settings.json landed under
-      $HOME/.claude. "false" (or this output being empty) means the install was
-      partial -- treat $HOME/.claude as untrustworthy.
+      $HOME/.claude and its machine paths were localised to this runner.
+      "false" (or this output being empty) means the install was partial, or
+      settings.json still names another machine's paths -- treat
+      $HOME/.claude as untrustworthy.
     value: ${{ steps.status.outputs.complete }}
 
 runs:
@@ -49,6 +51,13 @@ runs:
         rm -rf "$HOME/.claude/.git"
         echo "$HOME/.claude/bin" >> "$GITHUB_PATH"
 
+    # settings.json names another machine's paths; rewrite them for this runner (claude#338).
+    - name: Localise settings.json paths to this runner
+      id: localise
+      shell: sh
+      continue-on-error: true
+      run: python3 "$HOME/.claude/bin/localise-settings" "$HOME/.claude/settings.json"
+
     # The seed is spent. Left in the caller's workspace it is a second copy of
     # the config -- CLAUDE.md, hooks and all -- inside the repo a Claude run
     # is about to search and review.
@@ -67,6 +76,10 @@ runs:
             complete=false
           fi
         done
+        if [ "${{ steps.localise.outcome }}" != "success" ]; then
+          echo "::warning::localise-settings failed: settings.json is missing, unreadable, or still names another machine's paths"
+          complete=false
+        fi
         if [ "$complete" != "true" ]; then
           echo "::warning::incomplete Claude config install -- \$HOME/.claude is a partial set, not old-or-new"
         fi
