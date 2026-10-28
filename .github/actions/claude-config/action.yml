@@ -23,8 +23,10 @@ outputs:
   complete:
     description: >-
       "true" or "false". "true" only when settings.json landed under
-      $HOME/.claude. "false" (or this output being empty) means the install was
-      partial -- treat $HOME/.claude as untrustworthy.
+      $HOME/.claude and its machine paths were localised to this runner.
+      "false" (or this output being empty) means the install was partial, or
+      settings.json still names another machine's paths -- treat
+      $HOME/.claude as untrustworthy.
     value: ${{ steps.status.outputs.complete }}
 
 runs:
