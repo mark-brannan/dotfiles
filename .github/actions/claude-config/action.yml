@@ -49,6 +49,11 @@ runs:
         rm -rf "$HOME/.claude/.git"
         echo "$HOME/.claude/bin" >> "$GITHUB_PATH"
 
+    # settings.json names another machine's paths; rewrite them for this runner (claude#338).
+    - name: Localise settings.json paths to this runner
+      shell: sh
+      run: python3 "$HOME/.claude/bin/localise-settings" "$HOME/.claude/settings.json"
+
     # The seed is spent. Left in the caller's workspace it is a second copy of
     # the config -- CLAUDE.md, hooks and all -- inside the repo a Claude run
     # is about to search and review.
