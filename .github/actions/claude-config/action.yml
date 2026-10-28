@@ -51,7 +51,9 @@ runs:
 
     # settings.json names another machine's paths; rewrite them for this runner (claude#338).
     - name: Localise settings.json paths to this runner
+      id: localise
       shell: sh
+      continue-on-error: true
       run: python3 "$HOME/.claude/bin/localise-settings" "$HOME/.claude/settings.json"
 
     # The seed is spent. Left in the caller's workspace it is a second copy of
@@ -72,6 +74,10 @@ runs:
             complete=false
           fi
         done
+        if [ "${{ steps.localise.outcome }}" != "success" ]; then
+          echo "::warning::settings.json still names another machine's paths (localise-settings failed)"
+          complete=false
+        fi
         if [ "$complete" != "true" ]; then
           echo "::warning::incomplete Claude config install -- \$HOME/.claude is a partial set, not old-or-new"
         fi
