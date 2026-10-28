@@ -77,7 +77,7 @@ runs:
           fi
         done
         if [ "${{ steps.localise.outcome }}" != "success" ]; then
-          echo "::warning::settings.json still names another machine's paths (localise-settings failed)"
+          echo "::warning::localise-settings failed: settings.json is missing, unreadable, or still names another machine's paths"
           complete=false
         fi
         if [ "$complete" != "true" ]; then
