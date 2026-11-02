@@ -173,7 +173,7 @@ resign() {
             echo "+ $cmd" && eval "$cmd" && echo "+ git push --force-with-lease" && git push --force-with-lease ;;
         "nothing on the base"*) echo "resign: already signed, nothing to do"; return 0 ;;
         *) echo "resign: $rec" >&2; return 1 ;;
-    esac
+        *) echo "resign: ${rec:-no recommendation for '$br' (run: python3 ~/.claude/lib/state.py branch_brief . '$br')}" >&2; return 1 ;;
 }
 
 # Run from inside the plain ~/dotfiles clone after committing there: pushes it,
