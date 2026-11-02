@@ -158,6 +158,24 @@ fi
 alias dotsync='yadm pull --rebase --autostash && yadm alt && yadm status --short'
 alias claudesync='git -C ~/.claude pull --ff-only --autostash && git -C ~/.claude status --short'
 
+# Re-sign a branch's unsigned commits and push it. Asks the Claude layer's
+# branch_brief (lib/state.py) for the right command for the branch's shape and
+# runs it only when it is a signing rebase or amend; anything else (conflicts,
+# a hand-resolved merge, no key) is printed and left alone. Args: [branch].
+resign() {
+    local br="${1:-$(git branch --show-current)}" rec cmd
+    rec=$(python3 ~/.claude/lib/state.py branch_brief "$(git rev-parse --show-toplevel)" "$br" |
+        sed -n 's/^recommend: //p')
+    cmd=${rec%%   #*}
+    case $cmd in
+        "git rebase -S "*|"git commit --amend -S "*)
+            [ "$br" = "$(git branch --show-current)" ] || { echo "resign: check out $br first" >&2; return 1; }
+            echo "+ $cmd" && eval "$cmd" && echo "+ git push --force-with-lease" && git push --force-with-lease ;;
+        "nothing on the base"*) echo "resign: already signed, nothing to do"; return 0 ;;
+        *) echo "resign: $rec" >&2; return 1 ;;
+    esac
+}
+
 # Run from inside the plain ~/dotfiles clone after committing there: pushes it,
 # then folds that same history into $HOME via yadm so edits made in the clone
 # don't need a separate manual sync step. Only makes sense from that clone --
