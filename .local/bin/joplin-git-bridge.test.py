@@ -135,6 +135,47 @@ class BridgeTest(unittest.TestCase):
         self.assertNotIn("abc123secret", out)
         self.assertIn("token=REDACTED", out)
 
+    def test_foreign_staged_file_stays_out_of_the_commit(self):
+        (self.repo / "foreign.txt").write_text("staged by someone else\n")
+        git(self.repo, "add", "foreign.txt")
+        rc, _ = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.head_subject(), "init")
+        os.environ["STUB_WRITE"] = "1"
+        rc, _ = self.run_main()
+        self.assertEqual(rc, 0)
+        files = git(self.repo, "show", "--name-only", "--format=", "HEAD").stdout.split()
+        self.assertEqual(files, ["joplin/Notebook/note.md"])
+        self.assertIn("A  foreign.txt", git(self.repo, "status", "--porcelain").stdout)
+
+    def test_deleted_note_is_committed_beside_foreign_staged_file(self):
+        os.environ["STUB_WRITE"] = "1"
+        self.run_main()
+        os.environ.pop("STUB_WRITE")
+        (self.root / "Notebook" / "note.md").unlink()
+        (self.repo / "foreign.txt").write_text("x\n")
+        git(self.repo, "add", "foreign.txt")
+        rc, _ = self.run_main()
+        self.assertEqual(rc, 0)
+        shown = git(self.repo, "show", "--name-status", "--format=", "HEAD").stdout.split()
+        self.assertEqual(shown, ["D", "joplin/Notebook/note.md"])
+        self.assertIn("A  foreign.txt", git(self.repo, "status", "--porcelain").stdout)
+
+    def test_one_workspace_raising_does_not_stop_the_rest(self):
+        os.environ["STUB_WRITE"] = "1"
+        real = self.mod.sync_one
+        def flaky(root):
+            if root.name == "gone":
+                raise FileNotFoundError("No such file: joplin-md-sync")
+            return real(root)
+        self.mod.sync_one = flaky
+        self.mod.WORKSPACES.write_text(f"{self.tmp / 'gone'}\n{self.root}\n")
+        rc, out = self.run_main()
+        self.assertEqual(rc, 1)
+        self.assertIn("ERROR: gone", out)
+        self.assertEqual(self.head_subject(), "joplin: sync joplin: 1 pulled, 2 pushed")
+        self.assertEqual(len(json.loads(self.mod.STATUS.read_text())["workspaces"]), 2)
+
     def test_missing_workspace_list_is_an_error(self):
         self.mod.WORKSPACES = self.tmp / "absent"
         rc, out = self.run_main()

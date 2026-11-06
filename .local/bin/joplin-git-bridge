@@ -91,13 +91,14 @@ def sync_one(root: Path) -> dict:
     if reason := repo_busy(repo):
         log("WARNING", f"{root.name}: {reason}; synced but not committed")
         return result
+    # Path-scoped throughout: anything else staged in the repo stays staged.
     git(repo, "add", "-A", "--", str(root))
-    if git(repo, "diff", "--cached", "--quiet").returncode == 0:
+    if git(repo, "diff", "--cached", "--quiet", "--", str(root)).returncode == 0:
         return result
     msg = (f"joplin: sync {root.name}: "
            f"{summary.get('remote_new', 0) + summary.get('remote_modified', 0)} pulled, "
            f"{summary.get('local_new', 0) + summary.get('local_modified', 0)} pushed")
-    commit = git(repo, "commit", "-q", "-m", msg)
+    commit = git(repo, "commit", "-q", "-m", msg, "--only", "--", str(root))
     if commit.returncode != 0:
         log("ERROR", f"{root.name}: commit failed: {commit.stderr.strip()[:400]}")
         result["error"] = True
@@ -108,6 +109,15 @@ def sync_one(root: Path) -> dict:
     return result
 
 
+def safe_sync(root: Path) -> dict:
+    """One workspace failing (tool missing, OSError) must not stop the rest."""
+    try:
+        return sync_one(root)
+    except OSError as e:
+        log("ERROR", f"{root.name}: {e}")
+        return {"root": str(root), "time": int(time.time()), "error": True}
+
+
 def main() -> int:
     if not WORKSPACES.is_file():
         log("ERROR", f"no workspace list at {WORKSPACES}")
@@ -115,7 +125,7 @@ def main() -> int:
     roots = [Path(line.split("#", 1)[0].strip()).expanduser()
              for line in WORKSPACES.read_text().splitlines()
              if line.split("#", 1)[0].strip()]
-    results = [sync_one(r) for r in roots]
+    results = [safe_sync(r) for r in roots]
     STATUS.parent.mkdir(parents=True, exist_ok=True)
     STATUS.write_text(json.dumps({"ran": int(time.time()), "workspaces": results}, indent=2) + "\n")
     return 1 if any(r.get("error") for r in results) else 0
