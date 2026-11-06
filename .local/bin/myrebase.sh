@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
 
+# Not claude_prompts_scratch: the Stop hook syncs that clone under its own lock; an unlocked rebase races it.
 {
 cat<<EOF
 .github
@@ -8,7 +9,6 @@ claude
 symphony
 saferspacesllc
 stranger-loops
-claude_prompts_scratch
 homebrew-tap
 coderabbit
 EOF
