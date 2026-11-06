@@ -105,7 +105,11 @@ ws="$HOME/workshop"
 if [ ! -d "$ws/.git" ] && ! git clone -q git@github.com:mark-brannan/workshop.git "$ws"; then
   echo "    workshop clone failed; re-run yadm bootstrap once ssh to GitHub works" >&2
 elif [ -x "$ws/setup.sh" ]; then
-  "$ws/setup.sh" >/dev/null && echo "==> shop on PATH from $ws" || echo "    $ws/setup.sh failed" >&2
+  if "$ws/setup.sh"; then
+    echo "==> shop on PATH from $ws"
+  else
+    echo "    $ws/setup.sh failed (its output is above)" >&2
+  fi
 fi
 
 # Unattended ff-only sync, every five minutes. Idempotent; see README.
