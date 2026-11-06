@@ -99,6 +99,19 @@ else
   echo "    keeping CLAUDE.md out of \$HOME failed; ~/CLAUDE.md stays" >&2
 fi
 
+# The workshop repo (CAD tooling) puts `shop` on PATH; every box gets it,
+# whatever CAD apps it has. A failed clone (no ssh key yet) warns, never fails.
+ws="$HOME/workshop"
+if [ ! -d "$ws/.git" ] && ! git clone -q git@github.com:mark-brannan/workshop.git "$ws"; then
+  echo "    workshop clone failed; re-run yadm bootstrap once ssh to GitHub works" >&2
+elif [ -x "$ws/setup.sh" ]; then
+  if "$ws/setup.sh"; then
+    echo "==> shop on PATH from $ws"
+  else
+    echo "    $ws/setup.sh failed (its output is above)" >&2
+  fi
+fi
+
 # Unattended ff-only sync, every five minutes. Idempotent; see README.
 [ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
 
