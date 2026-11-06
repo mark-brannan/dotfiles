@@ -1,8 +1,6 @@
 #!/usr/bin/env sh
 
-# Not claude_prompts_scratch: the Stop hook pulls and pushes that clone
-# under its own lock within minutes; an unlocked rebase here races it
-# and strands state in an autostash (claude repo, state-repo sync PR).
+# Not claude_prompts_scratch: the Stop hook syncs that clone under its own lock; an unlocked rebase races it.
 {
 cat<<EOF
 .github
