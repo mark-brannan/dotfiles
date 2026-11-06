@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""joplin-git-bridge: sync each listed joplin-md-sync workspace, then commit what changed.
+
+Runs from a systemd user timer. It never resolves a conflict: joplin-md-sync
+records the conflict, leaves both sides untouched, and this script only
+reports it. Config: ~/.config/joplin-git-bridge/workspaces, one workspace
+root per line (# comments allowed). Token: ~/.config/joplin-md-sync/token,
+passed by path, never read here.
+"""
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+WORKSPACES = HOME / ".config/joplin-git-bridge/workspaces"
+TOKEN_FILE = HOME / ".config/joplin-md-sync/token"
+STATUS = HOME / ".local/state/joplin-git-bridge/last-run.json"
+TOKEN_RE = re.compile(r"token=[^&\s\"']+")
+# systemd user services do not get ~/.local/bin on PATH, where pipx installs.
+JMS = shutil.which("joplin-md-sync") or str(HOME / ".local/bin/joplin-md-sync")
+
+# joplin-md-sync exit codes (errors.py)
+OK, DIFF, CONFLICTS, INVALID, API, CONCURRENT, PARTIAL = 0, 1, 2, 3, 4, 5, 6
+
+
+def log(level: str, msg: str) -> None:
+    print(f"{level}: {TOKEN_RE.sub('token=REDACTED', msg)}", flush=True)
+
+
+def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+
+
+def repo_busy(repo: Path) -> str | None:
+    """A reason not to commit, or None."""
+    gitdir = Path(git(repo, "rev-parse", "--git-dir").stdout.strip())
+    if not gitdir.is_absolute():
+        gitdir = repo / gitdir
+    for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        if (gitdir / marker).exists():
+            return f"repo mid-{marker}"
+    if git(repo, "symbolic-ref", "-q", "HEAD").returncode != 0:
+        return "detached HEAD"
+    return None
+
+
+def sync_one(root: Path) -> dict:
+    result = {"root": str(root), "time": int(time.time())}
+    proc = subprocess.run(
+        [JMS, "sync", "--root", str(root), "--token-file", str(TOKEN_FILE),
+         "--json", "--quiet"],
+        capture_output=True, text=True,
+    )
+    result["exit_code"] = proc.returncode
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    summary = payload.get("summary", {})
+    execution = payload.get("execution", {})
+    result["applied"] = execution.get("applied", 0)
+    result["open_conflicts"] = payload.get("open_conflicts", 0)
+    result["commit"] = None
+
+    if proc.returncode == API:
+        log("INFO", f"{root.name}: Joplin not reachable; skipped")
+        return result
+    if proc.returncode == CONCURRENT:
+        log("INFO", f"{root.name}: workspace locked by another run; skipped")
+        return result
+    if proc.returncode not in (OK, CONFLICTS):
+        log("ERROR", f"{root.name}: sync exit {proc.returncode}; not committing. "
+                     f"{(proc.stderr or '').strip()[:400]}")
+        result["error"] = True
+        return result
+    if proc.returncode == CONFLICTS:
+        log("WARNING", f"{root.name}: {result['open_conflicts']} open conflict(s) left for you: "
+                       f"joplin-md-sync conflicts list --root {root}")
+
+    top = git(root, "rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        log("INFO", f"{root.name}: not inside a git repo; synced only")
+        return result
+    repo = Path(top.stdout.strip())
+    if reason := repo_busy(repo):
+        log("WARNING", f"{root.name}: {reason}; synced but not committed")
+        return result
+    git(repo, "add", "-A", "--", str(root))
+    if git(repo, "diff", "--cached", "--quiet").returncode == 0:
+        return result
+    msg = (f"joplin: sync {root.name}: "
+           f"{summary.get('remote_new', 0) + summary.get('remote_modified', 0)} pulled, "
+           f"{summary.get('local_new', 0) + summary.get('local_modified', 0)} pushed")
+    commit = git(repo, "commit", "-q", "-m", msg)
+    if commit.returncode != 0:
+        log("ERROR", f"{root.name}: commit failed: {commit.stderr.strip()[:400]}")
+        result["error"] = True
+        return result
+    sha = git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    result["commit"] = sha
+    log("INFO", f"{root.name}: committed {sha} on {git(repo, 'branch', '--show-current').stdout.strip()}: {msg}")
+    return result
+
+
+def main() -> int:
+    if not WORKSPACES.is_file():
+        log("ERROR", f"no workspace list at {WORKSPACES}")
+        return 2
+    roots = [Path(line.split("#", 1)[0].strip()).expanduser()
+             for line in WORKSPACES.read_text().splitlines()
+             if line.split("#", 1)[0].strip()]
+    results = [sync_one(r) for r in roots]
+    STATUS.parent.mkdir(parents=True, exist_ok=True)
+    STATUS.write_text(json.dumps({"ran": int(time.time()), "workspaces": results}, indent=2) + "\n")
+    return 1 if any(r.get("error") for r in results) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
