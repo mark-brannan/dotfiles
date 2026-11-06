@@ -10,6 +10,7 @@ passed by path, never read here.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -29,8 +30,14 @@ JMS = shutil.which("joplin-md-sync") or str(HOME / ".local/bin/joplin-md-sync")
 OK, DIFF, CONFLICTS, INVALID, API, CONCURRENT, PARTIAL = 0, 1, 2, 3, 4, 5, 6
 
 
+# Under systemd, a <n> prefix sets the journal priority, so
+# `journalctl -p warning` finds warnings and errors without a grep.
+PRIORITY = {"ERROR": 3, "WARNING": 4, "INFO": 6}
+
+
 def log(level: str, msg: str) -> None:
-    print(f"{level}: {TOKEN_RE.sub('token=REDACTED', msg)}", flush=True)
+    prefix = f"<{PRIORITY[level]}>" if os.environ.get("JOURNAL_STREAM") else ""
+    print(f"{prefix}{level}: {TOKEN_RE.sub('token=REDACTED', msg)}", flush=True)
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -94,6 +101,8 @@ def sync_one(root: Path) -> dict:
     # Path-scoped throughout: anything else staged in the repo stays staged.
     git(repo, "add", "-A", "--", str(root))
     if git(repo, "diff", "--cached", "--quiet", "--", str(root)).returncode == 0:
+        if result["applied"]:
+            log("INFO", f"{root.name}: synced {result['applied']} change(s); nothing to commit")
         return result
     msg = (f"joplin: sync {root.name}: "
            f"{summary.get('remote_new', 0) + summary.get('remote_modified', 0)} pulled, "

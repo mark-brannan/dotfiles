@@ -68,7 +68,7 @@ class BridgeTest(unittest.TestCase):
         self.mod.STATUS = self.tmp / "state" / "last-run.json"
         self.mod.WORKSPACES = self.tmp / "workspaces"
         self.mod.WORKSPACES.write_text(f"# comment\n{self.root}\n")
-        for k in ("STUB_EXIT", "STUB_WRITE", "STUB_STDERR"):
+        for k in ("STUB_EXIT", "STUB_WRITE", "STUB_STDERR", "JOURNAL_STREAM"):
             os.environ.pop(k, None)
 
     def run_main(self):
@@ -175,6 +175,19 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("ERROR: gone", out)
         self.assertEqual(self.head_subject(), "joplin: sync joplin: 1 pulled, 2 pushed")
         self.assertEqual(len(json.loads(self.mod.STATUS.read_text())["workspaces"]), 2)
+
+    def test_applied_without_file_change_logs_the_unit_of_work(self):
+        rc, out = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("INFO: joplin: synced 3 change(s); nothing to commit", out)
+
+    def test_journal_priority_prefix_only_under_systemd(self):
+        os.environ.update(STUB_EXIT="2", JOURNAL_STREAM="8:1234")
+        _, out = self.run_main()
+        self.assertIn("<4>WARNING: joplin:", out)
+        os.environ.pop("JOURNAL_STREAM")
+        _, out = self.run_main()
+        self.assertNotIn("<4>", out)
 
     def test_missing_workspace_list_is_an_error(self):
         self.mod.WORKSPACES = self.tmp / "absent"
