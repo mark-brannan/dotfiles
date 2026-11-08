@@ -5,6 +5,7 @@ coastlines
 colregs
 colregs-engine
 colregs-mcp
+home-automation
 languette
 nav-wright
 portolani
@@ -15,4 +16,3 @@ space-weather
 symphony
 wire-wright
 xylarium
-home-automation
