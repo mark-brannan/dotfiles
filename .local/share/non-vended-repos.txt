@@ -1,0 +1,7 @@
+dotfiles
+.github
+symphony
+home-automation
+stranger-loops
+workshop
+saferspacesllc

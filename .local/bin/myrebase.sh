@@ -3,16 +3,10 @@
 # Not claude_prompts_scratch: the Stop hook syncs that clone under its own lock; an unlocked rebase races it.
 {
 cat<<EOF
-.github
-dotfiles
-claude
-symphony
-home-automation
-saferspacesllc
-stranger-loops
 homebrew-tap
 coderabbit
 EOF
+cat ~/.local/share/non-vended-repos.txt
 cat ~/.local/share/vended-repos.txt
 } | while read i
 do
