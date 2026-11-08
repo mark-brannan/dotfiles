@@ -7,6 +7,7 @@ cat<<EOF
 dotfiles
 claude
 symphony
+home-automation
 saferspacesllc
 stranger-loops
 homebrew-tap

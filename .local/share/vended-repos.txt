@@ -5,7 +5,6 @@ coastlines
 colregs
 colregs-engine
 colregs-mcp
-home-automation
 languette
 nav-wright
 portolani
