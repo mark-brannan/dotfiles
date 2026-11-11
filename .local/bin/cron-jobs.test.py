@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Tests for jobs. Run: python3 .local/bin/jobs.test.py
+# Tests for cron-jobs. Run: python3 .local/bin/cron-jobs.test.py
 #
 # What matters: install rewrites only its own crontab block, keeps every
 # foreign line, drops the old dotfiles-sync line, writes nothing when nothing
@@ -16,7 +16,7 @@ import time
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent / "jobs"
+SCRIPT = Path(__file__).resolve().parent / "cron-jobs"
 
 CRONTAB = """#!/bin/sh
 f="$HOME/crontab.txt"
@@ -35,7 +35,7 @@ if [ "$2" = show ]; then
 fi
 exit 0
 """
-BEGIN = "# BEGIN jobs (managed by ~/.local/bin/jobs from ~/.config/jobs; edit that file)"
+BEGIN = "# BEGIN jobs (managed by ~/.local/bin/cron-jobs from ~/.config/jobs; edit that file)"
 
 LIST = """# comment
 alpha  1m              */5 * * * *  echo alpha
@@ -84,7 +84,7 @@ class Install(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = self.crontab().splitlines()
         self.assertEqual(lines[0], BEGIN)
-        self.assertIn('*/5 * * * * "$HOME/.local/bin/jobs" run alpha', lines)
+        self.assertIn('*/5 * * * * "$HOME/.local/bin/cron-jobs" run alpha', lines)
         self.assertEqual(lines[-1], "# END jobs")
 
     def test_second_install_writes_nothing(self):
@@ -124,7 +124,7 @@ class Install(Base):
         self.jobs("install", FAKE_HOST="otherbox")
         self.assertNotIn("run beta", self.crontab())
         self.jobs("install", FAKE_HOST="BOXA")
-        self.assertIn('0 */6 * * * "$HOME/.local/bin/jobs" run beta', self.crontab())
+        self.assertIn('0 */6 * * * "$HOME/.local/bin/cron-jobs" run beta', self.crontab())
 
     def test_linked_systemd_units_retired_tracked_files_left(self):
         unit_dir = self.home / ".config" / "systemd" / "user"
@@ -179,6 +179,23 @@ class Run(Base):
         time.sleep(3.5)
         self.assertFalse(marker.exists(), "a child of the timed-out job outlived it")
 
+    def test_grandchild_ignoring_term_is_killed(self):
+        marker = self.home / "survived"
+        self.write_list(f"slow 1s * * * * *  (trap '' TERM; sleep 3; touch {marker}) & sleep 30\n")
+        r = self.jobs("run", "slow")
+        self.assertEqual(r.returncode, 124)
+        time.sleep(3.5)
+        self.assertFalse(marker.exists(), "a grandchild that ignores SIGTERM outlived the timeout")
+
+    def test_a_bad_line_stops_only_itself(self):
+        self.write_list("bad 0m * * * * * true\nhi 1m * * * * *  echo ran\n")
+        r = self.jobs("run", "hi")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        log = self.state("hi.log").read_text()
+        self.assertIn("ran\n", log)
+        self.assertIn(":1:", log)
+        self.assertEqual(self.jobs("run", "bad").returncode, 2)
+
     def test_held_lock_skips(self):
         self.write_list("hi 1m * * * * *  touch ran\n")
         self.state("").mkdir(parents=True)
@@ -213,6 +230,14 @@ class Status(Base):
         self.write_list(LIST.replace("echo alpha", "exit 1"))
         self.jobs("run", "alpha")
         self.assertEqual(self.jobs("status").returncode, 1)
+
+    def test_status_flags_a_bad_line(self):
+        self.jobs("install")
+        self.write_list(LIST + "gamma 1x */5 * * * * true\n")
+        r = self.jobs("status")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("gamma 1x", r.stdout)
+        self.assertIn("alpha", r.stdout)
 
     def test_status_flags_stale_block(self):
         self.jobs("install")

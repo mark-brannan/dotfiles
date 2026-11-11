@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Every scheduled job on this machine, from one list: ~/.config/jobs.
 
-  jobs install [--quiet]  write the managed crontab block from the list
-  jobs run NAME           run one job: lock, timeout, log, record the result
-  jobs status             a table of every job; exit 1 if any needs a hand
+  cron-jobs install [--quiet]  write the managed crontab block from the list
+  cron-jobs run NAME           run one job: lock, timeout, log, record the result
+  cron-jobs status             a table of every job; exit 1 if any needs a hand
 
 A list line is `name timeout [host=a,b] m h dom mon dow command...`. The
 command is a sh string; the crontab names the job only, so it never needs
@@ -22,7 +22,7 @@ import sys
 import time
 from pathlib import Path
 
-BEGIN = "# BEGIN jobs (managed by ~/.local/bin/jobs from ~/.config/jobs; edit that file)"
+BEGIN = "# BEGIN jobs (managed by ~/.local/bin/cron-jobs from ~/.config/jobs; edit that file)"
 END = "# END jobs"
 OLD_SYNC_MARK = "# dotfiles-sync"
 LOG_CAP = 1_000_000
@@ -49,57 +49,68 @@ def state_dir():
     return home() / ".local" / "state" / "jobs"
 
 
-def parse(text, where="~/.config/jobs"):
-    jobs, seen = [], set()
+def parse(text, where="~/.config/jobs", strict=True):
+    """Return (jobs, problems). Strict raises on the first bad line; lenient
+    skips it, so one bad line never stops the other jobs (the sync among them)."""
+    jobs, problems, seen = [], [], set()
     for n, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        head = line.split(None, 3)
-        has_host = len(head) > 2 and head[2].startswith("host=")
-        parts = line.split(None, 8 if has_host else 7)
-        want = 9 if has_host else 8
-
-        def bad(why):
-            return ListError(f"{where}:{n}: {why}: {raw}")
-
-        if len(parts) < want:
-            raise bad("too few fields (name timeout [host=...] m h dom mon dow command)")
-        name, timeout = parts[0], parts[1]
-        hosts = []
-        if has_host:
-            hosts = [h.lower() for h in parts[2][5:].split(",") if h]
-            if not hosts:
-                raise bad("host= names no host")
-        sched, command = parts[want - 6:want - 1], parts[want - 1]
-        if not NAME_RE.match(name):
-            raise bad(f"bad job name {name!r}")
-        if name in seen:
-            raise bad(f"job {name!r} listed twice")
-        m = TIMEOUT_RE.match(timeout)
-        if not m or int(m.group(1)) == 0:
-            raise bad(f"bad timeout {timeout!r} (want e.g. 90s, 5m, 1h)")
-        for f in sched:
-            if not FIELD_RE.match(f):
-                raise bad(f"bad schedule field {f!r}")
-        seen.add(name)
-        jobs.append({
-            "name": name,
-            "timeout": int(m.group(1)) * UNIT[m.group(2)],
-            "hosts": hosts,
-            "schedule": " ".join(sched),
-            "command": command,
-        })
-    return jobs
+        try:
+            jobs.append(parse_line(line, raw, f"{where}:{n}", seen))
+        except ListError as e:
+            if strict:
+                raise
+            problems.append(str(e))
+    return jobs, problems
 
 
-def load():
+def parse_line(line, raw, where, seen):
+    head = line.split(None, 3)
+    has_host = len(head) > 2 and head[2].startswith("host=")
+    parts = line.split(None, 8 if has_host else 7)
+    want = 9 if has_host else 8
+
+    def bad(why):
+        return ListError(f"{where}: {why}: {raw}")
+
+    if len(parts) < want:
+        raise bad("too few fields (name timeout [host=...] m h dom mon dow command)")
+    name, timeout = parts[0], parts[1]
+    hosts = []
+    if has_host:
+        hosts = [h.lower() for h in parts[2][5:].split(",") if h]
+        if not hosts:
+            raise bad("host= names no host")
+    sched, command = parts[want - 6:want - 1], parts[want - 1]
+    if not NAME_RE.match(name):
+        raise bad(f"bad job name {name!r}")
+    if name in seen:
+        raise bad(f"job {name!r} listed twice")
+    m = TIMEOUT_RE.match(timeout)
+    if not m or int(m.group(1)) == 0:
+        raise bad(f"bad timeout {timeout!r} (want e.g. 90s, 5m, 1h)")
+    for f in sched:
+        if not FIELD_RE.match(f):
+            raise bad(f"bad schedule field {f!r}")
+    seen.add(name)
+    return {
+        "name": name,
+        "timeout": int(m.group(1)) * UNIT[m.group(2)],
+        "hosts": hosts,
+        "schedule": " ".join(sched),
+        "command": command,
+    }
+
+
+def load(strict=True):
     p = list_path()
     try:
         text = p.read_text()
     except FileNotFoundError:
         raise ListError(f"{p}: no job list")
-    return parse(text)
+    return parse(text, strict=strict)
 
 
 def short_hostname():
@@ -120,7 +131,7 @@ def block_for(jobs, host):
     lines = [BEGIN]
     for j in jobs:
         if runs_here(j, host):
-            lines.append(f'{j["schedule"]} "$HOME/.local/bin/jobs" run {j["name"]}')
+            lines.append(f'{j["schedule"]} "$HOME/.local/bin/cron-jobs" run {j["name"]}')
     lines.append(END)
     return lines
 
@@ -192,7 +203,7 @@ def migrate_systemd(jobs, say):
 def cmd_install(args):
     quiet = "--quiet" in args
     say = (lambda s: None) if quiet else print
-    jobs = load()
+    jobs, _ = load()
     host = short_hostname()
     old = read_crontab()
     new = new_crontab(old, block_for(jobs, host))
@@ -233,12 +244,15 @@ def cap_log(path):
 
 def cmd_run(args):
     if len(args) != 1:
-        print("usage: jobs run NAME", file=sys.stderr)
+        print("usage: cron-jobs run NAME", file=sys.stderr)
         return 2
     name = args[0]
-    job = next((j for j in load() if j["name"] == name), None)
+    jobs, problems = load(strict=False)
+    job = next((j for j in jobs if j["name"] == name), None)
     if job is None:
-        print(f"jobs: no job {name!r} in {list_path()}", file=sys.stderr)
+        print(f"cron-jobs: no job {name!r} in {list_path()}", file=sys.stderr)
+        for prob in problems:
+            print(f"cron-jobs: {prob}", file=sys.stderr)
         return 2
     sd = state_dir()
     sd.mkdir(parents=True, exist_ok=True)
@@ -258,6 +272,8 @@ def cmd_run(args):
     timed_out = False
     with open(log, "ab") as out:
         out.write(f"=== {started} {name}\n".encode())
+        for prob in problems:
+            out.write(f"note: skipped a bad line in the list: {prob}\n".encode())
         out.flush()
         p = subprocess.Popen(["sh", "-c", job["command"]], stdin=subprocess.DEVNULL, stdout=out,
                              stderr=subprocess.STDOUT, env=env, cwd=h, start_new_session=True)
@@ -268,13 +284,18 @@ def cmd_run(args):
             for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
                 try:
                     os.killpg(p.pid, sig)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     break
                 try:
                     p.wait(timeout=grace)
                     break
                 except subprocess.TimeoutExpired:
                     continue
+            # The group outlives its leader while any member runs; reach stragglers.
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
             p.wait()
             rc = 124
         if rc < 0:
@@ -290,12 +311,12 @@ def cmd_run(args):
 
 
 def cmd_status(args):
-    jobs = load()
+    jobs, problems = load(strict=False)
     host = short_hostname()
     try:
         _, block, _ = split_block(read_crontab())
     except ListError as e:
-        print(f"jobs: {e}", file=sys.stderr)
+        print(f"cron-jobs: {e}", file=sys.stderr)
         block = None
     want = block_for(jobs, host)
     in_block = set(block or [])
@@ -309,7 +330,7 @@ def cmd_status(args):
         if not runs_here(j, host):
             cron = "skipped (host)"
         else:
-            line = f'{j["schedule"]} "$HOME/.local/bin/jobs" run {j["name"]}'
+            line = f'{j["schedule"]} "$HOME/.local/bin/cron-jobs" run {j["name"]}'
             cron = "yes" if line in in_block else "no"
             if last and last.get("exit") != 0:
                 failing = True
@@ -319,23 +340,25 @@ def cmd_status(args):
     for r in [head] + rows:
         print("  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip())
     if block is None:
-        print("crontab block: missing; run ~/.local/bin/jobs install")
+        print("crontab block: missing; run ~/.local/bin/cron-jobs install")
     elif block != want:
-        print("crontab block: stale; run ~/.local/bin/jobs install")
+        print("crontab block: stale; run ~/.local/bin/cron-jobs install")
     else:
         print("crontab block: current")
-    return 1 if failing or block != want else 0
+    for prob in problems:
+        print(f"bad list line, skipped: {prob}")
+    return 1 if failing or problems or block != want else 0
 
 
 def main(argv):
     cmds = {"install": cmd_install, "run": cmd_run, "status": cmd_status}
     if not argv or argv[0] not in cmds:
-        print(__doc__.strip().split("\n\n")[1] if __doc__ else "usage: jobs install|run|status", file=sys.stderr)
+        print(__doc__.strip().split("\n\n")[1] if __doc__ else "usage: cron-jobs install|run|status", file=sys.stderr)
         return 2
     try:
         return cmds[argv[0]](argv[1:])
     except ListError as e:
-        print(f"jobs: {e}", file=sys.stderr)
+        print(f"cron-jobs: {e}", file=sys.stderr)
         return 1
 
 

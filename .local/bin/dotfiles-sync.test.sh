@@ -2,7 +2,7 @@
 # Tests for dotfiles-sync.sh: each repo pulled ff-only with autostash; a
 # clean carry-over of a dirty file; a conflicted re-apply made valid again
 # with the edits kept in the stash; a diverged clone left alone; a plugin
-# update that fails, named; the crontab left to jobs install. Run: sh .local/bin/dotfiles-sync.test.sh
+# update that fails, named; the crontab left to cron-jobs install. Run: sh .local/bin/dotfiles-sync.test.sh
 # Fake homes and local bare repos, ~2 s wall, one core, no network.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; SYNC="$HERE/dotfiles-sync.sh"
@@ -19,8 +19,8 @@ H="$W/home"; mkdir -p "$H/.local/bin" "$H/.local/share/yadm"
 # yadm and claude stand-ins; the script resets PATH to $HOME/.local/bin first
 printf '#!/bin/sh\n[ "$1" = alt ] && exit 0\nexec git --git-dir="$HOME/.local/share/yadm/repo.git" --work-tree="$HOME" "$@"\n' > "$H/.local/bin/yadm"
 printf '#!/bin/sh\necho "$*" >> "$HOME/claude.log"\n[ -e "$HOME/plugin-broken" ] && exit 1\nexit 0\n' > "$H/.local/bin/claude"
-printf '#!/bin/sh\necho "$*" >> "$HOME/jobs.log"\n[ -e "$HOME/jobs-broken" ] && exit 1\nexit 0\n' > "$H/.local/bin/jobs"
-chmod +x "$H/.local/bin/yadm" "$H/.local/bin/claude" "$H/.local/bin/jobs"
+printf '#!/bin/sh\necho "$*" >> "$HOME/cron-jobs.log"\n[ -e "$HOME/cron-jobs-broken" ] && exit 1\nexit 0\n' > "$H/.local/bin/cron-jobs"
+chmod +x "$H/.local/bin/yadm" "$H/.local/bin/claude" "$H/.local/bin/cron-jobs"
 Y() { HOME="$H" "$H/.local/bin/yadm" "$@"; }
 seed() { # seed NAME: a bare repo with one commit, and NAME-up as a clone of it
   $G init -q --bare "$W/$1.git"; $G clone -q "$W/$1.git" "$W/$1-up" 2>/dev/null
@@ -72,10 +72,10 @@ out=$(sync); has 'languette: update failed, run claude plugin update languette@l
 has 'claude: current at' "$out" "T6 others still reported"
 
 # T7: each run re-installs the jobs quietly; a failed install is named; --install delegates
-eq "$(tail -n1 "$H/jobs.log")" "install --quiet" "T7 sync re-installs jobs"
-touch "$H/jobs-broken"
-out=$(sync); has 'jobs: install failed, run ~/.local/bin/jobs install by hand' "$out" "T7 failure named"
-rm "$H/jobs-broken"; HOME="$H" sh "$SYNC" --install >/dev/null 2>&1; rc=$?
-eq "$(tail -n1 "$H/jobs.log")" "install" "T7 --install delegates"; eq "$rc" 0 "T7 --install exits 0"
+eq "$(tail -n1 "$H/cron-jobs.log")" "install --quiet" "T7 sync re-installs jobs"
+touch "$H/cron-jobs-broken"
+out=$(sync); has 'cron-jobs: install failed, run ~/.local/bin/cron-jobs install by hand' "$out" "T7 failure named"
+rm "$H/cron-jobs-broken"; HOME="$H" sh "$SYNC" --install >/dev/null 2>&1; rc=$?
+eq "$(tail -n1 "$H/cron-jobs.log")" "install" "T7 --install delegates"; eq "$rc" 0 "T7 --install exits 0"
 
 echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]

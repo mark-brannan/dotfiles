@@ -28,8 +28,8 @@ yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
 
 Every scheduled job is one line in `.config/jobs`; `bootstrap` installs them
-with `.local/bin/jobs` as one managed crontab block, the same on Linux, WSL,
-Pis and Macs. One of them runs `.local/bin/dotfiles-sync.sh` every five
+with `.local/bin/cron-jobs` as one managed crontab block, the same on Linux,
+WSL, Pis and Macs. One of them runs `.local/bin/dotfiles-sync.sh` every five
 minutes. It brings dotfiles, the `~/.claude` clone and the languette plugin up
 to date, only ever fast-forwards, and re-installs the block, so a job added on
 `main` reaches every machine by itself; see "Why the cron sync is the aliases,

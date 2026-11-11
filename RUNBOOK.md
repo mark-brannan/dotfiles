@@ -121,13 +121,13 @@ fast-forward-only sync among them. `yadm bootstrap` installs them; on a
 machine that predates it:
 
 ```bash
-~/.local/bin/jobs install
+~/.local/bin/cron-jobs install
 ```
 
 Verify, after the next five-minute mark:
 
 ```bash
-~/.local/bin/jobs status                 # every row exit 0; "crontab block: current"
+~/.local/bin/cron-jobs status            # every row exit 0; "crontab block: current"
 ~/.local/bin/dotfiles-sync.sh --status   # one line, timestamped within 5 min
 ```
 

@@ -113,8 +113,8 @@ elif [ -x "$ws/setup.sh" ]; then
 fi
 
 # Every scheduled job in ~/.config/jobs, as one crontab block. Idempotent; see README.
-if [ -x "$HOME/.local/bin/jobs" ]; then
-  "$HOME/.local/bin/jobs" install || echo "==> jobs install failed; run ~/.local/bin/jobs install by hand" >&2
+if [ -x "$HOME/.local/bin/cron-jobs" ]; then
+  "$HOME/.local/bin/cron-jobs" install || echo "==> cron-jobs install failed; run ~/.local/bin/cron-jobs install by hand" >&2
 fi
 
 if [ "$failed" -ne 0 ]; then

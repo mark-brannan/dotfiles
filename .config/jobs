@@ -1,4 +1,4 @@
-# Every scheduled job, on every machine. ~/.local/bin/jobs installs them as
+# Every scheduled job, on every machine. ~/.local/bin/cron-jobs installs them as
 # one managed crontab block; dotfiles-sync re-installs after each pull.
 #
 # name  timeout  [host=a,b]  m h dom mon dow  command (sh -c, ~ allowed)
