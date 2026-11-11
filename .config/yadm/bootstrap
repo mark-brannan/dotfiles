@@ -112,8 +112,10 @@ elif [ -x "$ws/setup.sh" ]; then
   fi
 fi
 
-# Unattended ff-only sync, every five minutes. Idempotent; see README.
-[ -x "$HOME/.local/bin/dotfiles-sync.sh" ] && "$HOME/.local/bin/dotfiles-sync.sh" --install
+# Every scheduled job in ~/.config/jobs, as one crontab block. Idempotent; see README.
+if [ -x "$HOME/.local/bin/jobs" ]; then
+  "$HOME/.local/bin/jobs" install || echo "==> jobs install failed; run ~/.local/bin/jobs install by hand" >&2
+fi
 
 if [ "$failed" -ne 0 ]; then
   echo "==> bootstrap FAILED: a secret above did not decrypt" >&2
