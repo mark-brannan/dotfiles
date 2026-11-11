@@ -12,6 +12,5 @@ searoom
 signalk-lint
 signalk-noaa-space-weather
 space-weather
-symphony
 wire-wright
 xylarium
