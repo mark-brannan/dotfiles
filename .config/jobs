@@ -4,7 +4,8 @@
 # name  timeout  [host=a,b]  m h dom mon dow  command (sh -c, ~ allowed)
 # host= limits a job to machines whose `hostname -s` matches (any case).
 dotfiles-sync      2m                  */5 * * * *    ~/.local/bin/dotfiles-sync.sh
-state-push         2m                  */5 * * * *    ~/.claude/bin/state-push
+# state-push exits 2 where no state repo is checked out: nothing to push, not a failure.
+state-push         2m                  */5 * * * *    ~/.claude/bin/state-push || [ $? -eq 2 ]
 metrics-dashboard  5m                  15 */4 * * *   ~/.claude/bin/metrics-db --github --quiet && ~/.claude/bin/metrics-dashboard
 prune-worktrees    10m                 40 */6 * * *   ~/.claude/bin/prune-worktrees --delete
 prune-scratch      10m                 50 */6 * * *   ~/.claude/bin/prune-scratch --delete

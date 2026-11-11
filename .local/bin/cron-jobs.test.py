@@ -219,6 +219,24 @@ class Run(Base):
         self.assertEqual(self.jobs("run", "nope").returncode, 2)
 
 
+class RealList(Base):
+    LIST = SCRIPT.parent.parent.parent / ".config" / "jobs"
+
+    def test_the_shipped_list_parses_strictly(self):
+        self.write_list(self.LIST.read_text())
+        self.assertEqual(self.jobs("install").returncode, 0)
+
+    def test_state_push_without_a_state_repo_is_not_a_failure(self):
+        self.write_list(self.LIST.read_text())
+        stub = self.home / ".claude" / "bin" / "state-push"
+        stub.parent.mkdir(parents=True)
+        for code, want in ((2, 0), (1, 1), (0, 0)):
+            with self.subTest(code=code):
+                stub.write_text(f"#!/bin/sh\nexit {code}\n")
+                stub.chmod(0o755)
+                self.assertEqual(self.jobs("run", "state-push").returncode, want)
+
+
 class Status(Base):
     def test_status_flags_missing_block_failures_and_host_skips(self):
         r = self.jobs("status")
