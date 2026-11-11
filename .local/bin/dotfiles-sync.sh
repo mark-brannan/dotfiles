@@ -9,7 +9,7 @@
 # A failed outcome starts with "skipped", which the brief keys on.
 #
 #   dotfiles-sync.sh            run once (what cron calls)
-#   dotfiles-sync.sh --install  add the crontab line, idempotently
+#   dotfiles-sync.sh --install  install the cron jobs (cron-jobs install)
 #   dotfiles-sync.sh --status   print the last result and exit
 #
 # Always exits 0. The result is one line in $STATE/last, which the Claude
@@ -17,12 +17,10 @@
 set -u
 PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 STATE="$HOME/.local/state/dotfiles-sync"; mkdir -p "$STATE"
-SELF="$HOME/.local/bin/dotfiles-sync.sh"
 
 case "${1:-}" in
 --status)  cat "$STATE/last" 2>/dev/null || echo "never run"; exit 0 ;;
---install) crontab -l 2>/dev/null | grep -Fq '# dotfiles-sync' \
-  || { crontab -l 2>/dev/null; echo "*/5 * * * * $SELF # dotfiles-sync"; } | crontab -; exit 0 ;;
+--install) "$HOME/.local/bin/cron-jobs" install; exit 0 ;;
 '') ;;
 *) echo "usage: dotfiles-sync.sh [--install|--status]" >&2; exit 0 ;;
 esac
@@ -42,6 +40,8 @@ pull() {
 }
 
 msg=$(pull dotfiles yadm); yadm alt >/dev/null 2>&1
+# The pull may have changed ~/.config/jobs; re-install the crontab block.
+"$HOME/.local/bin/cron-jobs" install --quiet >/dev/null 2>&1 || msg="$msg; cron-jobs: install failed, run ~/.local/bin/cron-jobs install by hand"
 [ -d "$HOME/.claude/.git" ] && msg="$msg; $(pull claude git -C "$HOME/.claude")"
 for p in ${SYNC_PLUGINS-languette@languette}; do
   if claude plugin marketplace update "${p#*@}" >/dev/null 2>&1 && claude plugin update "$p" </dev/null >/dev/null 2>&1

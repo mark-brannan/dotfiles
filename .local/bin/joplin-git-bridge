@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """joplin-git-bridge: sync each listed joplin-md-sync workspace, then commit what changed.
 
-Runs from a systemd user timer. It never resolves a conflict: joplin-md-sync
+Runs as a job from ~/.config/jobs. It never resolves a conflict: joplin-md-sync
 records the conflict, leaves both sides untouched, and this script only
 reports it. Config: ~/.config/joplin-git-bridge/workspaces, one workspace
 root per line (# comments allowed). Token: ~/.config/joplin-md-sync/token,

@@ -4,7 +4,7 @@ My dotfiles, managed with [yadm](https://yadm.io).
 
 ```
 yadm clone git@github.com:mark-brannan/dotfiles.git
-yadm bootstrap    # decrypts secrets; installs the sync cron line; keeps ~/CLAUDE.md out
+yadm bootstrap    # decrypts secrets; installs the cron jobs; keeps ~/CLAUDE.md out
 dotsync           # the sync routine, from here on
 ```
 
@@ -27,10 +27,13 @@ day-to-day routine:
 yadm pull --rebase --autostash && yadm alt && yadm status --short
 ```
 
-Between those, a cron line that `bootstrap` installs runs
-`.local/bin/dotfiles-sync.sh` every five minutes. It brings dotfiles, the
-`~/.claude` clone and the languette plugin up to date, and only ever fast-forwards;
-see "Why the cron sync is the aliases, plus one guard" below.
+Every scheduled job is one line in `.config/jobs`; `bootstrap` installs them
+with `.local/bin/cron-jobs` as one managed crontab block, the same on Linux,
+WSL, Pis and Macs. One of them runs `.local/bin/dotfiles-sync.sh` every five
+minutes. It brings dotfiles, the `~/.claude` clone and the languette plugin up
+to date, only ever fast-forwards, and re-installs the block, so a job added on
+`main` reaches every machine by itself; see "Why the cron sync is the aliases,
+plus one guard" below.
 
 **Anything beyond this is in [RUNBOOK.md](RUNBOOK.md)** — sync, secrets, and
 troubleshooting. Claude Code — hooks, rules, tools — lives in its own repo,

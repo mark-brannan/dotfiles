@@ -116,23 +116,23 @@ dotsync    # alias: yadm pull --rebase --autostash && yadm alt && yadm status --
 Run `yadm alt` by hand after editing any `##`-suffixed file; a stale alternate
 symlink looks exactly like a working one.
 
-Unattended, every five minutes, cron runs a fast-forward-only sync. `yadm
-bootstrap` installs the line; on a machine that predates it:
+Unattended, cron runs every job in `~/.config/jobs`, the five-minute
+fast-forward-only sync among them. `yadm bootstrap` installs them; on a
+machine that predates it:
 
 ```bash
-~/.local/bin/dotfiles-sync.sh --install
+~/.local/bin/cron-jobs install
 ```
 
-Verify: wait for the next five-minute mark, or run it once by hand, then:
+Verify, after the next five-minute mark:
 
 ```bash
+~/.local/bin/cron-jobs status            # every row exit 0; "crontab block: current"
 ~/.local/bin/dotfiles-sync.sh --status   # one line, timestamped within 5 min
 ```
 
-`level with origin/main` or `fast-forwarded N commit(s)` means it works;
-`skipped:` names what you must fix. Older than five minutes, cron isn't
-running it: `crontab -l | grep dotfiles-sync`, and on
-WSL `systemctl is-active cron`.
+`skipped:` names what to fix; a job's output is in `~/.local/state/jobs/<name>.log`.
+No runs at all: on WSL, `systemctl is-active cron`.
 
 ## Prune old local branches
 
