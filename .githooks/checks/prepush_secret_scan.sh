@@ -35,20 +35,20 @@ to_ref="${PRE_COMMIT_TO_REF:-HEAD}"
 
 # Branch deletion: nothing is being published.
 if [ "$to_ref" = "$ZERO" ] || [ -z "$to_ref" ]; then
-	exit 0
+    exit 0
 fi
 
 # A new branch has no remote counterpart, so pre-commit reports the null
 # ref. Scanning all of history would be both slow and wrong (it is already
 # published); what is new is what this branch adds to main.
 if [ -z "$from_ref" ] || [ "$from_ref" = "$ZERO" ]; then
-	if base="$(git merge-base origin/main "$to_ref" 2>/dev/null)"; then
-		from_ref="$base"
-	else
-		# No origin/main to compare against -- scan the tip commit rather
-		# than nothing. Narrow beats silent.
-		from_ref="$(git rev-parse "${to_ref}^" 2>/dev/null || echo "$to_ref")"
-	fi
+    if base="$(git merge-base origin/main "$to_ref" 2>/dev/null)"; then
+        from_ref="$base"
+    else
+        # No origin/main to compare against -- scan the tip commit rather
+        # than nothing. Narrow beats silent.
+        from_ref="$(git rev-parse "${to_ref}^" 2>/dev/null || echo "$to_ref")"
+    fi
 fi
 
 range="${from_ref}..${to_ref}"
@@ -73,15 +73,15 @@ commits="$(git rev-list "$range" 2>/dev/null || true)"
 #
 # $1 = path.
 first_unencrypted_commit() {
-	local path="$1" commit
-	for commit in $commits; do
-		git cat-file -e "${commit}:${path}" 2>/dev/null || continue
-		if ! git show "${commit}:${path}" | secretguard_is_sops_encrypted; then
-			printf '%s' "$commit"
-			return 0
-		fi
-	done
-	return 1
+    local path="$1" commit
+    for commit in $commits; do
+        git cat-file -e "${commit}:${path}" 2>/dev/null || continue
+        if ! git show "${commit}:${path}" | secretguard_is_sops_encrypted; then
+            printf '%s' "$commit"
+            return 0
+        fi
+    done
+    return 1
 }
 
 fail=0
@@ -89,63 +89,63 @@ fail=0
 # Same source as everywhere else, read without pyyaml. .sops.yaml is
 # authoritative; CI asserts .gitattributes still agrees with it.
 covered_sops() {
-	[ -f .gitattributes ] || return 0
-	awk '/^[[:space:]]*#/ { next }
-	     { for (i = 2; i <= NF; i++) if ($i == "filter=sops") { print $1; break } }' \
-		.gitattributes
+    [ -f .gitattributes ] || return 0
+    awk '/^[[:space:]]*#/ { next }
+         { for (i = 2; i <= NF; i++) if ($i == "filter=sops") { print $1; break } }' \
+        .gitattributes
 }
 
 # --- 1. files that must never be tracked ------------------------------------
 for path in .env age.key; do
-	grep -qxF "$path" <<<"$changed" || continue
-	carrier=""
-	for commit in $commits; do
-		if git cat-file -e "${commit}:${path}" 2>/dev/null; then
-			carrier="$commit"
-			break
-		fi
-	done
-	if [ -n "$carrier" ]; then
-		secretguard_block "a file that must never be tracked is in this push" \
-			problem="this file holds live credentials and is present in commit ${carrier} -- deleting it in a later commit does not remove it from the history you are about to publish" \
-			file="$path" \
-			needs="the file removed from every commit in $range, not just the tip" \
-			blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
-			fix="git rm --cached $path, commit, then rewrite the earlier commits that carry it" \
-			if_stuck="git push --no-verify pushes anyway -- CI's gitleaks and trufflehog will see it, and by then it is public" \
-			see="RUNBOOK.md, A secret was committed in plaintext" || fail=1
-	fi
+    grep -qxF "$path" <<<"$changed" || continue
+    carrier=""
+    for commit in $commits; do
+        if git cat-file -e "${commit}:${path}" 2>/dev/null; then
+            carrier="$commit"
+            break
+        fi
+    done
+    if [ -n "$carrier" ]; then
+        secretguard_block "a file that must never be tracked is in this push" \
+            problem="this file holds live credentials and is present in commit ${carrier} -- deleting it in a later commit does not remove it from the history you are about to publish" \
+            file="$path" \
+            needs="the file removed from every commit in $range, not just the tip" \
+            blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
+            fix="git rm --cached $path, commit, then rewrite the earlier commits that carry it" \
+            if_stuck="git push --no-verify pushes anyway -- CI's gitleaks and trufflehog will see it, and by then it is public" \
+            see="RUNBOOK.md, A secret was committed in plaintext" || fail=1
+    fi
 done
 
 # --- 2. covered files must be encrypted in what is being pushed -------------
 while IFS= read -r path; do
-	[ -n "$path" ] || continue
-	grep -qxF "$path" <<<"$changed" || continue
-	if bad="$(first_unencrypted_commit "$path")"; then
-		secretguard_block "a secret-bearing file is unencrypted in this push" \
-			problem="commit ${bad} stores this file without a sops metadata block -- readable to anyone who clones the repo, even if a later commit fixed it" \
-			file="$path" \
-			needs="the sops clean filter to have run before it was committed" \
-			blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
-			fix="bash scripts/setup-git-filters.sh, then re-commit the file: git add --renormalize $path" \
-			if_stuck="already pushed elsewhere, or you need this out now? git push --no-verify -- then treat it as a leak and follow the rotation procedure" \
-			see="RUNBOOK.md, A secret was committed in plaintext" || fail=1
-	fi
+    [ -n "$path" ] || continue
+    grep -qxF "$path" <<<"$changed" || continue
+    if bad="$(first_unencrypted_commit "$path")"; then
+        secretguard_block "a secret-bearing file is unencrypted in this push" \
+            problem="commit ${bad} stores this file without a sops metadata block -- readable to anyone who clones the repo, even if a later commit fixed it" \
+            file="$path" \
+            needs="the sops clean filter to have run before it was committed" \
+            blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
+            fix="bash scripts/setup-git-filters.sh, then re-commit the file: git add --renormalize $path" \
+            if_stuck="already pushed elsewhere, or you need this out now? git push --no-verify -- then treat it as a leak and follow the rotation procedure" \
+            see="RUNBOOK.md, A secret was committed in plaintext" || fail=1
+    fi
 done < <(covered_sops)
 
 for path in secrets/*.sops.yaml; do
-	[ -e "$path" ] || continue
-	grep -qxF "$path" <<<"$changed" || continue
-	if bad="$(first_unencrypted_commit "$path")"; then
-		secretguard_block "a whole-file secret store is unencrypted in this push" \
-			problem="this file is ciphertext at rest by design; commit ${bad} publishes it in the clear" \
-			file="$path" \
-			needs="sops encryption applied before the commit" \
-			blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
-			fix="sops --encrypt --in-place $path, then re-commit it" \
-			if_stuck="git push --no-verify pushes anyway -- and this one is a live credential store, so rotate afterwards" \
-			see="RUNBOOK.md, Rotating a secret" || fail=1
-	fi
+    [ -e "$path" ] || continue
+    grep -qxF "$path" <<<"$changed" || continue
+    if bad="$(first_unencrypted_commit "$path")"; then
+        secretguard_block "a whole-file secret store is unencrypted in this push" \
+            problem="this file is ciphertext at rest by design; commit ${bad} publishes it in the clear" \
+            file="$path" \
+            needs="sops encryption applied before the commit" \
+            blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
+            fix="sops --encrypt --in-place $path, then re-commit it" \
+            if_stuck="git push --no-verify pushes anyway -- and this one is a live credential store, so rotate afterwards" \
+            see="RUNBOOK.md, Rotating a secret" || fail=1
+    fi
 done
 
 # --- 3. cleartext credential sweep over the whole range ---------------------
@@ -153,22 +153,22 @@ done
 # is the realistic leak. Same pattern as the pre-commit guard, over a range
 # of commits rather than the index.
 hits="$(git log --format= -U0 -p "$range" -- '*.json' '*.yaml' '*.yml' '.env*' ':!*.sops.yaml' 2>/dev/null |
-	grep -E '^\+' | grep -viE '^\+\+\+' |
-	grep -iE '"(password|secret[kK]ey|token|apikey|api_key|logbookToken)"[[:space:]]*:[[:space:]]*"[^"]+' |
-	grep -cv 'ENC\[' || true)"
+    grep -E '^\+' | grep -viE '^\+\+\+' |
+    grep -iE '"(password|secret[kK]ey|token|apikey|api_key|logbookToken)"[[:space:]]*:[[:space:]]*"[^"]+' |
+    grep -cv 'ENC\[' || true)"
 
 if [ "${hits:-0}" -gt 0 ]; then
-	secretguard_block "a commit in this push adds what looks like a cleartext credential" \
-		problem="$hits added line(s) across the commits in $range set a password/secret/token field to a value that is not ENC[...]. A later commit removing one does not unpublish it" \
-		needs="the value encrypted, or the field renamed if it genuinely is not a secret" \
-		blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
-		fix="find them with: git log -p -U0 $range -- '*.json' '*.yaml' '.env*' | grep -iE '\"(password|token|apikey)\"' -- then scripts/add_inplace_secret.sh <file> <field>" \
-		if_stuck="a genuine false positive (a test fixture, a deliberate wrong-password case)? git push --no-verify, and add the exclusion so the next person does not hit it" \
-		see="RUNBOOK.md, A hook blocks your commit" || fail=1
+    secretguard_block "a commit in this push adds what looks like a cleartext credential" \
+        problem="$hits added line(s) across the commits in $range set a password/secret/token field to a value that is not ENC[...]. A later commit removing one does not unpublish it" \
+        needs="the value encrypted, or the field renamed if it genuinely is not a secret" \
+        blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
+        fix="find them with: git log -p -U0 $range -- '*.json' '*.yaml' '.env*' | grep -iE '\"(password|token|apikey)\"' -- then scripts/add_inplace_secret.sh <file> <field>" \
+        if_stuck="a genuine false positive (a test fixture, a deliberate wrong-password case)? git push --no-verify, and add the exclusion so the next person does not hit it" \
+        see="RUNBOOK.md, A hook blocks your commit" || fail=1
 fi
 
 if [ "$fail" -ne 0 ]; then
-	echo >&2
-	echo "Push blocked. Nothing has left this machine." >&2
-	exit 1
+    echo >&2
+    echo "Push blocked. Nothing has left this machine." >&2
+    exit 1
 fi

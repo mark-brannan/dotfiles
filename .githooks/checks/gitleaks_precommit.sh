@@ -35,31 +35,31 @@ pin_file=docker/gitleaks/Dockerfile
 IMAGE="${GITLEAKS_IMAGE:-$(grep -m1 '^FROM ' "$pin_file" | awk '{print $2}')}"
 
 if ! command -v docker >/dev/null 2>&1; then
-	secretguard_require "gitleaks did not run: no docker on PATH" \
-		problem="the staged diff was not scanned for credential-shaped strings on this machine" \
-		needs="docker, to run the pinned $IMAGE" \
-		blocked_by="pre-commit hook 'gitleaks' (.githooks/checks/gitleaks_precommit.sh)" \
-		fix="install Docker, or accept the gap: CI runs the same scanner over full history and cannot be bypassed" \
-		see="RUNBOOK.md, A hook blocks your commit" || exit 1
-	exit 0
+    secretguard_require "gitleaks did not run: no docker on PATH" \
+        problem="the staged diff was not scanned for credential-shaped strings on this machine" \
+        needs="docker, to run the pinned $IMAGE" \
+        blocked_by="pre-commit hook 'gitleaks' (.githooks/checks/gitleaks_precommit.sh)" \
+        fix="install Docker, or accept the gap: CI runs the same scanner over full history and cannot be bypassed" \
+        see="RUNBOOK.md, A hook blocks your commit" || exit 1
+    exit 0
 fi
 
 if ! docker info >/dev/null 2>&1; then
-	secretguard_require "gitleaks did not run: docker daemon not reachable" \
-		problem="docker is installed but not running, so the staged diff was not scanned on this machine" \
-		needs="a running Docker daemon" \
-		blocked_by="pre-commit hook 'gitleaks' (.githooks/checks/gitleaks_precommit.sh)" \
-		fix="start Docker Desktop / dockerd (WSL2: enable integration for this distro), or commit and let CI scan" \
-		see="RUNBOOK.md, A hook blocks your commit" || exit 1
-	exit 0
+    secretguard_require "gitleaks did not run: docker daemon not reachable" \
+        problem="docker is installed but not running, so the staged diff was not scanned on this machine" \
+        needs="a running Docker daemon" \
+        blocked_by="pre-commit hook 'gitleaks' (.githooks/checks/gitleaks_precommit.sh)" \
+        fix="start Docker Desktop / dockerd (WSL2: enable integration for this distro), or commit and let CI scan" \
+        see="RUNBOOK.md, A hook blocks your commit" || exit 1
+    exit 0
 fi
 
 config_args=()
 if [ -f .gitleaks.toml ]; then
-	config_args=(--config "$PWD/.gitleaks.toml")
+    config_args=(--config "$PWD/.gitleaks.toml")
 fi
 
 # --redact is non-negotiable: without it gitleaks prints the secret it found
 # into the terminal, turning a near-miss into a real exposure.
 exec docker run --rm -v "$PWD:$PWD" -w "$PWD" "$IMAGE" \
-	git --pre-commit --redact --staged --verbose "${config_args[@]}"
+    git --pre-commit --redact --staged --verbose "${config_args[@]}"

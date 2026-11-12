@@ -64,14 +64,14 @@ _secretguard_mode=""
 _secretguard_mode_reason=""
 
 _secretguard_repo_root() {
-	git rev-parse --show-toplevel 2>/dev/null || pwd
+    git rev-parse --show-toplevel 2>/dev/null || pwd
 }
 
 _secretguard_have_age_key() {
-	if [ -n "${SOPS_AGE_KEY_FILE:-}" ] && [ -f "${SOPS_AGE_KEY_FILE}" ]; then
-		return 0
-	fi
-	[ -f "$HOME/.config/sops/age/keys.txt" ]
+    if [ -n "${SOPS_AGE_KEY_FILE:-}" ] && [ -f "${SOPS_AGE_KEY_FILE}" ]; then
+        return 0
+    fi
+    [ -f "$HOME/.config/sops/age/keys.txt" ]
 }
 
 # Mirror of secretguard.py's _SOPS_DIRS. git runs hooks from whatever
@@ -83,7 +83,7 @@ _secretguard_have_age_key() {
 # byte-identical to the python text, which is what keeps the two lists from
 # drifting.
 _secretguard_sops_dirs() {
-	printf '%s\n' "$HOME/.local/bin" /usr/local/bin /opt/homebrew/bin /usr/bin /bin
+    printf '%s\n' "$HOME/.local/bin" /usr/local/bin /opt/homebrew/bin /usr/bin /bin
 }
 
 # secretguard_find_sops -- absolute path to a runnable sops on stdout, or
@@ -92,27 +92,27 @@ _secretguard_sops_dirs() {
 # alias named sops as available, as a name rather than a path -- the python
 # twin's shutil.which only ever returns executables, and the two must agree.
 secretguard_find_sops() {
-	local found dir candidate
-	found="$(type -P sops 2>/dev/null || true)"
-	if [ -n "$found" ]; then
-		printf '%s\n' "$found"
-		return 0
-	fi
-	while IFS= read -r dir; do
-		candidate="$dir/sops"
-		if [ -f "$candidate" ] && [ -x "$candidate" ]; then
-			printf '%s\n' "$candidate"
-			return 0
-		fi
-	done < <(_secretguard_sops_dirs)
-	return 1
+    local found dir candidate
+    found="$(type -P sops 2>/dev/null || true)"
+    if [ -n "$found" ]; then
+        printf '%s\n' "$found"
+        return 0
+    fi
+    while IFS= read -r dir; do
+        candidate="$dir/sops"
+        if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done < <(_secretguard_sops_dirs)
+    return 1
 }
 
 # Everywhere secretguard_find_sops looks, phrased for a `needs:` line.
 # Must stay byte-identical to secretguard.py's sops_locations(); the parity
 # suite asserts it.
 secretguard_sops_locations() {
-	printf 'sops on PATH or in ~/.local/bin, /usr/local/bin, /opt/homebrew/bin, /usr/bin, /bin\n'
+    printf 'sops on PATH or in ~/.local/bin, /usr/local/bin, /opt/homebrew/bin, /usr/bin, /bin\n'
 }
 
 # secretguard_can_decrypt -- this machine can open the encrypted store:
@@ -122,11 +122,11 @@ secretguard_sops_locations() {
 # carrying no key at all, by design. The python twin is
 # secretguard.can_decrypt(); the long form lives on its docstring.
 secretguard_can_decrypt() {
-	[ -n "$(secretguard_find_sops || true)" ] && _secretguard_have_age_key
+    [ -n "$(secretguard_find_sops || true)" ] && _secretguard_have_age_key
 }
 
 _secretguard_filters_configured() {
-	[ -n "$(git config --get filter.sops.clean 2>/dev/null)" ]
+    [ -n "$(git config --get filter.sops.clean 2>/dev/null)" ]
 }
 
 # Where a guard message goes.
@@ -144,20 +144,20 @@ _secretguard_filters_configured() {
 # O_TRUNC and destroys everything already in it. Verified, not theoretical.
 # /dev/tty is opened in append mode for the same reason.
 _secretguard_route() {
-	if [ -t 2 ]; then
-		"$@" >&2
-	elif { : >/dev/tty; } 2>/dev/null; then
-		"$@" >>/dev/tty
-	else
-		"$@" >&2
-	fi
+    if [ -t 2 ]; then
+        "$@" >&2
+    elif { : >/dev/tty; } 2>/dev/null; then
+        "$@" >>/dev/tty
+    else
+        "$@" >&2
+    fi
 }
 
 # Normalize a mode word for comparison: lowercased, surrounding whitespace
 # gone. The python twin does the same with .strip().lower(), and the parity
 # test caught the version of this that only lowercased.
 _secretguard_word() {
-	printf '%s' "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
+    printf '%s' "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
 }
 
 # secretguard_is_sops_encrypted -- reads the file content on stdin, exits 0
@@ -171,93 +171,93 @@ _secretguard_word() {
 # (secretguard.is_sops_encrypted) applies the same rule, and the parity test
 # runs both over one fixture list.
 secretguard_is_sops_encrypted() {
-	local text
-	text="$(cat)"
-	if grep -Eq '"sops"[[:space:]]*:[[:space:]]*\{' <<<"$text"; then
-		grep -Eq '"mac"[[:space:]]*:' <<<"$text" &&
-			grep -Eq '"version"[[:space:]]*:' <<<"$text"
-		return
-	fi
-	if grep -Eq '^sops:[[:space:]]*$' <<<"$text"; then
-		grep -Eq '^[[:space:]]+mac:' <<<"$text" &&
-			grep -Eq '^[[:space:]]+version:' <<<"$text"
-		return
-	fi
-	return 1
+    local text
+    text="$(cat)"
+    if grep -Eq '"sops"[[:space:]]*:[[:space:]]*\{' <<<"$text"; then
+        grep -Eq '"mac"[[:space:]]*:' <<<"$text" &&
+            grep -Eq '"version"[[:space:]]*:' <<<"$text"
+        return
+    fi
+    if grep -Eq '^sops:[[:space:]]*$' <<<"$text"; then
+        grep -Eq '^[[:space:]]+mac:' <<<"$text" &&
+            grep -Eq '^[[:space:]]+version:' <<<"$text"
+        return
+    fi
+    return 1
 }
 
 secretguard_resolve_mode() {
-	if [ -n "$_secretguard_mode" ]; then
-		return 0
-	fi
+    if [ -n "$_secretguard_mode" ]; then
+        return 0
+    fi
 
-	local raw word root line key filters missing
+    local raw word root line key filters missing
 
-	if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-		_secretguard_mode=strict
-		_secretguard_mode_reason="CI"
-		return 0
-	fi
+    if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        _secretguard_mode=strict
+        _secretguard_mode_reason="CI"
+        return 0
+    fi
 
-	raw="${SECRETGUARD_MODE:-}"
-	word="$(_secretguard_word "$raw")"
-	case "$word" in
-	strict | contributor)
-		_secretguard_mode="$word"
-		_secretguard_mode_reason="SECRETGUARD_MODE=$word"
-		return 0
-		;;
-	"") : ;;
-	*) printf 'secretguard: ignoring SECRETGUARD_MODE=%s (expected strict or contributor)\n' "$raw" >&2 ;;
-	esac
+    raw="${SECRETGUARD_MODE:-}"
+    word="$(_secretguard_word "$raw")"
+    case "$word" in
+    strict | contributor)
+        _secretguard_mode="$word"
+        _secretguard_mode_reason="SECRETGUARD_MODE=$word"
+        return 0
+        ;;
+    "") : ;;
+    *) printf 'secretguard: ignoring SECRETGUARD_MODE=%s (expected strict or contributor)\n' "$raw" >&2 ;;
+    esac
 
-	root="$(_secretguard_repo_root)"
-	if [ -f "$root/.secretguard-mode" ]; then
-		# `|| true`: with `set -o pipefail` (setup-git-filters.sh) a
-		# comments-only file makes grep exit 1, which would propagate out
-		# of the assignment and kill the sourcing script before it
-		# configured anything.
-		line="$(grep -vE '^[[:space:]]*(#|$)' "$root/.secretguard-mode" 2>/dev/null |
-			head -n1 | tr -d '[:space:]' || true)"
-		line="$(_secretguard_word "$line")"
-		case "$line" in
-		strict | contributor)
-			_secretguard_mode="$line"
-			_secretguard_mode_reason=".secretguard-mode says $line"
-			return 0
-			;;
-		"") : ;;
-		*) printf 'secretguard: ignoring .secretguard-mode value %s (expected strict or contributor)\n' "$line" >&2 ;;
-		esac
-	fi
+    root="$(_secretguard_repo_root)"
+    if [ -f "$root/.secretguard-mode" ]; then
+        # `|| true`: with `set -o pipefail` (setup-git-filters.sh) a
+        # comments-only file makes grep exit 1, which would propagate out
+        # of the assignment and kill the sourcing script before it
+        # configured anything.
+        line="$(grep -vE '^[[:space:]]*(#|$)' "$root/.secretguard-mode" 2>/dev/null |
+            head -n1 | tr -d '[:space:]' || true)"
+        line="$(_secretguard_word "$line")"
+        case "$line" in
+        strict | contributor)
+            _secretguard_mode="$line"
+            _secretguard_mode_reason=".secretguard-mode says $line"
+            return 0
+            ;;
+        "") : ;;
+        *) printf 'secretguard: ignoring .secretguard-mode value %s (expected strict or contributor)\n' "$line" >&2 ;;
+        esac
+    fi
 
-	key=no
-	filters=no
-	if _secretguard_have_age_key; then key=yes; fi
-	if _secretguard_filters_configured; then filters=yes; fi
+    key=no
+    filters=no
+    if _secretguard_have_age_key; then key=yes; fi
+    if _secretguard_filters_configured; then filters=yes; fi
 
-	if [ "$key" = yes ] && [ "$filters" = yes ]; then
-		_secretguard_mode=strict
-		_secretguard_mode_reason="auto-detected: age key available, git filters configured"
-	else
-		missing=""
-		if [ "$key" = no ]; then missing="no age key"; fi
-		if [ "$filters" = no ]; then
-			missing="${missing:+$missing, }git filters not configured"
-		fi
-		_secretguard_mode=contributor
-		_secretguard_mode_reason="auto-detected: $missing"
-	fi
+    if [ "$key" = yes ] && [ "$filters" = yes ]; then
+        _secretguard_mode=strict
+        _secretguard_mode_reason="auto-detected: age key available, git filters configured"
+    else
+        missing=""
+        if [ "$key" = no ]; then missing="no age key"; fi
+        if [ "$filters" = no ]; then
+            missing="${missing:+$missing, }git filters not configured"
+        fi
+        _secretguard_mode=contributor
+        _secretguard_mode_reason="auto-detected: $missing"
+    fi
 }
 
 secretguard_mode() {
-	secretguard_resolve_mode
-	printf '%s\n' "$_secretguard_mode"
+    secretguard_resolve_mode
+    printf '%s\n' "$_secretguard_mode"
 }
 
 secretguard_mode_reason() {
-	secretguard_resolve_mode
-	printf '%s\n' "$_secretguard_mode_reason"
+    secretguard_resolve_mode
+    printf '%s\n' "$_secretguard_mode_reason"
 }
 
 # secretguard_msg LEVEL TITLE [problem=...] [file=...]... [needs=...]
@@ -277,43 +277,43 @@ secretguard_mode_reason() {
 # a redirect on the call rather than a path opened inside it. Reads the
 # caller's locals -- bash scopes those dynamically.
 _secretguard_msg_body() {
-		printf '\nsecretguard %s: %s\n' "$level" "$title"
-		if [ -n "$problem" ]; then printf '  problem:    %s\n' "$problem"; fi
-		if [ -n "$files" ]; then
-			while IFS= read -r val; do
-				if [ -n "$val" ]; then printf '  file:       %s\n' "$val"; fi
-			done <<<"$files"
-		fi
-		if [ -n "$needs" ]; then printf '  needs:      %s\n' "$needs"; fi
-		if [ -n "$blocked_by" ]; then printf '  blocked by: %s\n' "$blocked_by"; fi
-		if [ -n "$fix" ]; then printf '  fix:        %s\n' "$fix"; fi
-		if [ -n "$if_stuck" ]; then printf '  if stuck:   %s\n' "$if_stuck"; fi
-		if [ -n "$see" ]; then printf '  see:        %s\n' "$see"; fi
-		printf '  mode:       %s (%s)\n' "$_secretguard_mode" "$_secretguard_mode_reason"
+        printf '\nsecretguard %s: %s\n' "$level" "$title"
+        if [ -n "$problem" ]; then printf '  problem:    %s\n' "$problem"; fi
+        if [ -n "$files" ]; then
+            while IFS= read -r val; do
+                if [ -n "$val" ]; then printf '  file:       %s\n' "$val"; fi
+            done <<<"$files"
+        fi
+        if [ -n "$needs" ]; then printf '  needs:      %s\n' "$needs"; fi
+        if [ -n "$blocked_by" ]; then printf '  blocked by: %s\n' "$blocked_by"; fi
+        if [ -n "$fix" ]; then printf '  fix:        %s\n' "$fix"; fi
+        if [ -n "$if_stuck" ]; then printf '  if stuck:   %s\n' "$if_stuck"; fi
+        if [ -n "$see" ]; then printf '  see:        %s\n' "$see"; fi
+        printf '  mode:       %s (%s)\n' "$_secretguard_mode" "$_secretguard_mode_reason"
 }
 
 secretguard_msg() {
-	secretguard_resolve_mode
-	local level="$1" title="$2"
-	shift 2
+    secretguard_resolve_mode
+    local level="$1" title="$2"
+    shift 2
 
-	local problem="" needs="" blocked_by="" fix="" if_stuck="" see="" files="" kv key val
-	for kv in "$@"; do
-		key="${kv%%=*}"
-		val="${kv#*=}"
-		case "$key" in
-		problem) problem="$val" ;;
-		needs) needs="$val" ;;
-		blocked_by) blocked_by="$val" ;;
-		fix) fix="$val" ;;
-		if_stuck) if_stuck="$val" ;;
-		see) see="$val" ;;
-		file) files="${files}${val}"$'\n' ;;
-		*) printf 'secretguard_msg: unknown field %s\n' "$key" >&2 ;;
-		esac
-	done
+    local problem="" needs="" blocked_by="" fix="" if_stuck="" see="" files="" kv key val
+    for kv in "$@"; do
+        key="${kv%%=*}"
+        val="${kv#*=}"
+        case "$key" in
+        problem) problem="$val" ;;
+        needs) needs="$val" ;;
+        blocked_by) blocked_by="$val" ;;
+        fix) fix="$val" ;;
+        if_stuck) if_stuck="$val" ;;
+        see) see="$val" ;;
+        file) files="${files}${val}"$'\n' ;;
+        *) printf 'secretguard_msg: unknown field %s\n' "$key" >&2 ;;
+        esac
+    done
 
-	_secretguard_route _secretguard_msg_body
+    _secretguard_route _secretguard_msg_body
 }
 
 # secretguard_require TITLE [fields...]
@@ -321,15 +321,15 @@ secretguard_msg() {
 # A capability this guard wants. strict -> message and return 1 (the caller
 # exits). contributor -> warning and return 0, commit proceeds.
 secretguard_require() {
-	secretguard_resolve_mode
-	local title="$1"
-	shift
-	if [ "$_secretguard_mode" = strict ]; then
-		secretguard_msg BLOCKED "$title" "$@"
-		return 1
-	fi
-	secretguard_msg warning "$title" "$@"
-	return 0
+    secretguard_resolve_mode
+    local title="$1"
+    shift
+    if [ "$_secretguard_mode" = strict ]; then
+        secretguard_msg BLOCKED "$title" "$@"
+        return 1
+    fi
+    secretguard_msg warning "$title" "$@"
+    return 0
 }
 
 # secretguard_block TITLE [fields...]
@@ -337,12 +337,12 @@ secretguard_require() {
 # Not negotiable in any mode. For the cases where continuing would write a
 # secret into git in the clear. Always returns 1.
 secretguard_block() {
-	secretguard_msg BLOCKED "$1" "${@:2}"
-	return 1
+    secretguard_msg BLOCKED "$1" "${@:2}"
+    return 1
 }
 
 # secretguard_note TITLE [fields...] -- informational, never affects exit status.
 secretguard_note() {
-	secretguard_msg note "$1" "${@:2}"
-	return 0
+    secretguard_msg note "$1" "${@:2}"
+    return 0
 }
