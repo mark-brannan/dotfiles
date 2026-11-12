@@ -21,7 +21,8 @@ absent()  { [ -e "$1" ] && bad "did not expect $1" || ok; }
 # --- origin, and a yadm-shaped clone of it ----------------------------------
 O="$S/origin"; git init -q -b main "$O"; mkdir -p "$O/.claude"
 echo conv > "$O/CLAUDE.md"; echo so > "$O/.claude/CLAUDE.md"; echo b > "$O/.bashrc"
-git -C "$O" add CLAUDE.md .claude/CLAUDE.md .bashrc; git -C "$O" commit -q -m init
+mkdir -p "$O/.github/workflows"; echo w > "$O/.github/workflows/ci.yml"; echo f > "$O/.github/FUNDING.yml"
+git -C "$O" add CLAUDE.md .claude/CLAUDE.md .bashrc .github/workflows/ci.yml .github/FUNDING.yml; git -C "$O" commit -q -m init
 R="$S/repo.git"; git clone -q --bare "$O" "$R"
 G=(git --git-dir="$R")
 "${G[@]}" config core.bare false; "${G[@]}" config core.worktree "$HOME"
@@ -37,6 +38,7 @@ yadm worktree add -q "$S/old" -b old 2>/dev/null
 ln -s "$HK" "$R/hooks/post-checkout"
 (cd "$HOME" && yadm sparse-checkout set --no-cone '/*' '!/CLAUDE.md' '!/.github/' '/.github/FUNDING.yml') || bad "sparse-checkout set failed"
 absent "$HOME/CLAUDE.md"; present "$HOME/.claude/CLAUDE.md"; present "$HOME/.bashrc"
+absent "$HOME/.github/workflows/ci.yml"; present "$HOME/.github/FUNDING.yml"
 [ -z "$(yadm status --short -uno)" ] && ok || bad "status not clean after install"
 present "$S/old/CLAUDE.md"
 
@@ -45,10 +47,11 @@ echo conv2 > "$O/CLAUDE.md"; echo b2 > "$O/.bashrc"
 git -C "$O" add CLAUDE.md .bashrc; git -C "$O" commit -q -m two
 (cd "$HOME" && yadm fetch -q && yadm merge -q --ff-only origin/main) || bad "ff merge failed"
 absent "$HOME/CLAUDE.md"; [ "$(cat "$HOME/.bashrc")" = b2 ] && ok || bad ".bashrc not updated"
+absent "$HOME/.github/workflows/ci.yml"; present "$HOME/.github/FUNDING.yml"
 
 # --- new worktrees, both routes, get the whole tree --------------------------
 (cd "$HOME" && yadm worktree add -q "$HOME/.claude/worktrees/a" -b a) 2>/dev/null
-present "$HOME/.claude/worktrees/a/CLAUDE.md"
+present "$HOME/.claude/worktrees/a/CLAUDE.md"; present "$HOME/.claude/worktrees/a/.github/workflows/ci.yml"
 git --git-dir="$R" worktree add -q "$S/b" -b b 2>/dev/null
 present "$S/b/CLAUDE.md"
 absent "$HOME/CLAUDE.md"
@@ -66,7 +69,7 @@ rm "$R/hooks/post-checkout"; (cd "$HOME" && yadm sparse-checkout disable) >/dev/
 present "$HOME/CLAUDE.md"
 cp "$HK" "$HOME/.local/bin/yadm-post-checkout.sh"
 (cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 || bad "bootstrap failed"
-absent "$HOME/CLAUDE.md"
+absent "$HOME/CLAUDE.md"; absent "$HOME/.github/workflows/ci.yml"; present "$HOME/.github/FUNDING.yml"
 [ "$(readlink "$R/hooks/post-checkout")" = "$HOME/.local/bin/yadm-post-checkout.sh" ] && ok || bad "bootstrap did not link the hook"
 (cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 && ok || bad "second bootstrap failed"
 (cd "$HOME" && yadm worktree add -q "$S/c" -b c) 2>/dev/null; present "$S/c/CLAUDE.md"
