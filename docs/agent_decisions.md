@@ -9,3 +9,6 @@ heading is the UTC stamp, so `agent_decisions.md#<stamp>` links one entry.
 
 ### 20261112t042442z
 - hook scripts sit in .githooks/checks/, leaving the top of .githooks/ for git's event names Undo: move the files up one level ([#590](https://github.com/mark-brannan/dotfiles/pull/590))
+
+### 20261112t042445z
+- a Dependabot entry watches the gitleaks pin under .githooks/docker/gitleaks Undo: delete the docker entry in .github/dependabot.yml ([#590](https://github.com/mark-brannan/dotfiles/pull/590))
