@@ -7,6 +7,15 @@
 [user]
 	email = markbrannan@gmail.com
 	name = Mark Brannan
+	signingkey = ~/.ssh/id_ed25519.pub
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	allowedSignersFile = ~/.ssh/allowed_signers
+[commit]
+	gpgsign = true
+[tag]
+	gpgsign = true
 [branch]
 	# A branch tracks its own remote branch, never the one it was cut from, so mergify's stack pre-push hook doesn't mistake a PR branch for a stack.
 	autoSetupMerge = simple
