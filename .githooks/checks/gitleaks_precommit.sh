@@ -20,7 +20,7 @@
 # its laptops read the same pin); else this hook repo's own
 # docker/gitleaks/Dockerfile.
 #
-# CI is unaffected by any of this: the gitleaks job in validate.yml runs the
+# CI is unaffected by any of this: the gitleaks job in the repo's CI runs the
 # same image over full history on a runner that always has Docker, and is
 # the enforcement boundary regardless of what a laptop can run.
 set -euo pipefail
@@ -39,8 +39,7 @@ if ! command -v docker >/dev/null 2>&1; then
         problem="the staged diff was not scanned for credential-shaped strings on this machine" \
         needs="docker, to run the pinned $IMAGE" \
         blocked_by="pre-commit hook 'gitleaks' (.githooks/checks/gitleaks_precommit.sh)" \
-        fix="install Docker, or accept the gap: CI runs the same scanner over full history and cannot be bypassed" \
-        see="RUNBOOK.md, A hook blocks your commit" || exit 1
+        fix="install Docker, or accept the gap: CI runs the same scanner over full history and cannot be bypassed" || exit 1
     exit 0
 fi
 
@@ -49,8 +48,7 @@ if ! docker info >/dev/null 2>&1; then
         problem="docker is installed but not running, so the staged diff was not scanned on this machine" \
         needs="a running Docker daemon" \
         blocked_by="pre-commit hook 'gitleaks' (.githooks/checks/gitleaks_precommit.sh)" \
-        fix="start Docker Desktop / dockerd (WSL2: enable integration for this distro), or commit and let CI scan" \
-        see="RUNBOOK.md, A hook blocks your commit" || exit 1
+        fix="start Docker Desktop / dockerd (WSL2: enable integration for this distro), or commit and let CI scan" || exit 1
     exit 0
 fi
 
@@ -61,5 +59,12 @@ fi
 
 # --redact is non-negotiable: without it gitleaks prints the secret it found
 # into the terminal, turning a near-miss into a real exposure.
-exec docker run --rm -v "$PWD:$PWD" -w "$PWD" "$IMAGE" \
-    git --pre-commit --redact --staged --verbose "${config_args[@]}"
+#
+# A linked worktree keeps its git dir outside $PWD, so that is mounted too.
+# The ${x[@]+...} form is for bash before 4.4, where set -u calls an empty
+# array unbound.
+gitdir="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
+mounts=(-v "$PWD:$PWD")
+case "$gitdir/" in "$PWD"/*) ;; *) mounts+=(-v "$gitdir:$gitdir") ;; esac
+exec docker run --rm "${mounts[@]}" -w "$PWD" "$IMAGE" \
+    git --pre-commit --redact --staged --verbose ${config_args[@]+"${config_args[@]}"}

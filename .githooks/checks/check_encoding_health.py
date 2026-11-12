@@ -277,7 +277,6 @@ def _report(path, what, staged=True, extra=None):
             "this is repo-wide state, not your commit -- nothing here is "
             "staged, so there is nothing to drop. Repair it in its own change."
         ),
-        see="reference/precommit_guards.md",
     )
 
 

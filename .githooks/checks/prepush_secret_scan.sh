@@ -11,7 +11,7 @@
 # Push, not commit, is the irreversible moment. A commit lives on your
 # laptop; a push puts it on GitHub, where deleting it does not un-publish
 # it. CI (gitleaks, trufflehog) is the real enforcement boundary, but
-# .github/workflows/validate.yml triggers on push to main and PRs to main
+# a CI workflow usually triggers on push to main and PRs to main
 # -- a push to a topic branch with no PR open is scanned by nothing until
 # someone opens one. This covers that window.
 #
@@ -28,6 +28,22 @@ cd "$(git rev-parse --show-toplevel)"
 
 # shellcheck source=.githooks/checks/secretguard.sh disable=SC1091
 . "$HERE/secretguard.sh"
+
+# Run as a plain git pre-push hook, the refs arrive on stdin, one
+# "<local ref> <local sha> <remote ref> <remote sha>" line per ref being
+# pushed. Each line is scanned as its own range. PRE_COMMIT_FROM_REF and
+# PRE_COMMIT_TO_REF, when set, name one range and stdin is not read.
+if [ -z "${PRE_COMMIT_TO_REF:-}" ] && [ ! -t 0 ]; then
+    rc=0
+    seen=0
+    while read -r _lref lsha _rref rsha; do
+        [ -n "${lsha:-}" ] || continue
+        seen=1
+        PRE_COMMIT_FROM_REF="$rsha" PRE_COMMIT_TO_REF="$lsha" \
+            bash "$HERE/prepush_secret_scan.sh" </dev/null || rc=1
+    done
+    [ "$seen" = 0 ] || exit "$rc"
+fi
 
 ZERO="0000000000000000000000000000000000000000"
 from_ref="${PRE_COMMIT_FROM_REF:-}"
@@ -112,8 +128,7 @@ for path in .env age.key; do
             needs="the file removed from every commit in $range, not just the tip" \
             blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
             fix="git rm --cached $path, commit, then rewrite the earlier commits that carry it" \
-            if_stuck="git push --no-verify pushes anyway -- CI's gitleaks and trufflehog will see it, and by then it is public" \
-            see="RUNBOOK.md, A secret was committed in plaintext" || fail=1
+            if_stuck="git push --no-verify pushes anyway -- CI's gitleaks and trufflehog will see it, and by then it is public" || fail=1
     fi
 done
 
@@ -127,9 +142,8 @@ while IFS= read -r path; do
             file="$path" \
             needs="the sops clean filter to have run before it was committed" \
             blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
-            fix="bash scripts/setup-git-filters.sh, then re-commit the file: git add --renormalize $path" \
-            if_stuck="already pushed elsewhere, or you need this out now? git push --no-verify -- then treat it as a leak and follow the rotation procedure" \
-            see="RUNBOOK.md, A secret was committed in plaintext" || fail=1
+            fix="configure the sops clean filter in this clone (git config filter.sops.clean ...), then re-commit the file: git add --renormalize $path" \
+            if_stuck="already pushed elsewhere, or you need this out now? git push --no-verify -- then treat it as a leak and follow the rotation procedure" || fail=1
     fi
 done < <(covered_sops)
 
@@ -143,8 +157,7 @@ for path in secrets/*.sops.yaml; do
             needs="sops encryption applied before the commit" \
             blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
             fix="sops --encrypt --in-place $path, then re-commit it" \
-            if_stuck="git push --no-verify pushes anyway -- and this one is a live credential store, so rotate afterwards" \
-            see="RUNBOOK.md, Rotating a secret" || fail=1
+            if_stuck="git push --no-verify pushes anyway -- and this one is a live credential store, so rotate afterwards" || fail=1
     fi
 done
 
@@ -162,9 +175,8 @@ if [ "${hits:-0}" -gt 0 ]; then
         problem="$hits added line(s) across the commits in $range set a password/secret/token field to a value that is not ENC[...]. A later commit removing one does not unpublish it" \
         needs="the value encrypted, or the field renamed if it genuinely is not a secret" \
         blocked_by="pre-push hook 'prepush-secret-scan' (.githooks/checks/prepush_secret_scan.sh)" \
-        fix="find them with: git log -p -U0 $range -- '*.json' '*.yaml' '.env*' | grep -iE '\"(password|token|apikey)\"' -- then scripts/add_inplace_secret.sh <file> <field>" \
-        if_stuck="a genuine false positive (a test fixture, a deliberate wrong-password case)? git push --no-verify, and add the exclusion so the next person does not hit it" \
-        see="RUNBOOK.md, A hook blocks your commit" || fail=1
+        fix="find them with: git log -p -U0 $range -- '*.json' '*.yaml' '.env*' | grep -iE '\"(password|token|apikey)\"' -- then encrypt each: sops --encrypt --in-place <file>" \
+        if_stuck="a genuine false positive (a test fixture, a deliberate wrong-password case)? git push --no-verify, and add the exclusion so the next person does not hit it" || fail=1
 fi
 
 if [ "$fail" -ne 0 ]; then

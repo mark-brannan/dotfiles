@@ -23,7 +23,7 @@
 #                   error and the guard exits non-zero.
 #   contributor  -- this clone has no key and isn't expected to. A missing
 #                   capability is a warning; the commit goes through and CI
-#                   (.github/workflows/validate.yml) is the enforcement
+#                   (the repo's own workflow) is the enforcement
 #                   boundary, as it always was.
 #
 # Resolved in this order:

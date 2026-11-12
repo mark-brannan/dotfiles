@@ -215,14 +215,14 @@ def rule_declared_filters_are_configured() -> None:
                 needs=f"filter.{name}.clean in this clone's .git/config",
                 blocked_by="pre-commit hook 'repo-hygiene' "
                            "(.githooks/checks/lint_repo_hygiene.py)",
-                fix="bash scripts/setup-git-filters.sh, then: "
-                    f"git add --renormalize {first}",
+                fix=f"configure the filter in this clone (git config "
+                    f"filter.{name}.clean '<its command>', and .smudge), "
+                    f"then: git add --renormalize {first}",
                 if_stuck="no sops or age key here, or you didn't stage it? Take "
                          "it out of this commit and everything else goes "
                          f"through: git restore --staged {first} -- or commit "
                          "only your own paths: git commit -m ... -- <your "
                          "paths>. Last resort: SKIP=repo-hygiene git commit ...",
-                see="README.md, Setup -- or bash scripts/check_clone_setup.sh",
             )
         else:
             message = secretguard.format(
@@ -234,11 +234,11 @@ def rule_declared_filters_are_configured() -> None:
                 needs=f"filter.{name}.clean in this clone's .git/config",
                 blocked_by="pre-commit hook 'repo-hygiene' "
                            "(.githooks/checks/lint_repo_hygiene.py)",
-                fix="bash scripts/setup-git-filters.sh, before you commit a "
-                    "covered file",
+                fix=f"configure the filter in this clone (git config "
+                    f"filter.{name}.clean '<its command>', and .smudge) "
+                    "before you commit a covered file",
                 if_stuck="SKIP=repo-hygiene git commit ...   (last resort: "
                          "git commit --no-verify)",
-                see="README.md, Setup -- or bash scripts/check_clone_setup.sh",
             )
         (failures if blocking else warnings).append(message)
 
@@ -303,12 +303,12 @@ def rule_plaintext_secrets_are_protectable() -> None:
         file=exposed,
         needs=", ".join(missing),
         blocked_by="pre-commit hook 'repo-hygiene' (.githooks/checks/lint_repo_hygiene.py)",
-        fix="restore what 'needs' lists, then: bash scripts/setup-git-filters.sh",
+        fix="restore what 'needs' lists, then configure the filters "
+            ".gitattributes declares (git config filter.<name>.clean ...)",
         if_stuck="if the plaintext is stale rather than live, delete those files "
                  "and `git checkout --` them to get the encrypted form back. To "
                  "commit anyway: SKIP=repo-hygiene git commit ... (CI's gitleaks "
                  "and trufflehog passes still run on a PR)",
-        see="bash scripts/check_clone_setup.sh",
     ))
 
 

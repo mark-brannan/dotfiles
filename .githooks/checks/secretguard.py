@@ -397,7 +397,6 @@ def require_pyyaml(hook):
             needs="the pyyaml package for this python3",
             blocked_by=hook,
             fix="pip install pyyaml",
-            see="bash scripts/check_clone_setup.sh",
         )
     return None
 
