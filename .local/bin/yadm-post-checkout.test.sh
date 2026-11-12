@@ -35,7 +35,7 @@ yadm worktree add -q "$S/old" -b old 2>/dev/null
 
 # --- what bootstrap does ----------------------------------------------------
 ln -s "$HK" "$R/hooks/post-checkout"
-(cd "$HOME" && yadm sparse-checkout set --no-cone '/*' '!/CLAUDE.md') || bad "sparse-checkout set failed"
+(cd "$HOME" && yadm sparse-checkout set --no-cone '/*' '!/CLAUDE.md' '!/.github/' '/.github/FUNDING.yml') || bad "sparse-checkout set failed"
 absent "$HOME/CLAUDE.md"; present "$HOME/.claude/CLAUDE.md"; present "$HOME/.bashrc"
 [ -z "$(yadm status --short -uno)" ] && ok || bad "status not clean after install"
 present "$S/old/CLAUDE.md"
