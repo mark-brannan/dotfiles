@@ -26,3 +26,11 @@ regexes = [
   '''ENC\[AES256_GCM,data:[A-Za-z0-9+/=,_-]+\]''',
   '''age1[0-9a-z]{58}''',
 ]
+
+# A made-up access-request id in the vuln-shape hook's own test fixtures. The
+# hook exists to catch text shaped like this, so its test has to hold some.
+[[allowlists]]
+description = "vuln-shape test fixture: a made-up access-request id"
+condition = "AND"
+paths = ['''^\.githooks/tests/test_vuln_shape\.py$''']
+regexes = ['''7a1c9e2b-1111-4222-8333-944455556666''']

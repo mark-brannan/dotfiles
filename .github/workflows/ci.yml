@@ -79,6 +79,7 @@ jobs:
           # else here is bash-shebanged and checked as such.
           shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit
           shellcheck --severity=warning .local/bin/*.sh
+          shellcheck --severity=warning -x .githooks/checks/*.sh
 
   # The .local/bin suites that stayed here (dotfiles-sync, the ~/.claude
   # clone mover, yadm-post-checkout). The Claude Code hook and tool suites
@@ -101,6 +102,21 @@ jobs:
                 if bash "$t"; then echo "ok"; else echo "::error::$t failed"; exit 1; fi
                 echo "::endgroup::"
               ' _ {}
+
+  # The git hooks under .githooks/: four stdlib unittest suites, a few
+  # seconds in all. The hooks are not switched on by this repo yet; the
+  # suites keep them working until they are.
+  githooks-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run the hook suites
+        run: |
+          set -euo pipefail
+          for t in .githooks/tests/test_*.py; do python3 "$t" -q; done
 
   # The prose guard, through mark-brannan/.github's reusable workflow like
   # every other consumer repo now that the engine lives in mark-brannan/claude
@@ -135,7 +151,7 @@ jobs:
   # gate evaluate when a dependency failed or was skipped, so it reports an
   # explicit pass or fail of its own rather than inheriting the skip.
   ci-gate:
-    needs: [secrets-encrypted, shellcheck, tool-tests, prose-budget, nonempty, pr-title]
+    needs: [secrets-encrypted, shellcheck, tool-tests, githooks-tests, prose-budget, nonempty, pr-title]
     if: always()
     # It reads nothing and writes nothing; the results go in as an input.
     permissions: {}

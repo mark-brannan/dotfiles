@@ -13,3 +13,12 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+  # The gitleaks image the git hooks run, pinned in a Dockerfile that is
+  # read for its version and never built.
+  - package-ecosystem: "docker"
+    directory: "/.githooks/docker/gitleaks"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: ci
+      include: scope
