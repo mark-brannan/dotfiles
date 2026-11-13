@@ -24,8 +24,6 @@ export NVM_DIR="$HOME/.nvm"
 export PATH="$PATH:/opt/local/bin:/opt/local/sbin"
 # Finished adapting your PATH environment variable for use with MacPorts.
 
-# Setting PATH for Python 3.15
-# The original version is saved in .zprofile.pysave
-PATH="/Library/Frameworks/Python.framework/Versions/3.15/bin:${PATH}"
-export PATH
+# Python 3.15 from the python.org framework installer
+[ -d /Library/Frameworks/Python.framework/Versions/3.15/bin ] && export PATH="/Library/Frameworks/Python.framework/Versions/3.15/bin:$PATH"
 export PATH="$HOME/.local/bin:$PATH"
