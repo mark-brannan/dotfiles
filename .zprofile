@@ -21,5 +21,11 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # MacPorts Installer addition on 2026-09-18_at_17:00:42: adding an appropriate PATH variable for use with MacPorts.
-export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+export PATH="$PATH:/opt/local/bin:/opt/local/sbin"
 # Finished adapting your PATH environment variable for use with MacPorts.
+
+# Setting PATH for Python 3.15
+# The original version is saved in .zprofile.pysave
+PATH="/Library/Frameworks/Python.framework/Versions/3.15/bin:${PATH}"
+export PATH
+export PATH="$HOME/.local/bin:$PATH"
