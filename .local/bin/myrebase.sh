@@ -1,19 +1,5 @@
 #!/usr/bin/env sh
-
-# Not claude_prompts_scratch: the Stop hook syncs that clone under its own lock; an unlocked rebase races it.
-{
-cat<<EOF
-homebrew-tap
-coderabbit
-EOF
-cat ~/.local/share/non-vended-repos.txt
-cat ~/.local/share/vended-repos.txt
-} | while read i
-do
-    echo "============================== ($i)"
-    cd ~/"$i" || { echo "No such directory for '$i'"; continue; }
-    pwd
-    git -c color.ui=always status -s -b --untracked-files=no
-    git checkout main -q || echo "Could not checkout main"
-    git pull origin main --rebase --autostash || echo "Failed to pull/rebase $i" 
-done
+# Kept for the habit: fetch every top-level clone now and fast-forward the ones
+# that can move. No stash, rebase or checkout; anything else is reported.
+# Not claude_prompts_scratch: its own hook syncs it. The rules are in clone-ff.
+exec "$HOME/.local/bin/clone-ff" --now "$@"
