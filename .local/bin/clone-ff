@@ -99,6 +99,8 @@ def remote_heads(slugs):
     try:
         data = json.loads(r.stdout)["data"]
     except (ValueError, KeyError, TypeError):
+        data = None
+    if not isinstance(data, dict):
         raise RuntimeError(f"GraphQL query failed: {(r.stderr or r.stdout).strip()[:300]}")
     heads = {}
     for i, s in enumerate(slugs):
@@ -109,12 +111,14 @@ def remote_heads(slugs):
 
 def local_default(repo):
     ref = out(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
-    return ref.split("/", 1)[1] if ref and "/" in ref else "main"
+    return ref.split("/", 1)[1] if ref and "/" in ref else None
 
 
 def check(name, repo, default, remote_oid, now):
     """Fetch when stale, fast-forward when safe; return the clone's status."""
-    st = {"state": "ok", "branch": None, "behind": 0, "ahead": 0, "reason": "", "checked_at": now}
+    # queried false: the query had no head for it, so it is fetched every run.
+    st = {"state": "ok", "branch": None, "behind": 0, "ahead": 0, "reason": "", "checked_at": now,
+          "queried": remote_oid is not None}
 
     def report(state, reason=""):
         st.update(state=state, reason=reason)
@@ -128,9 +132,7 @@ def check(name, repo, default, remote_oid, now):
     if Path(gd) != (repo / ".git").resolve():
         return report("not-a-clone", "a worktree or nested repo, not a top-level clone")
     gd = Path(gd)
-    if default is None:
-        default = local_default(repo)
-    track = f"refs/remotes/origin/{default}"
+    track = f"refs/remotes/origin/{default}" if default else None
     if remote_oid is None or out(repo, "rev-parse", "-q", "--verify", track) != remote_oid:
         try:
             f = git(repo, "fetch", "-q", "origin", timeout=FETCH_TIMEOUT)
@@ -141,6 +143,8 @@ def check(name, repo, default, remote_oid, now):
             return report("fetch-failed", " ".join(fetch_err) or "git fetch failed")
         if remote_oid is None:
             default = local_default(repo)
+            if default is None:
+                return report("no-default", "origin/HEAD unset; run git remote set-head origin --auto")
             track = f"refs/remotes/origin/{default}"
     if out(repo, "rev-parse", "-q", "--verify", track) is None:
         return report("no-default", f"no {track}")
@@ -184,7 +188,11 @@ def run(now_mode):
     def one(n):
         # No head for it (--now, not on GitHub, not found): fetch and read origin/HEAD.
         default, oid = heads.get(slugs.get(n)) or (None, None)
-        return n, check(n, repos[n], default, oid, now)
+        try:
+            return n, check(n, repos[n], default, oid, now)
+        except subprocess.TimeoutExpired as e:
+            return n, {"state": "timeout", "branch": None, "behind": 0, "ahead": 0, "checked_at": now,
+                       "reason": f"git {e.cmd[4]} timed out after {e.timeout:.0f}s", "queried": oid is not None}
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         clones = dict(pool.map(one, repos))

@@ -165,6 +165,17 @@ class CloneFfTest(unittest.TestCase):
         self.assertEqual(clones["gone"]["state"], "missing")
         self.assertEqual(clones["wt"]["state"], "not-a-clone")
 
+    def test_a_git_timeout_is_one_clone_not_the_run(self):
+        real = self.mod.git
+        def slow(repo, *args, **kw):
+            if args[:1] == ("rev-list",):
+                raise subprocess.TimeoutExpired(["git", "--no-optional-locks", "-C", str(repo), *args], 20)
+            return real(repo, *args, **kw)
+        self.mod.git = slow
+        st, printed = self.run_ff()
+        self.assertEqual(st["state"], "timeout")
+        self.assertIn("proj: timeout: git rev-list timed out after 20s", printed)
+
     def test_query_failure_fails_the_run(self):
         def boom(slugs):
             raise RuntimeError("GraphQL query failed: offline")
@@ -172,6 +183,46 @@ class CloneFfTest(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stdout(buf), redirect_stderr(io.StringIO()):
             self.assertEqual(self.mod.main([]), 1)
+
+
+class QueryParseTest(unittest.TestCase):
+    """The parts every other test stubs: the origin URL and the GraphQL answer."""
+
+    def setUp(self):
+        self.mod = load_script()
+
+    def test_origin_url_forms(self):
+        cases = {
+            "https://github.com/o/r": ("o", "r"),
+            "https://github.com/o/r.git": ("o", "r"),
+            "https://github.com/o/r/": ("o", "r"),
+            "git@github.com:o/r.git": ("o", "r"),
+            "ssh://git@github.com/o/r.git": ("o", "r"),
+            "/srv/git/r.git": None,
+        }
+        for url, want in cases.items():
+            m = self.mod.SLUG_RE.search(url)
+            self.assertEqual((m.group(1), m.group(2)) if m else None, want, url)
+
+    def test_remote_heads_reads_partial_answers(self):
+        answer = {"data": {"r0": None, "r1": {"name": "r", "defaultBranchRef": {"name": "trunk", "target": {"oid": "abc"}}},
+                           "rateLimit": {"cost": 1}}}
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["query"] = Path(cmd[-1].split("@", 1)[1]).read_text()
+            return subprocess.CompletedProcess(cmd, 1, json.dumps(answer), "NOT_FOUND")
+        self.mod.subprocess = type("S", (), {"run": staticmethod(fake_run)})
+        heads, cost = self.mod.remote_heads([("o", "gone"), ("o", "r")])
+        self.assertEqual(heads, {("o", "gone"): None, ("o", "r"): ("trunk", "abc")})
+        self.assertEqual(cost, 1)
+        self.assertIn('r1: repository(owner: "o", name: "r")', seen["query"])
+
+    def test_remote_heads_without_data_raises(self):
+        self.mod.subprocess = type("S", (), {"run": staticmethod(
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "HTTP 401"))})
+        with self.assertRaises(RuntimeError):
+            self.mod.remote_heads([("o", "r")])
 
 
 if __name__ == "__main__":
