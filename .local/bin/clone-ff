@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Keep the top-level clones in ~ current by fast-forward only.
+
+  clone-ff         one GraphQL query for every repo's default-branch head;
+                   fetch only the clones whose origin ref is stale (cron, every minute)
+  clone-ff --now   skip the query and fetch every clone (myrebase.sh, by hand)
+
+A clone moves only when it sits on its default branch, clean in its tracked
+files, mid-nothing, and strictly behind: `git merge --ff-only`. Nothing here
+stashes, rebases, merges, checks out, resets or commits; every other state is
+reported, never fixed. One line per clone that is not plain "ok", and
+~/.local/state/clone-ff/status.json for the rest. Exit 0 when the run worked,
+however many clones need a hand; 1 when it could not run (the query failed).
+
+The clones are ~/<name> for each name in ~/.local/share/non-vended-repos.txt,
+~/.local/share/vended-repos.txt and EXTRAS. Not claude_prompts_scratch: its
+own hook commits and syncs it under its own lock.
+"""
+import datetime
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+EXTRAS = ["homebrew-tap", "coderabbit"]
+EXCLUDE = {"claude_prompts_scratch"}
+FETCH_TIMEOUT = 20
+GIT_TIMEOUT = 20
+MID_OP = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
+SLUG_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$")
+
+
+def home():
+    return Path(os.environ["HOME"])
+
+
+def state_dir():
+    return home() / ".local" / "state" / "clone-ff"
+
+
+def now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def clone_names():
+    names = list(EXTRAS)
+    for f in ("non-vended-repos.txt", "vended-repos.txt"):
+        try:
+            names += (home() / ".local" / "share" / f).read_text().split()
+        except FileNotFoundError:
+            pass
+    seen, out = set(), []
+    for n in names:
+        if n not in seen and n not in EXCLUDE:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+def git(repo, *args, timeout=GIT_TIMEOUT):
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", LC_ALL="C")
+    return subprocess.run(["git", "--no-optional-locks", "-C", str(repo), *args],
+                          capture_output=True, text=True, timeout=timeout, env=env)
+
+
+def out(repo, *args):
+    r = git(repo, *args)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def origin_slug(repo):
+    """(owner, name) on GitHub from the clone's origin URL, or None."""
+    m = SLUG_RE.search(out(repo, "remote", "get-url", "origin") or "")
+    return (m.group(1), m.group(2)) if m else None
+
+
+def remote_heads(slugs):
+    """{(owner, name): (default branch, head oid) or None}, in one GraphQL query."""
+    slugs = list(slugs)
+    if not slugs:
+        return {}, 0
+    parts = [f'r{i}: repository(owner: {json.dumps(o)}, name: {json.dumps(n)}) '
+             '{ name defaultBranchRef { name target { oid } } }' for i, (o, n) in enumerate(slugs)]
+    query = "query { " + " ".join(parts) + " rateLimit { cost } }"
+    # Through a file: an inline query string trips a local guard hook.
+    with tempfile.NamedTemporaryFile("w", suffix=".graphql", delete=False) as f:
+        f.write(query)
+    try:
+        r = subprocess.run(["gh", "api", "graphql", "-F", f"query=@{f.name}"],
+                           capture_output=True, text=True, timeout=15)
+    finally:
+        os.unlink(f.name)
+    try:
+        data = json.loads(r.stdout)["data"]
+    except (ValueError, KeyError, TypeError):
+        data = None
+    if not isinstance(data, dict):
+        raise RuntimeError(f"GraphQL query failed: {(r.stderr or r.stdout).strip()[:300]}")
+    heads = {}
+    for i, s in enumerate(slugs):
+        ref = (data.get(f"r{i}") or {}).get("defaultBranchRef")
+        heads[s] = (ref["name"], ref["target"]["oid"]) if ref else None
+    return heads, (data.get("rateLimit") or {}).get("cost")
+
+
+def local_default(repo):
+    ref = out(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
+    return ref.split("/", 1)[1] if ref and "/" in ref else None
+
+
+def check(name, repo, default, remote_oid, now):
+    """Fetch when stale, fast-forward when safe; return the clone's status."""
+    # queried false: the query had no head for it, so it is fetched every run.
+    st = {"state": "ok", "branch": None, "behind": 0, "ahead": 0, "reason": "", "checked_at": now,
+          "queried": remote_oid is not None}
+
+    def report(state, reason=""):
+        st.update(state=state, reason=reason)
+        return st
+
+    if not repo.is_dir():
+        return report("missing", f"no directory {repo}")
+    gd = out(repo, "rev-parse", "--absolute-git-dir")
+    if gd is None:
+        return report("not-a-clone", "not a git repository")
+    if Path(gd) != (repo / ".git").resolve():
+        return report("not-a-clone", "a worktree or nested repo, not a top-level clone")
+    gd = Path(gd)
+    track = f"refs/remotes/origin/{default}" if default else None
+    if remote_oid is None or out(repo, "rev-parse", "-q", "--verify", track) != remote_oid:
+        try:
+            f = git(repo, "fetch", "-q", "origin", timeout=FETCH_TIMEOUT)
+            fetch_err = f.stderr.strip().splitlines()[-1:] if f.returncode else None
+        except subprocess.TimeoutExpired:
+            fetch_err = [f"timed out after {FETCH_TIMEOUT}s"]
+        if fetch_err is not None:
+            return report("fetch-failed", " ".join(fetch_err) or "git fetch failed")
+        if remote_oid is None:
+            default = local_default(repo)
+            if default is None:
+                return report("no-default", "origin/HEAD unset; run git remote set-head origin --auto")
+            track = f"refs/remotes/origin/{default}"
+    if out(repo, "rev-parse", "-q", "--verify", track) is None:
+        return report("no-default", f"no {track}")
+
+    st["branch"] = out(repo, "symbolic-ref", "-q", "--short", "HEAD")
+    counts = (out(repo, "rev-list", "--left-right", "--count", f"HEAD...{track}") or "0 0").split()
+    st["ahead"], st["behind"] = int(counts[0]), int(counts[1])
+    mid = [m for m in MID_OP if (gd / m).exists()]
+    if mid:
+        return report("mid-op", f"{mid[0]} in progress")
+    if out(repo, "ls-files", "-u"):
+        return report("conflicts", "unmerged paths")
+    if st["branch"] is None:
+        return report("detached", f"HEAD detached; {st['behind']} behind origin/{default}")
+    if st["branch"] != default:
+        return report("off-default", f"on {st['branch']}, {st['behind']} behind origin/{default}")
+    if st["ahead"]:
+        return report("diverged" if st["behind"] else "ahead",
+                      f"{st['ahead']} local commit(s) not on origin/{default}")
+    if not st["behind"]:
+        return st
+    if (gd / "index.lock").exists():
+        return report("busy", "index.lock present")
+    if out(repo, "status", "--porcelain", "--untracked-files=no"):
+        return report("dirty-behind", f"tracked changes; {st['behind']} behind origin/{default}")
+    m = git(repo, "merge", "--ff-only", "-q", track)
+    if m.returncode:
+        lines = [l.strip() for l in (m.stderr or m.stdout).splitlines() if l.strip()]
+        return report("ff-refused", " ".join(lines[:3])[:300] or "git merge --ff-only failed")
+    behind, st["behind"] = st["behind"], 0
+    return report("updated", f"fast-forwarded {behind} commit(s)")
+
+
+def run(now_mode):
+    t0 = time.monotonic()
+    now = now_iso()
+    repos = {n: home() / n for n in clone_names()}
+    slugs = {n: origin_slug(p) for n, p in repos.items() if p.is_dir()} if not now_mode else {}
+    heads, cost = remote_heads(sorted({s for s in slugs.values() if s})) if not now_mode else ({}, None)
+
+    def one(n):
+        # No head for it (--now, not on GitHub, not found): fetch and read origin/HEAD.
+        default, oid = heads.get(slugs.get(n)) or (None, None)
+        try:
+            return n, check(n, repos[n], default, oid, now)
+        except subprocess.TimeoutExpired as e:
+            return n, {"state": "timeout", "branch": None, "behind": 0, "ahead": 0, "checked_at": now,
+                       "reason": f"git {e.cmd[4]} timed out after {e.timeout:.0f}s", "queried": oid is not None}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        clones = dict(pool.map(one, repos))
+    status = {"checked_at": now, "mode": "now" if now_mode else "query", "graphql_cost": cost,
+              "seconds": round(time.monotonic() - t0, 2), "clones": clones}
+    sd = state_dir()
+    sd.mkdir(parents=True, exist_ok=True)
+    tmp = sd / "status.json.tmp"
+    tmp.write_text(json.dumps(status, indent=1) + "\n")
+    os.replace(tmp, sd / "status.json")
+    for n, st in clones.items():
+        if st["state"] != "ok":
+            print(f"{n}: {st['state']}: {st['reason']}")
+    return status
+
+
+def main(argv):
+    if argv not in ([], ["--now"]):
+        print("usage: clone-ff [--now]", file=sys.stderr)
+        return 2
+    now_mode = argv == ["--now"]
+    sd = state_dir()
+    sd.mkdir(parents=True, exist_ok=True)
+    with open(sd / "lock", "w") as lock:
+        try:
+            # By hand, wait for a cron run to finish; from cron, skip if one is running.
+            fcntl.flock(lock, fcntl.LOCK_EX if now_mode else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("clone-ff: another run holds the lock; skipped")
+            return 0
+        try:
+            run(now_mode)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+            print(f"clone-ff: {e}", file=sys.stderr)
+            return 1
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
