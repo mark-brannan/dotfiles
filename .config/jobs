@@ -9,6 +9,8 @@ state-push         2m                  */5 * * * *    ~/.claude/bin/state-push |
 metrics-dashboard  5m                  15 */4 * * *   ~/.claude/bin/metrics-db --github --quiet && ~/.claude/bin/metrics-dashboard
 prune-worktrees    10m                 40 */6 * * *   ~/.claude/bin/prune-worktrees --delete
 prune-scratch      10m                 50 */6 * * *   ~/.claude/bin/prune-scratch --delete
+# github-limits-snapshot exits 2 where no state repo is checked out: nothing to measure, not a failure.
+github-limits-snapshot  2m             17 5 * * *     ~/.claude/bin/github-limits-snapshot.py || [ $? -eq 2 ]
 # clone-ff: one GraphQL query a minute (~2 s), a fetch only for a clone whose origin moved.
 clone-ff           45s                 * * * * *      ~/.local/bin/clone-ff
 joplin-git-bridge  2m  host=NucBoxK12  */5 * * * *    ~/.local/bin/joplin-git-bridge
