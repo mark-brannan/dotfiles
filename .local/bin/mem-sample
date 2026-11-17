@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""One memory sample of this machine, appended as one JSON line.
+
+  mem-sample           append a sample to ~/.local/state/mem-sample/samples.jsonl
+  mem-sample --print   print the sample instead; write nothing
+
+A line holds the UTC time, /proc/meminfo's totals, memory pressure, the
+1-minute load, a count and summed resident size per process group, and the ten
+largest processes. It exists so that after a machine runs out of memory, what
+held the memory beforehand can be named. Linux only: where there is no
+/proc/meminfo it does nothing and exits 0.
+
+Command lines can carry secrets, so a process is recorded as argv[0] plus its
+first few arguments with anything secret-shaped replaced; the environment is
+never read. Summed resident size counts shared pages once per process, so a
+group's figure is an upper bound.
+"""
+import datetime
+import json
+import os
+import re
+import socket
+import sys
+from pathlib import Path
+
+SCHEMA = 1
+FILE_CAP = 10_000_000  # samples.jsonl rotates to samples.jsonl.1 here: two files, ~20 MB at most
+TOP_N = 10
+KEEP_ARGS = 6
+CMD_MAX = 120
+GROUPS = ("claude", "chrome-headless", "node", "java", "python", "other")
+MEMINFO = {"MemTotal": "total", "MemAvailable": "available", "SwapTotal": "swap_total", "SwapFree": "swap_free"}
+
+REDACTED = "[redacted]"
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+SECRET_NAME_RE = re.compile(r"token|passw|pwd|secret|key|auth|cred|bearer|cookie|signature", re.I)
+SECRET_PREFIX_RE = re.compile(r"(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[a-z]-|AKIA|eyJ|glpat-|AGE-SECRET-KEY-)")
+ENV_ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.+)$")
+FLAG_ASSIGN_RE = re.compile(r"^(-{1,2}[^=]+)=(.*)$", re.S)
+USERINFO_RE = re.compile(r"(://)[^/@\s]+@")
+OPAQUE_RE = re.compile(r"[A-Za-z0-9_+-]{20,}")
+SESSION_FLAGS = ("--session-id", "--resume")
+
+
+def state_file():
+    return Path(os.environ["HOME"]) / ".local" / "state" / "mem-sample" / "samples.jsonl"
+
+
+def read(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+
+
+def meminfo(proc):
+    text = read(proc / "meminfo")
+    if text is None:
+        return None
+    out = {}
+    for line in text.splitlines():
+        name, _, rest = line.partition(":")
+        if name in MEMINFO:
+            try:
+                out[MEMINFO[name]] = int(rest.split()[0])
+            except (IndexError, ValueError):
+                pass
+    return out
+
+
+def pressure(proc):
+    """{"some": {"avg10": .., "avg60": ..}, "full": {..}}, or None on a kernel without it."""
+    text = read(proc / "pressure" / "memory")
+    if text is None:
+        return None
+    out = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if not parts or parts[0] not in ("some", "full"):
+            continue
+        vals = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
+        try:
+            out[parts[0]] = {k: float(vals[k]) for k in ("avg10", "avg60")}
+        except (KeyError, ValueError):
+            pass
+    return out or None
+
+
+def load1(proc):
+    try:
+        return float(read(proc / "loadavg").split()[0])
+    except (AttributeError, IndexError, ValueError):
+        return None
+
+
+def opaque(match):
+    s = match.group(0)
+    digits = sum(c.isdigit() for c in s)
+    return REDACTED if digits >= 4 and any(c.isalpha() for c in s) else s
+
+
+def scrub(arg):
+    """One argument with secret-shaped parts replaced. An argument holding
+    whitespace is a prompt, a script or a header: only its length is kept."""
+    if UUID_RE.match(arg):
+        return arg
+    if any(c.isspace() for c in arg):
+        return f"[{len(arg)} chars]"
+    if SECRET_PREFIX_RE.search(arg):
+        m = FLAG_ASSIGN_RE.match(arg) or ENV_ASSIGN_RE.match(arg)
+        return f"{m.group(1)}={REDACTED}" if m else REDACTED
+    m = FLAG_ASSIGN_RE.match(arg)
+    if m and SECRET_NAME_RE.search(m.group(1)):
+        return f"{m.group(1)}={REDACTED}"
+    m = ENV_ASSIGN_RE.match(arg)
+    if m:
+        return f"{m.group(1)}={REDACTED}"
+    arg = USERINFO_RE.sub(r"\1" + REDACTED + "@", arg)
+    if m := FLAG_ASSIGN_RE.match(arg):
+        if UUID_RE.match(m.group(2)):
+            return arg
+    return OPAQUE_RE.sub(opaque, arg)
+
+
+def command(argv):
+    """argv[0] and the first few arguments, scrubbed, at most CMD_MAX characters."""
+    if not argv:
+        return ""
+    out = [argv[0]]
+    hide_next = False
+    for arg in argv[1:1 + KEEP_ARGS]:
+        if hide_next and not arg.startswith("-"):
+            out.append(REDACTED)
+            hide_next = False
+            continue
+        hide_next = arg.startswith("-") and "=" not in arg and bool(SECRET_NAME_RE.search(arg))
+        out.append(scrub(arg))
+    if len(argv) > 1 + KEEP_ARGS:
+        out.append("...")
+    text = " ".join(out)
+    return text if len(text) <= CMD_MAX else text[:CMD_MAX - 3] + "..."
+
+
+def group_of(argv, comm):
+    arg0 = argv[0] if argv else comm
+    base = os.path.basename(arg0).lower()
+    if base == "claude" or "/claude/versions/" in arg0 or "/ccd-cli/" in arg0:
+        return "claude"
+    if "chrom" in base or base == "headless_shell":
+        return "chrome-headless"
+    if base in ("node", "nodejs") or base.startswith("npm"):
+        return "node"
+    if base == "java":
+        return "java"
+    if base.startswith("python"):
+        return "python"
+    return "other"
+
+
+def session_id(argv):
+    for i, arg in enumerate(argv):
+        for flag in SESSION_FLAGS:
+            val = None
+            if arg == flag and i + 1 < len(argv):
+                val = argv[i + 1]
+            elif arg.startswith(flag + "="):
+                val = arg[len(flag) + 1:]
+            if val and UUID_RE.match(val):
+                return val
+    return None
+
+
+def short_home(path):
+    home = os.environ.get("HOME", "")
+    return "~" + path[len(home):] if home and (path == home or path.startswith(home + "/")) else path
+
+
+def processes(proc, uptime, tick, page):
+    """Every process with resident memory: pid, rss in kB, age, comm, argv."""
+    out = []
+    try:
+        names = os.listdir(proc)
+    except OSError:
+        return out
+    for name in names:
+        if not name.isdigit():
+            continue
+        stat = read(proc / name / "stat")
+        if not stat:
+            continue
+        # comm sits in parentheses and may itself hold spaces or ")".
+        left, _, right = stat.rpartition(")")
+        fields = right.split()
+        try:
+            start, rss_pages = int(fields[19]), int(fields[21])
+        except (IndexError, ValueError):
+            continue
+        if rss_pages <= 0:
+            continue
+        raw = read(proc / name / "cmdline") or ""
+        argv = [a for a in raw.split("\0") if a]
+        if len(argv) == 1 and " " in argv[0]:
+            # A process that set its own title has one string and no NULs.
+            argv = argv[0].split()
+        out.append({
+            "pid": int(name),
+            "rss_kb": rss_pages * page // 1024,
+            "age_s": max(0, int(uptime - start / tick)),
+            "comm": left.partition("(")[2],
+            "argv": argv,
+        })
+    return out
+
+
+def sample(proc=Path("/proc"), now=None, tick=None, page=None):
+    mem = meminfo(proc)
+    if mem is None:
+        return None
+    tick = tick or os.sysconf("SC_CLK_TCK")
+    page = page or os.sysconf("SC_PAGE_SIZE")
+    try:
+        uptime = float(read(proc / "uptime").split()[0])
+    except (AttributeError, IndexError, ValueError):
+        uptime = 0.0
+    procs = processes(proc, uptime, tick, page)
+    groups = {g: {"n": 0, "rss_mb": 0} for g in GROUPS}
+    for p in procs:
+        p["group"] = group_of(p["argv"], p["comm"])
+        g = groups[p["group"]]
+        g["n"] += 1
+        g["rss_mb"] += p["rss_kb"]
+    for g in groups.values():
+        g["rss_mb"] = round(g["rss_mb"] / 1024)
+    top = []
+    for p in sorted(procs, key=lambda p: -p["rss_kb"])[:TOP_N]:
+        row = {"pid": p["pid"], "rss_mb": round(p["rss_kb"] / 1024), "age_s": p["age_s"], "group": p["group"],
+               "cmd": command(p["argv"]) or f'[{p["comm"]}]'}
+        if p["group"] == "claude":
+            sid = session_id(p["argv"])
+            if sid:
+                row["session"] = sid
+            try:
+                row["cwd"] = short_home(os.readlink(proc / str(p["pid"]) / "cwd"))
+            except OSError:
+                pass
+        top.append(row)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return {
+        "v": SCHEMA,
+        "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "host": socket.gethostname().split(".")[0].lower(),
+        "mem_kb": mem,
+        "psi": pressure(proc),
+        "load1": load1(proc),
+        "procs": len(procs),
+        "groups": groups,
+        "top": top,
+    }
+
+
+def append(path, line, cap=FILE_CAP):
+    """Append one line, private to the user. Past the cap the file becomes
+    <name>.1, replacing the last one, so the two never pass twice the cap."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        if path.stat().st_size >= cap:
+            os.replace(path, path.with_name(path.name + ".1"))
+    except FileNotFoundError:
+        pass
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(line + "\n")
+
+
+def main(argv):
+    if argv not in ([], ["--print"]):
+        print(__doc__.strip().split("\n\n")[1], file=sys.stderr)
+        return 2
+    s = sample()
+    if s is None:
+        return 0
+    line = json.dumps(s, separators=(",", ":"))
+    if argv:
+        print(line)
+    else:
+        append(state_file(), line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

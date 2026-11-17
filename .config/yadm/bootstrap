@@ -83,6 +83,20 @@ else
   fi
 fi
 
+# earlyoom kills the largest process before the machine thrashes. Installing
+# and enabling it need root, which this script never takes: name the command.
+if need apt-get && need systemctl; then
+  if ! need earlyoom; then
+    echo "earlyoom missing; nothing stops this machine thrashing when memory runs out."
+    echo "    try: sudo apt-get install -y earlyoom && sudo systemctl enable --now earlyoom"
+  elif ! systemctl is-active --quiet earlyoom; then
+    echo "earlyoom installed but not running."
+    echo "    try: sudo systemctl enable --now earlyoom"
+  else
+    echo "==> earlyoom running"
+  fi
+fi
+
 # This repo's CLAUDE.md stays out of $HOME, where it would load as an
 # ancestor of every repo; the hook gives branch worktrees the whole tree.
 # This repo's .github/ (its own CI) stays out too: ~/.github is the
