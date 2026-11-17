@@ -52,21 +52,10 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
   those files checked out, the local edits stay in the stash, and the status
   line names them. A `skipped` in the status is the machine asking for a hand.
 
-* **A machine protects itself from running out of memory, and records it.**
-  On 2026-11-17 a WSL2 box filled its RAM and 4 GB of swap; the kernel never
-  killed anything and the VM thrashed for seven hours. Three things answer that:
-  * `earlyoom`, from the RUNBOOK's apt line, kills the largest process while
-    there is still memory to act with. `bootstrap` says when it is missing or
-    stopped; it needs root, so bootstrap does not install it.
-  * Under WSL2, `C:\Users\<user>\.wslconfig` carries `swap=16GB` under
-    `[wsl2]`. It is a Windows-side file, set by hand and not tracked here; it
-    takes effect at the next `wsl --shutdown`.
-  * `.local/bin/mem-sample` runs every minute and appends one JSON line to
-    `~/.local/state/mem-sample/samples.jsonl`: memory and swap, pressure, load,
-    resident size per kind of process and the ten largest. Two files of 10 MB,
-    about five days; command lines are cut short and scrubbed of secret-shaped
-    arguments.
-
+* **Memory exhaustion.** `earlyoom` (apt; `bootstrap` flags it missing) kills the
+  largest process before the VM thrashes, as one did for seven hours on
+  2026-11-17. WSL2: `swap=16GB` under `[wsl2]` in `C:\Users\<user>\.wslconfig`,
+  untracked. `.local/bin/mem-sample` records memory every minute.
 * **Machine-specific values are guarded or substituted, never hardcoded.** Use
   `$HOME`, `command -v foo`, `[ -d ... ]`, or `[[ "$OSTYPE" == darwin* ]]`. A file
   imported wholesale from another machine will spew errors on every other one.
