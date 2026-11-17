@@ -85,7 +85,7 @@ fi
 
 # earlyoom kills the largest process before the machine thrashes. Installing
 # and enabling it need root, which this script never takes: name the command.
-if need apt-get && need systemctl; then
+if need apt-get && [ -d /run/systemd/system ]; then
   if ! need earlyoom; then
     echo "earlyoom missing; nothing stops this machine thrashing when memory runs out."
     echo "    try: sudo apt-get install -y earlyoom && sudo systemctl enable --now earlyoom"

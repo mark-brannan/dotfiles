@@ -34,7 +34,7 @@ MEMINFO = {"MemTotal": "total", "MemAvailable": "available", "SwapTotal": "swap_
 REDACTED = "[redacted]"
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 SECRET_NAME_RE = re.compile(r"token|passw|pwd|secret|key|auth|cred|bearer|cookie|signature", re.I)
-SECRET_PREFIX_RE = re.compile(r"(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[a-z]-|AKIA|eyJ|glpat-|AGE-SECRET-KEY-)")
+SECRET_PREFIX_RE = re.compile(r"(?<![A-Za-z0-9])(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[a-z]-|AKIA|eyJ|glpat-|AGE-SECRET-KEY-)")
 ENV_ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.+)$")
 FLAG_ASSIGN_RE = re.compile(r"^(-{1,2}[^=]+)=(.*)$", re.S)
 USERINFO_RE = re.compile(r"(://)[^/@\s]+@")
