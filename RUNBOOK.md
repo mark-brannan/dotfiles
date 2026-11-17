@@ -45,7 +45,7 @@ bash -c 'mapfile -t x </dev/null' && echo ok    # bash 4+ first on PATH
 
 ```bash
 # Linux / WSL / Raspberry Pi OS
-sudo apt-get install -y yadm age jq gh curl tmux
+sudo apt-get install -y yadm age jq gh curl tmux earlyoom
 ```
 
 sops has no apt package; install the checksummed release binary (amd64 or
