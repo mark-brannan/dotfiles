@@ -98,11 +98,12 @@ class MemSampleTest(unittest.TestCase):
         self.add(7, ["java", "-Xmx1g"], 10 * mb)
         self.add(8, ["/usr/bin/python3", "-m", "http.server"], 5 * mb)
         self.add(9, ["/sbin/init"], 2 * mb)
+        self.add(11, ["claude bg-spare", "--bg-spare", "/tmp/x.sock"], 100 * mb)
         self.add(10, [], 0, comm="kthreadd")
         s = self.sample()
-        self.assertEqual(s["procs"], 9)
+        self.assertEqual(s["procs"], 10)
         self.assertEqual(s["groups"], {
-            "claude": {"n": 3, "rss_mb": 800}, "chrome-headless": {"n": 1, "rss_mb": 50},
+            "claude": {"n": 4, "rss_mb": 900}, "chrome-headless": {"n": 1, "rss_mb": 50},
             "node": {"n": 2, "rss_mb": 50}, "java": {"n": 1, "rss_mb": 10},
             "python": {"n": 1, "rss_mb": 5}, "other": {"n": 1, "rss_mb": 2}})
 

@@ -144,7 +144,8 @@ def command(argv):
 
 def group_of(argv, comm):
     arg0 = argv[0] if argv else comm
-    base = os.path.basename(arg0).lower()
+    # A process may retitle argv[0] itself: "claude bg-spare".
+    base = (os.path.basename(arg0).lower().split() or [""])[0]
     if base == "claude" or "/claude/versions/" in arg0 or "/ccd-cli/" in arg0:
         return "claude"
     if "chrom" in base or base == "headless_shell":
