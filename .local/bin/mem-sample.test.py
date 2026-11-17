@@ -133,6 +133,9 @@ class MemSampleTest(unittest.TestCase):
     def test_secret_shaped_arguments_are_replaced(self):
         cases = [
             (["curl", "--token", "abc"], "curl --token [redacted]"),
+            (["aws", "configure", "set", "aws_secret_access_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"],
+             "aws configure set aws_secret_access_key [redacted]"),
+            (["x", "/etc/keys/dir", "plain"], "x /etc/keys/dir plain"),
             (["curl", "--password=hunter2"], "curl --password=[redacted]"),
             (["srv", "--token-file", "/run/t.abc"], "srv --token-file [redacted]"),
             (["curl", "-H", "Authorization: Bearer abc"], "curl -H [25 chars]"),

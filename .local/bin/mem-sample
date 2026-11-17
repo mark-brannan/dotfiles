@@ -134,7 +134,8 @@ def command(argv):
             out.append(REDACTED)
             hide_next = False
             continue
-        hide_next = arg.startswith("-") and "=" not in arg and bool(SECRET_NAME_RE.search(arg))
+        # A flag or a bare key name (`set aws_secret_access_key <value>`), never a path.
+        hide_next = "=" not in arg and "/" not in arg and bool(SECRET_NAME_RE.search(arg))
         out.append(scrub(arg))
     if len(argv) > 1 + KEEP_ARGS:
         out.append("...")
