@@ -18,3 +18,6 @@ heading is the UTC stamp, so `agent_decisions.md#<stamp>` links one entry.
 
 ### 20261118t223007z
 - Per-repo opt-in file is .githooks-checks at the repo root: one check name per line, # comments, stage implied by the check; unknown name blocks Undo: rename the file in dispatch and both consumers ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
+
+### 20261118t223012z
+- Global core.hooksPath wiring lives in the tracked .gitconfig##default and ##os.Darwin, not a git config --global line in bootstrap Undo: move the [core] hooksPath lines into bootstrap as git config --global ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
