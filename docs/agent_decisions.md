@@ -24,3 +24,6 @@ heading is the UTC stamp, so `agent_decisions.md#<stamp>` links one entry.
 
 ### 20261118t223016z
 - Dispatcher passes through 25 hook names; push-to-checkout, proc-receive and fsmonitor-watchman left out because their presence changes git behaviour; all opted checks run even after one fails Undo: add or remove a hook-name link ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
+
+### 20261118t223335z
+- Opt-in honoured only when the repo's origin host/owner/name is in tracked ~/.config/githooks/trusted-repos (exact, case-insensitive, no wildcards) Undo: swap the trusted-repos check in dispatch for a per-clone git config key ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
