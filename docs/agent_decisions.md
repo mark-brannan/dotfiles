@@ -15,3 +15,6 @@ heading is the UTC stamp, so `agent_decisions.md#<stamp>` links one entry.
 
 ### 20261112t043241z
 - the gitleaks finding on a test fixture is answered with a scoped allowlist entry Undo: drop the allowlist entry and change the fixture string ([#590](https://github.com/mark-brannan/dotfiles/pull/590))
+
+### 20261118t223007z
+- Per-repo opt-in file is .githooks-checks at the repo root: one check name per line, # comments, stage implied by the check; unknown name blocks Undo: rename the file in dispatch and both consumers ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
