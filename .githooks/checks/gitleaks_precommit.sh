@@ -15,10 +15,8 @@
 # (and differently-spelled) scanner than the one CI runs.
 #
 # The version lives in a Dockerfile, not here -- one real manifest
-# Dependabot can open a PR against. Resolution order: $GITLEAKS_IMAGE; the
-# consuming repo's docker/gitleaks/Dockerfile, if it has one (so its CI and
-# its laptops read the same pin); else this hook repo's own
-# docker/gitleaks/Dockerfile.
+# Dependabot can open a PR against. $GITLEAKS_IMAGE overrides it; the
+# repo being committed to never chooses the image.
 #
 # CI is unaffected by any of this: the gitleaks job in the repo's CI runs the
 # same image over full history on a runner that always has Docker, and is
@@ -30,8 +28,7 @@ cd "$(git rev-parse --show-toplevel)"
 # shellcheck source=.githooks/checks/secretguard.sh disable=SC1091
 . "$HERE/secretguard.sh"
 
-pin_file=docker/gitleaks/Dockerfile
-[ -f "$pin_file" ] || pin_file="$HERE/../docker/gitleaks/Dockerfile"
+pin_file="$HERE/../docker/gitleaks/Dockerfile"
 IMAGE="${GITLEAKS_IMAGE:-$(grep -m1 '^FROM ' "$pin_file" | awk '{print $2}')}"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -66,5 +63,5 @@ fi
 gitdir="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
 mounts=(-v "$PWD:$PWD")
 case "$gitdir/" in "$PWD"/*) ;; *) mounts+=(-v "$gitdir:$gitdir") ;; esac
-exec docker run --rm "${mounts[@]}" -w "$PWD" "$IMAGE" \
+exec docker run --rm "${mounts[@]}" -w "$PWD" -- "$IMAGE" \
     git --pre-commit --redact --staged --verbose ${config_args[@]+"${config_args[@]}"}

@@ -84,23 +84,10 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 
 ## Shared git hooks
 
-`.gitconfig` sets `core.hooksPath = ~/.githooks`, so every git on the machine,
-coding agents' included, calls [`.githooks/dispatch`](.githooks/dispatch). It
-runs the repo's own `.git/hooks/<hook>` first, so the pre-commit framework,
-git-lfs and yadm's own hook keep working, then the shared checks in
-`.githooks/checks/` that the repo lists in a tracked `.githooks-checks` file:
-
-```
-# shared checks from ~/.githooks
-gitleaks
-prepush-secret-scan
-repo-hygiene
-encoding-health
-```
-
-No file, no checks; an unknown name blocks the commit. A repo that sets its
-own `core.hooksPath` (husky) bypasses the dispatcher. `pre-commit install`
-refuses while any `core.hooksPath` is set; run it as
+[`.githooks/dispatch`](.githooks/dispatch) gets every hook, runs the repo's
+own, then the checks its `.githooks-checks` lists if
+[`trusted-repos`](.config/githooks/trusted-repos) names its origin.
+`pre-commit install` refuses under a hooksPath:
 `GIT_CONFIG_GLOBAL=/dev/null pre-commit install`.
 
 ## Session continuity hooks

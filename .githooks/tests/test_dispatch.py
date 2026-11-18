@@ -66,13 +66,22 @@ class DispatchTest(unittest.TestCase):
                     "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n" % self.hooks)
         self.env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("GIT_", "PRE_COMMIT")) and k not in ("CI", "GITHUB_ACTIONS")}
-        self.env.update(GIT_CONFIG_GLOBAL=gitconfig, GIT_CONFIG_NOSYSTEM="1", LOG=self.log)
+        xdg = os.path.join(self.tmp, "xdg")
+        os.makedirs(os.path.join(xdg, "githooks"))
+        self.trusted = os.path.join(xdg, "githooks", "trusted-repos")
+        self.env.update(GIT_CONFIG_GLOBAL=gitconfig, GIT_CONFIG_NOSYSTEM="1", LOG=self.log,
+                        XDG_CONFIG_HOME=xdg)
 
         self.repo = os.path.join(self.tmp, "repo")
         self.git("init", "-q", self.repo, cwd=self.tmp)
         self.remote = os.path.join(self.tmp, "remote.git")
         self.git("init", "-q", "--bare", self.remote, cwd=self.tmp)
         self.git("remote", "add", "origin", self.remote)
+        self.trust(self.remote[:-len(".git")])
+
+    def trust(self, *origins):
+        with open(self.trusted, "w") as f:
+            f.write("# trusted\n" + "".join(o + "\n" for o in origins))
 
     def git(self, *args, cwd=None, check=True, **env):
         r = subprocess.run(["git", *args], cwd=cwd or self.repo, text=True,
@@ -175,6 +184,44 @@ class DispatchTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("gitleak", r.stderr)
 
+    # --- trust: only an allowlisted origin has its file honoured --------------
+
+    def test_untrusted_repo_with_hostile_checks_file_runs_nothing(self):
+        self.trust("github.com/someone/else")
+        self.opt_in("gitleaks\nrepo-hygiene\nencoding-health\nvuln-shape\nprepush-secret-scan\n")
+        os.makedirs(os.path.join(self.repo, "docker", "gitleaks"))
+        with open(os.path.join(self.repo, "docker", "gitleaks", "Dockerfile"), "w") as f:
+            f.write("FROM example.invalid/hostile:latest\n")
+        self.own_hook("pre-commit", 'echo own >>"$LOG"\n')
+        r = self.commit()
+        self.git("push", "-q", "origin", "main")
+        self.assertEqual(self.ran(), [["own"]])
+        self.assertIn("not in", r.stderr)
+
+    def test_repo_with_no_origin_runs_nothing(self):
+        self.git("remote", "remove", "origin")
+        self.opt_in("gitleaks\n")
+        self.commit()
+        self.assertEqual(self.ran(), [])
+
+    def test_no_trust_list_runs_nothing(self):
+        os.remove(self.trusted)
+        self.opt_in("gitleaks\n")
+        self.commit()
+        self.assertEqual(self.ran(), [])
+
+    def test_trusted_origin_matches_across_url_forms(self):
+        self.trust("github.com/mark-brannan/symphony")
+        self.opt_in("gitleaks\n")
+        for url in ("git@GitHub.com:mark-brannan/symphony.git",
+                    "https://github.com/mark-brannan/symphony",
+                    "ssh://git@github.com/mark-brannan/symphony.git/"):
+            self.git("remote", "set-url", "origin", url)
+            self.commit()
+        self.git("remote", "set-url", "origin", "https://github.com/mark-brannan/symphony-fork")
+        self.commit()
+        self.assertEqual([r[0] for r in self.ran()], ["gitleaks"] * 3)
+
     def test_pre_push_feeds_the_same_refs_to_own_hook_and_check(self):
         self.opt_in("prepush-secret-scan\ngitleaks\n")
         self.own_hook("pre-push", 'printf "own|%s|%s\\n" "$1" "$(cat | tr "\\n" ";")" >>"$LOG"\n')
@@ -198,7 +245,7 @@ class DispatchTest(unittest.TestCase):
 
 
 class RealChecksTest(unittest.TestCase):
-    """The real .githooks directory, one real check: the wiring end to end."""
+    """The real .githooks directory and real checks, end to end."""
 
     def test_encoding_health_blocks_a_non_utf8_file(self):
         tmp = tempfile.mkdtemp()
@@ -207,8 +254,12 @@ class RealChecksTest(unittest.TestCase):
         with open(gitconfig, "w") as f:
             f.write("[core]\n\thooksPath = %s\n[user]\n\tname = t\n\temail = t@example.invalid\n"
                     "[commit]\n\tgpgsign = false\n" % GITHOOKS)
+        os.makedirs(os.path.join(tmp, "xdg", "githooks"))
+        with open(os.path.join(tmp, "xdg", "githooks", "trusted-repos"), "w") as f:
+            f.write("example.invalid/me/repo\n")
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        env.update(GIT_CONFIG_GLOBAL=gitconfig, GIT_CONFIG_NOSYSTEM="1")
+        env.update(GIT_CONFIG_GLOBAL=gitconfig, GIT_CONFIG_NOSYSTEM="1",
+                   XDG_CONFIG_HOME=os.path.join(tmp, "xdg"))
         repo = os.path.join(tmp, "repo")
 
         def git(*a):
@@ -216,6 +267,7 @@ class RealChecksTest(unittest.TestCase):
 
         os.makedirs(repo)
         git("init", "-q")
+        git("remote", "add", "origin", "https://example.invalid/me/repo.git")
         with open(os.path.join(repo, ".githooks-checks"), "w") as f:
             f.write("encoding-health\n")
         with open(os.path.join(repo, "bad.md"), "wb") as f:
@@ -228,6 +280,34 @@ class RealChecksTest(unittest.TestCase):
         git("add", "bad.md")
         r = git("commit", "-q", "-m", "good")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+    def test_gitleaks_runs_the_pinned_image_never_the_repos(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        bin_dir = os.path.join(tmp, "bin")
+        os.makedirs(bin_dir)
+        log = os.path.join(tmp, "docker.log")
+        with open(os.path.join(bin_dir, "docker"), "w") as f:
+            f.write('#!/bin/sh\n[ "$1" = info ] && exit 0\nprintf "%%s\\n" "$@" >"%s"\n' % log)
+        os.chmod(os.path.join(bin_dir, "docker"), 0o755)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "GITLEAKS_IMAGE"}
+        env.update(PATH=bin_dir + os.pathsep + env["PATH"], GIT_CONFIG_GLOBAL="/dev/null",
+                   GIT_CONFIG_NOSYSTEM="1")
+        repo = os.path.join(tmp, "repo")
+        os.makedirs(os.path.join(repo, "docker", "gitleaks"))
+        subprocess.run(["git", "init", "-q"], cwd=repo, env=env, check=True)
+        with open(os.path.join(repo, "docker", "gitleaks", "Dockerfile"), "w") as f:
+            f.write("FROM example.invalid/hostile:latest\n")
+        subprocess.run(["bash", os.path.join(GITHOOKS, "checks", "gitleaks_precommit.sh")],
+                       cwd=repo, env=env, check=True, capture_output=True)
+        with open(os.path.join(GITHOOKS, "docker", "gitleaks", "Dockerfile")) as f:
+            pin = next(l.split()[1] for l in f if l.startswith("FROM "))
+        with open(log) as f:
+            args = f.read().split("\n")
+        self.assertIn("@sha256:", pin)
+        self.assertEqual(args[args.index("--") + 1], pin)
+        self.assertNotIn("example.invalid/hostile:latest", args)
 
 
 if __name__ == "__main__":

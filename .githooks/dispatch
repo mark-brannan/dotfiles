@@ -11,8 +11,10 @@
 #     gitleaks
 #     prepush-secret-scan
 #
-# No file, no checks. An unknown name blocks, so a typo can't switch a
-# check off unseen. A repo that sets its own core.hooksPath (husky) never
+# The file is honoured only in a repo whose origin is listed, as
+# host/owner/name, in ~/.config/githooks/trusted-repos: a cloned repo must
+# not choose what runs on its own commits. No file or not listed, no checks.
+# An unknown name blocks, so a typo can't switch a check off unseen. A repo that sets its own core.hooksPath (husky) never
 # reaches this file. `git commit --no-verify` skips it all, as with any hook.
 hook=${0##*/}
 here=${0%/*}
@@ -37,6 +39,15 @@ esac
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 list="$top/.githooks-checks"
 if [ -z "$top" ] || [ ! -f "$list" ]; then
+    [ -z "$own" ] || exec "$own" "$@"
+    exit 0
+fi
+trusted="${XDG_CONFIG_HOME:-$HOME/.config}/githooks/trusted-repos"
+# origin as host/owner/name: https://, ssh:// and scp-style alike.
+origin=$(git config --get remote.origin.url 2>/dev/null |
+    sed -e 's#^[a-zA-Z+]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#\.git/*$##' -e 's#/*$##')
+if [ -z "$origin" ] || ! grep -qixF -- "$origin" "$trusted" 2>/dev/null; then
+    echo "githooks: $list ignored: origin ${origin:-(none)} is not in $trusted" >&2
     [ -z "$own" ] || exec "$own" "$@"
     exit 0
 fi
