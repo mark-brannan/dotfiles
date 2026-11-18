@@ -52,6 +52,10 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
   those files checked out, the local edits stay in the stash, and the status
   line names them. A `skipped` in the status is the machine asking for a hand.
 
+* **Memory exhaustion.** `earlyoom` (apt; `bootstrap` flags it missing) kills the
+  largest process before the VM thrashes, as one did for seven hours on
+  2026-11-17. WSL2: `swap=16GB` under `[wsl2]` in `C:\Users\<user>\.wslconfig`,
+  untracked. `.local/bin/mem-sample` records memory every minute.
 * **Machine-specific values are guarded or substituted, never hardcoded.** Use
   `$HOME`, `command -v foo`, `[ -d ... ]`, or `[[ "$OSTYPE" == darwin* ]]`. A file
   imported wholesale from another machine will spew errors on every other one.
@@ -77,6 +81,12 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
   live in `.profile`/`.zshenv` as `NPM_CONFIG_*` and the file itself is ignored.
   (A host that hasn't pulled since that change needs
   [a migration step](RUNBOOK.md#a-pull-refuses-local-changes-would-be-overwritten).)
+
+## Shared git hooks
+
+[`.githooks/dispatch`](.githooks/dispatch) gets every hook, runs the repo's
+own, then the checks its `.githooks-checks` lists if
+[`trusted-repos`](.config/githooks/trusted-repos) names its origin.
 
 ## Session continuity hooks
 

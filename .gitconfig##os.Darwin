@@ -22,3 +22,6 @@
 [push]
 	# autoSetupRemote makes a bare `git push` create and track origin/<branch>.
 	autoSetupRemote = true
+[core]
+	# Shared hooks: runs each repo's own .git/hooks, then the checks its .githooks-checks lists. See ~/.githooks/dispatch.
+	hooksPath = ~/.githooks

@@ -83,6 +83,20 @@ else
   fi
 fi
 
+# earlyoom kills the largest process before the machine thrashes. Installing
+# and enabling it need root, which this script never takes: name the command.
+if need apt-get && [ -d /run/systemd/system ]; then
+  if ! need earlyoom; then
+    echo "earlyoom missing; nothing stops this machine thrashing when memory runs out."
+    echo "    try: sudo apt-get install -y earlyoom && sudo systemctl enable --now earlyoom"
+  elif ! systemctl is-active --quiet earlyoom; then
+    echo "earlyoom installed but not running."
+    echo "    try: sudo systemctl enable --now earlyoom"
+  else
+    echo "==> earlyoom running"
+  fi
+fi
+
 # This repo's CLAUDE.md stays out of $HOME, where it would load as an
 # ancestor of every repo; the hook gives branch worktrees the whole tree.
 # This repo's .github/ (its own CI) stays out too: ~/.github is the
@@ -92,7 +106,9 @@ fi
 # Hook first, so no worktree is made sparse in between. Undo:
 # `yadm sparse-checkout disable`, then delete the hook link.
 hook_src="$HOME/.local/bin/yadm-post-checkout.sh"
-hook="$(yadm rev-parse --path-format=absolute --git-path hooks)/post-checkout" || hook=
+# The repo's own hooks dir, not --git-path hooks: that one follows the global
+# core.hooksPath to ~/.githooks, whose dispatch runs this hook from here.
+hook="$(yadm rev-parse --path-format=absolute --git-common-dir)/hooks/post-checkout" || hook=
 if [ -z "$hook" ] || [ ! -x "$hook_src" ]; then
   echo "    no hooks dir or no $hook_src; ~/CLAUDE.md and ~/.github/ stay" >&2
 elif { [ -e "$hook" ] || [ -L "$hook" ]; } && [ "$(readlink "$hook")" != "$hook_src" ]; then

@@ -13,4 +13,6 @@ prune-scratch      10m                 50 */6 * * *   ~/.claude/bin/prune-scratc
 github-limits-snapshot  2m             17 5 * * *     ~/.claude/bin/github-limits-snapshot || [ $? -eq 2 ]
 # clone-ff: one GraphQL query a minute (~2 s), a fetch only for a clone whose origin moved.
 clone-ff           45s                 * * * * *      ~/.local/bin/clone-ff
+# mem-sample: one JSON line a minute (~0.03 s, ~14 MB peak) of memory, pressure and the largest processes.
+mem-sample         10s                 * * * * *      ~/.local/bin/mem-sample
 joplin-git-bridge  2m  host=NucBoxK12  */5 * * * *    ~/.local/bin/joplin-git-bridge
