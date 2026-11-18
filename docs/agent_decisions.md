@@ -21,3 +21,6 @@ heading is the UTC stamp, so `agent_decisions.md#<stamp>` links one entry.
 
 ### 20261118t223012z
 - Global core.hooksPath wiring lives in the tracked .gitconfig##default and ##os.Darwin, not a git config --global line in bootstrap Undo: move the [core] hooksPath lines into bootstrap as git config --global ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
+
+### 20261118t223016z
+- Dispatcher passes through 25 hook names; push-to-checkout, proc-receive and fsmonitor-watchman left out because their presence changes git behaviour; all opted checks run even after one fails Undo: add or remove a hook-name link ([#597](https://github.com/mark-brannan/dotfiles/pull/597))
