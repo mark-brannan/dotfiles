@@ -12,10 +12,12 @@
 #     prepush-secret-scan
 #
 # The file is honoured only in a repo whose origin is listed, as
-# host/owner/name, in ~/.config/githooks/trusted-repos: a cloned repo must
-# not choose what runs on its own commits. No file or not listed, no checks.
-# An unknown name blocks, so a typo can't switch a check off unseen. A repo that sets its own core.hooksPath (husky) never
-# reaches this file. `git commit --no-verify` skips it all, as with any hook.
+# host/owner/name, in ~/.config/githooks/trusted-repos, which lives outside
+# every repo. No file or not listed, no checks. An unknown name blocks, so a
+# typo can't switch a check off unseen. A repo that sets its own
+# core.hooksPath (husky) never reaches this file. `git commit --no-verify` skips it all, as with any hook.
+# `pre-commit install` refuses while any core.hooksPath is set:
+# `GIT_CONFIG_GLOBAL=/dev/null pre-commit install` installs it, and this runs it.
 hook=${0##*/}
 here=${0%/*}
 

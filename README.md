@@ -87,8 +87,6 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
 [`.githooks/dispatch`](.githooks/dispatch) gets every hook, runs the repo's
 own, then the checks its `.githooks-checks` lists if
 [`trusted-repos`](.config/githooks/trusted-repos) names its origin.
-`pre-commit install` refuses under a hooksPath:
-`GIT_CONFIG_GLOBAL=/dev/null pre-commit install`.
 
 ## Session continuity hooks
 
