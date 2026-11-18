@@ -82,6 +82,12 @@ Its runbook is [RUNBOOK.md there](https://github.com/mark-brannan/claude/blob/ma
   (A host that hasn't pulled since that change needs
   [a migration step](RUNBOOK.md#a-pull-refuses-local-changes-would-be-overwritten).)
 
+## Shared git hooks
+
+[`.githooks/dispatch`](.githooks/dispatch) gets every hook, runs the repo's
+own, then the checks its `.githooks-checks` lists if
+[`trusted-repos`](.config/githooks/trusted-repos) names its origin.
+
 ## Session continuity hooks
 
 [`hooks/`](https://github.com/mark-brannan/claude/blob/main/hooks) in

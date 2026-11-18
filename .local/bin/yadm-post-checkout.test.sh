@@ -72,6 +72,15 @@ cp "$HK" "$HOME/.local/bin/yadm-post-checkout.sh"
 absent "$HOME/CLAUDE.md"; absent "$HOME/.github/workflows/ci.yml"; present "$HOME/.github/FUNDING.yml"
 [ "$(readlink "$R/hooks/post-checkout")" = "$HOME/.local/bin/yadm-post-checkout.sh" ] && ok || bad "bootstrap did not link the hook"
 (cd "$HOME" && sh "$BOOT") >/dev/null 2>&1 && ok || bad "second bootstrap failed"
+# A global core.hooksPath must not move where bootstrap links the hook.
+rm "$R/hooks/post-checkout"; (cd "$HOME" && yadm sparse-checkout disable) >/dev/null 2>&1
+(cd "$HOME" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$S/global-hooks" sh "$BOOT") >/dev/null 2>&1
+[ "$(readlink "$R/hooks/post-checkout")" = "$HOME/.local/bin/yadm-post-checkout.sh" ] && ok || bad "bootstrap followed core.hooksPath"
+absent "$S/global-hooks/post-checkout"; absent "$HOME/CLAUDE.md"
+# And a new worktree gets CLAUDE.md through the real dispatcher, not around it.
+GH="$(cd "$(dirname "$BOOT")/../.." && pwd)/.githooks"
+(cd "$HOME" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$GH" yadm worktree add -q "$S/d" -b d) 2>/dev/null
+present "$S/d/CLAUDE.md"; absent "$HOME/CLAUDE.md"
 (cd "$HOME" && yadm worktree add -q "$S/c" -b c) 2>/dev/null; present "$S/c/CLAUDE.md"
 rm "$R/hooks/post-checkout"; echo '#!/bin/sh' > "$R/hooks/post-checkout"
 (cd "$HOME" && yadm sparse-checkout disable) >/dev/null 2>&1

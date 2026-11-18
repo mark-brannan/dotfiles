@@ -77,7 +77,7 @@ jobs:
           # POSIX sh scripts (see CLAUDE.md: bootstrap, pre_commit run where
           # bash may not be what /bin/sh points at) get -s sh; everything
           # else here is bash-shebanged and checked as such.
-          shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit
+          shellcheck --severity=warning -s sh .config/yadm/bootstrap .config/yadm/hooks/pre_commit .githooks/dispatch
           shellcheck --severity=warning .local/bin/*.sh
           shellcheck --severity=warning -x .githooks/checks/*.sh
 
@@ -103,9 +103,9 @@ jobs:
                 echo "::endgroup::"
               ' _ {}
 
-  # The git hooks under .githooks/: four stdlib unittest suites, a few
-  # seconds in all. The hooks are not switched on by this repo yet; the
-  # suites keep them working until they are.
+  # The git hooks under .githooks/: the dispatcher every repo reaches through
+  # the global core.hooksPath, and the shared checks a repo opts into. Stdlib
+  # unittest suites, a few seconds in all.
   githooks-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 5

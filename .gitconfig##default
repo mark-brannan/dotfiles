@@ -28,3 +28,6 @@
 	clean = python3 /home/solace/symphony/scripts/sops_filter.py clean %f
 	smudge = python3 /home/solace/symphony/scripts/sops_filter.py smudge %f
 	required = true
+[core]
+	# Shared hooks: runs each repo's own .git/hooks, then the checks its .githooks-checks lists. See ~/.githooks/dispatch.
+	hooksPath = ~/.githooks

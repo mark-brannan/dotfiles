@@ -1,0 +1,107 @@
+#!/bin/sh
+# Every hook name in this directory links here; `git config --global
+# core.hooksPath ~/.githooks` makes git call it in every repo, agents' too.
+#
+# A global hooksPath makes git ignore each repo's own .git/hooks, so this
+# runs the repo's own hook first (pre-commit framework, git-lfs and the rest
+# keep working), then, for pre-commit and pre-push only, the shared checks
+# the repo lists in its tracked .githooks-checks file, one name per line:
+#
+#     # shared checks from ~/.githooks
+#     gitleaks
+#     prepush-secret-scan
+#
+# The file is honoured only in a repo whose origin is listed, as
+# host/owner/name, in ~/.config/githooks/trusted-repos, which lives outside
+# every repo. No file or not listed, no checks. An unknown name blocks, so a
+# typo can't switch a check off unseen. A repo that sets its own
+# core.hooksPath (husky) never reaches this file. `git commit --no-verify` skips it all, as with any hook.
+# `pre-commit install` refuses while any core.hooksPath is set:
+# `GIT_CONFIG_GLOBAL=/dev/null pre-commit install` installs it, and this runs it.
+hook=${0##*/}
+here=${0%/*}
+
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
+own=
+# -ef: a repo hook linked back to this file would recurse. dash, bash and
+# busybox all have it.
+# shellcheck disable=SC3013
+if [ -n "$common" ] && [ -x "$common/hooks/$hook" ] && ! [ "$common/hooks/$hook" -ef "$0" ]; then
+    own="$common/hooks/$hook"
+fi
+
+case $hook in
+    pre-commit | pre-push) ;;
+    *)
+        [ -z "$own" ] || exec "$own" "$@"
+        exit 0
+        ;;
+esac
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
+list="$top/.githooks-checks"
+if [ -z "$top" ] || [ ! -f "$list" ]; then
+    [ -z "$own" ] || exec "$own" "$@"
+    exit 0
+fi
+trusted="${XDG_CONFIG_HOME:-$HOME/.config}/githooks/trusted-repos"
+# origin as host/owner/name: https://, ssh:// and scp-style alike.
+origin=$(git config --get remote.origin.url 2>/dev/null |
+    sed -e 's#^[a-zA-Z+]*://##' -e 's#^[^@/]*@##' -e 's#:#/#' -e 's#\.git/*$##' -e 's#/*$##')
+if [ -z "$origin" ] || ! grep -qixF -- "$origin" "$trusted" 2>/dev/null; then
+    echo "githooks: $list ignored: origin ${origin:-(none)} is not in $trusted" >&2
+    [ -z "$own" ] || exec "$own" "$@"
+    exit 0
+fi
+
+# pre-push reads the refs on stdin; the repo hook and the checks both need them.
+stdin=/dev/null
+if [ "$hook" = pre-push ]; then
+    stdin=$(mktemp) || exit 1
+    trap 'rm -f "$stdin"' EXIT
+    trap 'exit 130' INT TERM
+    cat >"$stdin"
+fi
+
+if [ -n "$own" ]; then
+    "$own" "$@" <"$stdin" || exit $?
+fi
+
+# name -> the stage it runs at, and its command.
+check_stage() {
+    case $1 in
+        gitleaks | repo-hygiene | encoding-health | vuln-shape) echo pre-commit ;;
+        prepush-secret-scan) echo pre-push ;;
+        *) return 1 ;;
+    esac
+}
+
+run_check() {
+    case $1 in
+        gitleaks) bash "$here/checks/gitleaks_precommit.sh" ;;
+        repo-hygiene) python3 "$here/checks/lint_repo_hygiene.py" ;;
+        encoding-health) python3 "$here/checks/check_encoding_health.py" --staged ;;
+        vuln-shape) python3 "$here/checks/check_vuln_shape.py" ;;
+        prepush-secret-scan) bash "$here/checks/prepush_secret_scan.sh" ;;
+    esac
+}
+
+rc=0
+failed=
+# `|| [ -n "$name" ]` keeps a last line with no newline.
+while IFS= read -r name || [ -n "$name" ]; do
+    name=${name%%#*}
+    name=$(printf '%s' "$name" | tr -d ' \t\r')
+    [ -n "$name" ] || continue
+    if ! stage=$(check_stage "$name"); then
+        echo "githooks: unknown check '$name' in $list" >&2
+        echo "    known: gitleaks prepush-secret-scan repo-hygiene encoding-health vuln-shape" >&2
+        rc=1
+        continue
+    fi
+    [ "$stage" = "$hook" ] || continue
+    run_check "$name" <"$stdin" || { rc=1; failed="$failed $name"; }
+done <"$list"
+
+[ -z "$failed" ] || echo "githooks: $hook blocked by:$failed (listed in $list)" >&2
+exit "$rc"

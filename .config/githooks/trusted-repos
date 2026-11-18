@@ -1,0 +1,5 @@
+# Repos whose .githooks-checks file ~/.githooks/dispatch honours: origin as
+# host/owner/name, one per line. It lives outside every repo, so a clone
+# can't list itself.
+github.com/mark-brannan/symphony
+github.com/mark-brannan/signalk-noaa-space-weather
